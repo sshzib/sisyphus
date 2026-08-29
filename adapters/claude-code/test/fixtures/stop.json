@@ -1,0 +1,12 @@
+{
+  "session_id": "claude-session-1",
+  "prompt_id": "prompt-1",
+  "transcript_path": "/tmp/claude-session-1.jsonl",
+  "cwd": "/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "Stop",
+  "stop_hook_active": false,
+  "last_assistant_message": "Implemented and verified the parser.",
+  "background_tasks": [],
+  "session_crons": []
+}

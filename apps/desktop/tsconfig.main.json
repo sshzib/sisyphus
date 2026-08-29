@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist-electron",
+    "rootDir": "src",
+    "types": ["node"]
+  },
+  "include": [
+    "src/main.ts",
+    "src/preload.ts",
+    "src/ipc.ts",
+    "src/device-secrets.ts"
+  ]
+}

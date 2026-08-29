@@ -1,0 +1,16 @@
+{
+  "conversation_id": "cursor-conversation-1",
+  "generation_id": "cursor-generation-1",
+  "model": "claude-opus-thinking",
+  "hook_event_name": "postToolUse",
+  "cursor_version": "1.7.2",
+  "workspace_roots": ["/workspace"],
+  "user_email": "agent@example.com",
+  "transcript_path": "/tmp/cursor-transcript.jsonl",
+  "tool_name": "MCP:activate_skill",
+  "tool_input": { "skillVersionId": "skill-version-1", "activationLeaseId": "lease-1" },
+  "tool_output": "{\"structuredContent\":{\"activated\":true,\"skillVersionId\":\"skill-version-1\",\"activationLeaseId\":\"lease-1\"}}",
+  "tool_use_id": "cursor-activation-1",
+  "cwd": "/workspace",
+  "duration": 10
+}

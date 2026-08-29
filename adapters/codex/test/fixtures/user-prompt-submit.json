@@ -1,0 +1,10 @@
+{
+  "session_id": "session-001",
+  "transcript_path": null,
+  "cwd": "/workspace/project",
+  "hook_event_name": "UserPromptSubmit",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "default",
+  "turn_id": "turn-001",
+  "prompt": "Fix the failing parser test and verify the result."
+}

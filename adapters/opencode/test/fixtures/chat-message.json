@@ -1,0 +1,24 @@
+{
+  "hook_event_name": "chat.message",
+  "input": {
+    "sessionID": "opencode-session-1",
+    "agent": "build",
+    "messageID": "message-1"
+  },
+  "output": {
+    "message": {
+      "id": "message-1",
+      "sessionID": "opencode-session-1",
+      "role": "user"
+    },
+    "parts": [
+      {
+        "id": "part-1",
+        "sessionID": "opencode-session-1",
+        "messageID": "message-1",
+        "type": "text",
+        "text": "Implement the parser."
+      }
+    ]
+  }
+}

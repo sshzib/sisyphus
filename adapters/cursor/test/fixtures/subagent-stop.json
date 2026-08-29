@@ -1,0 +1,21 @@
+{
+  "conversation_id": "cursor-conversation-1",
+  "generation_id": "cursor-generation-1",
+  "model": "claude-opus-thinking",
+  "hook_event_name": "subagentStop",
+  "cursor_version": "1.7.2",
+  "workspace_roots": ["/workspace"],
+  "user_email": "agent@example.com",
+  "transcript_path": "/tmp/cursor-transcript.jsonl",
+  "subagent_type": "generalPurpose",
+  "status": "completed",
+  "task": "Explore the authentication flow",
+  "description": "Exploring auth flow",
+  "summary": "Found the authentication entry points.",
+  "duration_ms": 45000,
+  "message_count": 12,
+  "tool_call_count": 8,
+  "loop_count": 0,
+  "modified_files": ["src/auth.ts"],
+  "agent_transcript_path": "/tmp/cursor-subagent.txt"
+}

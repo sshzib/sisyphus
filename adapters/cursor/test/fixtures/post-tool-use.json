@@ -1,0 +1,16 @@
+{
+  "conversation_id": "cursor-conversation-1",
+  "generation_id": "cursor-generation-1",
+  "model": "claude-opus-thinking",
+  "hook_event_name": "postToolUse",
+  "cursor_version": "1.7.2",
+  "workspace_roots": ["/workspace"],
+  "user_email": "agent@example.com",
+  "transcript_path": "/tmp/cursor-transcript.jsonl",
+  "tool_name": "Shell",
+  "tool_input": { "command": "pnpm test" },
+  "tool_output": "{\"exitCode\":0,\"stdout\":\"Tests passed\"}",
+  "tool_use_id": "cursor-tool-1",
+  "cwd": "/workspace",
+  "duration": 5432
+}

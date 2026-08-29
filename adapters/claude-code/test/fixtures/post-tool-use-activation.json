@@ -1,0 +1,21 @@
+{
+  "session_id": "claude-session-1",
+  "prompt_id": "prompt-1",
+  "transcript_path": "/tmp/claude-session-1.jsonl",
+  "cwd": "/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "mcp__sisyphus__activate_skill",
+  "tool_use_id": "activation-tool-1",
+  "tool_input": {
+    "skillVersionId": "skill-version-1",
+    "activationLeaseId": "lease-1"
+  },
+  "tool_response": {
+    "structuredContent": {
+      "activated": true,
+      "skillVersionId": "skill-version-1",
+      "activationLeaseId": "lease-1"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "session_id": "session-001",
+  "transcript_path": "/workspace/.codex/rollout.jsonl",
+  "cwd": "/workspace/project",
+  "hook_event_name": "PostToolUse",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "default",
+  "turn_id": "turn-001",
+  "tool_name": "mcp__sisyphus__activate_skill",
+  "tool_use_id": "tool-activation-001",
+  "tool_input": {
+    "skillVersionId": "skill-parser-v3",
+    "activationLeaseId": "lease-001"
+  },
+  "tool_response": {
+    "structuredContent": {
+      "activated": true,
+      "skillVersionId": "skill-parser-v3",
+      "activationLeaseId": "lease-001"
+    }
+  }
+}

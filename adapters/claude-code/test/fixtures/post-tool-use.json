@@ -1,0 +1,12 @@
+{
+  "session_id": "claude-session-1",
+  "prompt_id": "prompt-1",
+  "transcript_path": "/tmp/claude-session-1.jsonl",
+  "cwd": "/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "PostToolUse",
+  "tool_name": "Bash",
+  "tool_use_id": "tool-1",
+  "tool_input": { "command": "pnpm test" },
+  "tool_response": { "stdout": "Tests passed", "exitCode": 0 }
+}

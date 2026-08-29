@@ -1,0 +1,13 @@
+html,
+body {
+  min-width: 900px;
+  min-height: 640px;
+  overflow: auto;
+  user-select: none;
+}
+
+table,
+textarea,
+select {
+  user-select: text;
+}

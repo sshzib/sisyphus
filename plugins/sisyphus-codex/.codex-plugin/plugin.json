@@ -1,0 +1,20 @@
+{
+  "name": "sisyphus-codex",
+  "version": "0.1.0",
+  "description": "Supervise Codex prompts, tools, and agent completions with Sisyphus.",
+  "author": {
+    "name": "Sisyphus"
+  },
+  "interface": {
+    "displayName": "Sisyphus for Codex",
+    "shortDescription": "Grade Codex work and request focused retries.",
+    "longDescription": "Sisyphus sends Codex lifecycle events to a local supervision worker. It grades completions, enforces tool policy, selects managed skills, and requests focused retries when work fails evaluation.",
+    "developerName": "Sisyphus",
+    "category": "Productivity",
+    "capabilities": ["Interactive", "Write"],
+    "defaultPrompt": [
+      "Show the Sisyphus status for this Codex session."
+    ]
+  },
+  "mcpServers": "./.mcp.json"
+}

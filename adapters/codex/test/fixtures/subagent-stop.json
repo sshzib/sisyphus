@@ -1,0 +1,14 @@
+{
+  "session_id": "session-001",
+  "transcript_path": "/workspace/.codex/rollout.jsonl",
+  "cwd": "/workspace/project",
+  "hook_event_name": "SubagentStop",
+  "model": "gpt-5.6-sol",
+  "permission_mode": "default",
+  "turn_id": "turn-001",
+  "agent_id": "agent-042",
+  "agent_type": "reviewer",
+  "agent_transcript_path": "/workspace/.codex/subagent-042.jsonl",
+  "stop_hook_active": false,
+  "last_assistant_message": "I found no remaining type errors."
+}

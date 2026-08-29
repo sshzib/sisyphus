@@ -1,0 +1,75 @@
+{
+  "description": "Send supported Codex lifecycle events to the local Sisyphus worker.",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/hook.mjs\"",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\scripts\\hook.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Selecting a managed skill",
+            "additionalContextLimit": 2500
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/hook.mjs\"",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\scripts\\hook.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Checking Sisyphus tool policy"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/hook.mjs\"",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\scripts\\hook.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Recording tool evidence",
+            "additionalContextLimit": 2500
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/hook.mjs\"",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\scripts\\hook.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Grading Codex output"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/scripts/hook.mjs\"",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\scripts\\hook.mjs\"",
+            "timeout": 10,
+            "statusMessage": "Grading subagent output"
+          }
+        ]
+      }
+    ]
+  }
+}

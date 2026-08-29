@@ -1,0 +1,11 @@
+{
+  "hook_event_name": "experimental.text.complete",
+  "input": {
+    "sessionID": "opencode-session-1",
+    "messageID": "assistant-message-1",
+    "partID": "assistant-part-1"
+  },
+  "output": {
+    "text": "Implemented and verified the parser."
+  }
+}

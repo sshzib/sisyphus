@@ -1,0 +1,9 @@
+{
+  "session_id": "claude-session-1",
+  "prompt_id": "prompt-1",
+  "transcript_path": "/tmp/claude-session-1.jsonl",
+  "cwd": "/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "UserPromptSubmit",
+  "prompt": "Implement the parser."
+}

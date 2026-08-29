@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "tool.execute.after",
+  "input": {
+    "tool": "task",
+    "sessionID": "opencode-session-1",
+    "callID": "task-call-1",
+    "args": { "description": "Explore parser entry points" }
+  },
+  "output": {
+    "title": "Explore parser entry points",
+    "output": "Found the parser entry points.",
+    "metadata": {}
+  }
+}

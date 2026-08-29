@@ -1,0 +1,15 @@
+{
+  "session_id": "claude-session-1",
+  "prompt_id": "prompt-1",
+  "transcript_path": "/tmp/claude-session-1.jsonl",
+  "cwd": "/workspace",
+  "permission_mode": "default",
+  "hook_event_name": "SubagentStop",
+  "stop_hook_active": false,
+  "agent_id": "claude-subagent-1",
+  "agent_type": "Explore",
+  "agent_transcript_path": "/tmp/claude-session-1/subagents/agent-1.jsonl",
+  "last_assistant_message": "Found the parser entry points.",
+  "background_tasks": [],
+  "session_crons": []
+}

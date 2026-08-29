@@ -1,0 +1,690 @@
+import type {
+  AgentRuntime,
+  AgentSummary,
+  AuditEvent,
+  Capability,
+  DashboardQuery,
+  DashboardSnapshot,
+  IntegrationSummary,
+  Overview,
+  RunSummary,
+  RuntimeCapabilitySnapshot,
+} from "./contracts.js";
+
+const supported: Capability = { kind: "supported" };
+
+function capabilitySnapshot(
+  runtime: AgentRuntime,
+  runtimeVersion: string,
+): RuntimeCapabilitySnapshot {
+  if (runtime === "opencode") {
+    return {
+      runtime,
+      runtimeVersion,
+      promptInterception: supported,
+      skillSelectionControl: supported,
+      rootStopContinuation: {
+        kind: "unsupported",
+        reason: "The adapter cannot continue a completed OpenCode session.",
+      },
+      subagentStopContinuation: {
+        kind: "unsupported",
+        reason: "Subagent continuation has not passed conformance testing.",
+      },
+      toolPrevention: supported,
+      toolObservation: supported,
+      stableTokenUsage: {
+        kind: "partial",
+        limitation: "Token counts are estimated for streamed responses.",
+      },
+      localEvidenceAccess: supported,
+    };
+  }
+
+  if (runtime === "cursor") {
+    return {
+      runtime,
+      runtimeVersion,
+      promptInterception: supported,
+      skillSelectionControl: supported,
+      rootStopContinuation: supported,
+      subagentStopContinuation: {
+        kind: "partial",
+        limitation: "Cloud agents do not emit every subagent stop hook.",
+      },
+      toolPrevention: supported,
+      toolObservation: supported,
+      stableTokenUsage: {
+        kind: "partial",
+        limitation: "Cloud usage arrives after the run closes.",
+      },
+      localEvidenceAccess: {
+        kind: "partial",
+        limitation: "Full evidence is available for local agents only.",
+      },
+    };
+  }
+
+  return {
+    runtime,
+    runtimeVersion,
+    promptInterception: supported,
+    skillSelectionControl: supported,
+    rootStopContinuation: supported,
+    subagentStopContinuation: supported,
+    toolPrevention: supported,
+    toolObservation: supported,
+    stableTokenUsage: supported,
+    localEvidenceAccess: supported,
+  };
+}
+
+const runs: RunSummary[] = [
+  {
+    id: "run-1284",
+    eventId: "event-demo-run-1284",
+    occurredAt: "2026-08-29T09:48:00.000Z",
+    runtime: "codex",
+    runtimeVersion: "0.42.0",
+    agentName: "Atlas",
+    project: "payments-api",
+    skillVersionId: "skill-ts-review@4.2.1",
+    skillName: "TypeScript review",
+    attribution: "verified",
+    enforcement: "enforced",
+    result: "pass",
+    score: 94,
+    attempts: 1,
+    tokens: 4860,
+    latencyMs: 2730,
+    findings: [],
+  },
+  {
+    id: "run-1283",
+    eventId: "event-demo-run-1283",
+    occurredAt: "2026-08-29T09:31:00.000Z",
+    runtime: "claude-code",
+    runtimeVersion: "1.0.86",
+    agentName: "Mira",
+    project: "mobile-shell",
+    skillVersionId: "skill-regression@2.8.0",
+    skillName: "Regression hunter",
+    attribution: "verified",
+    enforcement: "enforced",
+    result: "pass",
+    score: 88,
+    attempts: 2,
+    tokens: 7610,
+    latencyMs: 3180,
+    findings: ["The first attempt skipped the requested integration test."],
+  },
+  {
+    id: "run-1282",
+    eventId: "event-demo-run-1282",
+    occurredAt: "2026-08-29T09:12:00.000Z",
+    runtime: "opencode",
+    runtimeVersion: "1.0.94",
+    agentName: "Kepler",
+    project: "catalog-worker",
+    skillVersionId: "skill-refactor@1.9.2",
+    skillName: "Safe refactor",
+    attribution: "verified",
+    enforcement: "observed-only",
+    result: "terminal-failure",
+    score: 42,
+    attempts: 1,
+    tokens: 9380,
+    latencyMs: 2260,
+    findings: [
+      "The response changed the public event shape.",
+      "Forced retry is unavailable for this runtime.",
+    ],
+  },
+  {
+    id: "run-1281",
+    eventId: "event-demo-run-1281",
+    occurredAt: "2026-08-29T08:54:00.000Z",
+    runtime: "cursor",
+    runtimeVersion: "1.6.27",
+    agentName: "Nova",
+    project: "admin-console",
+    skillVersionId: "skill-ui-check@3.1.0",
+    skillName: "UI verifier",
+    attribution: "verified",
+    enforcement: "partial",
+    result: "pass",
+    score: 91,
+    attempts: 1,
+    tokens: 5220,
+    latencyMs: 2910,
+    findings: [],
+  },
+  {
+    id: "run-1280",
+    eventId: "event-demo-run-1280",
+    occurredAt: "2026-08-29T08:39:00.000Z",
+    runtime: "codex",
+    runtimeVersion: "0.42.0",
+    agentName: "Atlas",
+    project: "ledger-core",
+    skillVersionId: "skill-boundaries@1.6.0",
+    skillName: "Boundary discipline",
+    attribution: "verified",
+    enforcement: "enforced",
+    result: "retryable-failure",
+    score: 68,
+    attempts: 2,
+    tokens: 8120,
+    latencyMs: 3470,
+    findings: ["The retry still validated internal typed data twice."],
+  },
+  {
+    id: "run-1279",
+    eventId: "event-demo-run-1279",
+    occurredAt: "2026-08-29T08:18:00.000Z",
+    runtime: "claude-code",
+    runtimeVersion: "1.0.86",
+    agentName: "Mira",
+    project: "identity-service",
+    skillVersionId: "skill-ts-review@4.2.1",
+    skillName: "TypeScript review",
+    attribution: "inferred",
+    enforcement: "enforced",
+    result: "inconclusive",
+    score: null,
+    attempts: 1,
+    tokens: 4100,
+    latencyMs: 10000,
+    findings: ["The judge deadline expired. This result does not affect standing."],
+  },
+  {
+    id: "run-1278",
+    eventId: "event-demo-run-1278",
+    occurredAt: "2026-08-29T07:57:00.000Z",
+    runtime: "cursor",
+    runtimeVersion: "1.6.27",
+    agentName: "Nova",
+    project: "admin-console",
+    skillVersionId: "skill-ui-check@3.1.0",
+    skillName: "UI verifier",
+    attribution: "verified",
+    enforcement: "enforced",
+    result: "pass",
+    score: 86,
+    attempts: 2,
+    tokens: 6890,
+    latencyMs: 3040,
+    findings: ["Recovered after adding keyboard navigation coverage."],
+  },
+  {
+    id: "run-1277",
+    eventId: "event-demo-run-1277",
+    occurredAt: "2026-08-29T07:31:00.000Z",
+    runtime: "opencode",
+    runtimeVersion: "1.0.94",
+    agentName: "Kepler",
+    project: "catalog-worker",
+    skillVersionId: null,
+    skillName: null,
+    attribution: "absent",
+    enforcement: "observed-only",
+    result: "pass",
+    score: 79,
+    attempts: 1,
+    tokens: 3710,
+    latencyMs: 2110,
+    findings: [],
+  },
+];
+
+const agents: AgentSummary[] = [
+  {
+    id: "agent-atlas",
+    name: "Atlas",
+    runtime: "codex",
+    attributionCohort: "verified",
+    enforcementCohort: "enforced",
+    runs: 482,
+    passRate: 91.7,
+    retryRecoveryRate: 78.4,
+    terminalFailures: 12,
+    averageScore: 89.3,
+    tokens: 2_914_200,
+  },
+  {
+    id: "agent-mira",
+    name: "Mira",
+    runtime: "claude-code",
+    attributionCohort: "verified",
+    enforcementCohort: "enforced",
+    runs: 346,
+    passRate: 88.2,
+    retryRecoveryRate: 74.1,
+    terminalFailures: 18,
+    averageScore: 86.8,
+    tokens: 2_482_100,
+  },
+  {
+    id: "agent-nova",
+    name: "Nova",
+    runtime: "cursor",
+    attributionCohort: "verified",
+    enforcementCohort: "partial",
+    runs: 308,
+    passRate: 84.4,
+    retryRecoveryRate: 69.8,
+    terminalFailures: 21,
+    averageScore: 83.6,
+    tokens: 1_931_600,
+  },
+  {
+    id: "agent-kepler",
+    name: "Kepler",
+    runtime: "opencode",
+    attributionCohort: "verified",
+    enforcementCohort: "observed-only",
+    runs: 148,
+    passRate: 71.6,
+    retryRecoveryRate: 0,
+    terminalFailures: 31,
+    averageScore: 75.1,
+    tokens: 1_106_900,
+  },
+];
+
+const integrations: IntegrationSummary[] = [
+  {
+    id: "integration-codex-local",
+    runtime: "codex",
+    scope: "local",
+    status: "healthy",
+    adapterVersion: "0.1.0",
+    runtimeVersion: "0.42.0",
+    capabilities: capabilitySnapshot("codex", "0.42.0"),
+    lastSeenAt: "2026-08-29T09:49:00.000Z",
+  },
+  {
+    id: "integration-claude-local",
+    runtime: "claude-code",
+    scope: "local",
+    status: "healthy",
+    adapterVersion: "0.1.0-preview.2",
+    runtimeVersion: "1.0.86",
+    capabilities: capabilitySnapshot("claude-code", "1.0.86"),
+    lastSeenAt: "2026-08-29T09:44:00.000Z",
+  },
+  {
+    id: "integration-cursor-local",
+    runtime: "cursor",
+    scope: "local",
+    status: "healthy",
+    adapterVersion: "0.1.0-preview.1",
+    runtimeVersion: "1.6.27",
+    capabilities: capabilitySnapshot("cursor", "1.6.27"),
+    lastSeenAt: "2026-08-29T09:46:00.000Z",
+  },
+  {
+    id: "integration-cursor-cloud",
+    runtime: "cursor",
+    scope: "cloud",
+    status: "degraded",
+    adapterVersion: "0.1.0-preview.1",
+    runtimeVersion: "1.6.27",
+    capabilities: capabilitySnapshot("cursor", "1.6.27"),
+    lastSeenAt: "2026-08-29T09:23:00.000Z",
+  },
+  {
+    id: "integration-opencode-local",
+    runtime: "opencode",
+    scope: "local",
+    status: "degraded",
+    adapterVersion: "0.1.0-experimental.3",
+    runtimeVersion: "1.0.94",
+    capabilities: capabilitySnapshot("opencode", "1.0.94"),
+    lastSeenAt: "2026-08-29T09:12:00.000Z",
+  },
+];
+
+function deriveOverview(selectedRuns: RunSummary[], selectedAgents: AgentSummary[]): Overview {
+  const conclusive = selectedRuns.filter((run) => run.result !== "inconclusive");
+  const passes = conclusive.filter((run) => run.result === "pass").length;
+  const retryRuns = selectedRuns.filter((run) => run.attempts > 1);
+  const recovered = retryRuns.filter((run) => run.result === "pass").length;
+  const enforced = selectedRuns.filter((run) => run.enforcement === "enforced").length;
+  const totalTokens = selectedAgents.reduce((sum, agent) => sum + agent.tokens, 0);
+  const averageLatency =
+    selectedRuns.length === 0
+      ? 0
+      : Math.round(
+          selectedRuns.reduce((sum, run) => sum + run.latencyMs, 0) /
+            selectedRuns.length,
+        );
+
+  return {
+    totalRuns: selectedAgents.reduce((sum, agent) => sum + agent.runs, 0),
+    passRate: conclusive.length === 0 ? 0 : Math.round((passes / conclusive.length) * 1000) / 10,
+    retryRecoveryRate:
+      retryRuns.length === 0 ? 0 : Math.round((recovered / retryRuns.length) * 1000) / 10,
+    terminalFailures: selectedAgents.reduce(
+      (sum, agent) => sum + agent.terminalFailures,
+      0,
+    ),
+    tokensSpent: totalTokens,
+    tokensAvoidedEstimate: Math.round(totalTokens * 0.143),
+    averageLatencyMs: averageLatency,
+    enforcedShare:
+      selectedRuns.length === 0
+        ? 0
+        : Math.round((enforced / selectedRuns.length) * 1000) / 10,
+  };
+}
+
+const baseSnapshot: DashboardSnapshot = {
+  generatedAt: "2026-08-29T09:50:00.000Z",
+  workspace: {
+    id: "tenant-acme",
+    name: "Acme Engineering",
+    environment: "Production workspace",
+  },
+  overview: deriveOverview(runs, agents),
+  runs,
+  agents,
+  skills: [
+    {
+      skillVersionId: "skill-ts-review@4.2.1",
+      name: "TypeScript review",
+      version: "4.2.1",
+      runtime: "codex",
+      disposition: "active",
+      verifiedAttributionRate: 96.2,
+      runs: 214,
+      passRate: 93.8,
+      terminalFailures: 6,
+      lastChangedAt: "2026-08-22T12:10:00.000Z",
+    },
+    {
+      skillVersionId: "skill-regression@2.8.0",
+      name: "Regression hunter",
+      version: "2.8.0",
+      runtime: "claude-code",
+      disposition: "probation",
+      verifiedAttributionRate: 92.4,
+      runs: 98,
+      passRate: 84.7,
+      terminalFailures: 9,
+      lastChangedAt: "2026-08-28T16:20:00.000Z",
+    },
+    {
+      skillVersionId: "skill-ui-check@3.1.0",
+      name: "UI verifier",
+      version: "3.1.0",
+      runtime: "cursor",
+      disposition: "active",
+      verifiedAttributionRate: 87.9,
+      runs: 121,
+      passRate: 89.3,
+      terminalFailures: 5,
+      lastChangedAt: "2026-08-25T10:08:00.000Z",
+    },
+    {
+      skillVersionId: "skill-refactor@1.9.2",
+      name: "Safe refactor",
+      version: "1.9.2",
+      runtime: "opencode",
+      disposition: "quarantined",
+      verifiedAttributionRate: 81.1,
+      runs: 44,
+      passRate: 54.5,
+      terminalFailures: 10,
+      lastChangedAt: "2026-08-29T09:13:00.000Z",
+    },
+    {
+      skillVersionId: "skill-boundaries@1.6.0",
+      name: "Boundary discipline",
+      version: "1.6.0",
+      runtime: "codex",
+      disposition: "active",
+      verifiedAttributionRate: 98.1,
+      runs: 167,
+      passRate: 90.4,
+      terminalFailures: 7,
+      lastChangedAt: "2026-08-20T08:41:00.000Z",
+    },
+  ],
+  conflicts: [
+    {
+      id: "conflict-412",
+      occurredAt: "2026-08-29T09:48:00.000Z",
+      runtime: "codex",
+      promptSummary: "Review the TypeScript API boundary and repair unsafe parsing",
+      selectedSkill: "TypeScript review",
+      candidates: [
+        {
+          skillVersionId: "skill-ts-review@4.2.1",
+          skillName: "TypeScript review",
+          priority: 80,
+          specificity: 94,
+          selected: true,
+          reason: "Highest administrator priority.",
+        },
+        {
+          skillVersionId: "skill-boundaries@1.6.0",
+          skillName: "Boundary discipline",
+          priority: 70,
+          specificity: 98,
+          selected: false,
+          reason: "Lower administrator priority.",
+        },
+      ],
+    },
+    {
+      id: "conflict-411",
+      occurredAt: "2026-08-29T08:54:00.000Z",
+      runtime: "cursor",
+      promptSummary: "Verify the dashboard keyboard behavior before shipping",
+      selectedSkill: "UI verifier",
+      candidates: [
+        {
+          skillVersionId: "skill-ui-check@3.1.0",
+          skillName: "UI verifier",
+          priority: 60,
+          specificity: 91,
+          selected: true,
+          reason: "Most specific trigger after a priority tie.",
+        },
+        {
+          skillVersionId: "skill-regression@2.8.0",
+          skillName: "Regression hunter",
+          priority: 60,
+          specificity: 72,
+          selected: false,
+          reason: "Less specific trigger.",
+        },
+      ],
+    },
+    {
+      id: "conflict-410",
+      occurredAt: "2026-08-29T08:12:00.000Z",
+      runtime: "opencode",
+      promptSummary: "Refactor the catalog event handler without changing its wire shape",
+      selectedSkill: "Boundary discipline",
+      candidates: [
+        {
+          skillVersionId: "skill-boundaries@1.6.0",
+          skillName: "Boundary discipline",
+          priority: 70,
+          specificity: 82,
+          selected: true,
+          reason: "Safe refactor is quarantined and cannot be selected.",
+        },
+        {
+          skillVersionId: "skill-refactor@1.9.2",
+          skillName: "Safe refactor",
+          priority: 90,
+          specificity: 97,
+          selected: false,
+          reason: "Quarantined skill versions are excluded.",
+        },
+      ],
+    },
+  ],
+  integrations,
+  policies: [
+    {
+      id: "policy-default",
+      name: "Production baseline",
+      enabled: true,
+      runtime: null,
+      passThreshold: 80,
+      retryLimit: 2,
+      requiredCapabilities: ["toolObservation", "localEvidenceAccess"],
+      updatedAt: "2026-08-28T11:10:00.000Z",
+    },
+    {
+      id: "policy-protected-tools",
+      name: "Protected tool gate",
+      enabled: true,
+      runtime: "codex",
+      passThreshold: 86,
+      retryLimit: 2,
+      requiredCapabilities: ["toolPrevention", "rootStopContinuation"],
+      updatedAt: "2026-08-27T15:42:00.000Z",
+    },
+    {
+      id: "policy-opencode-observe",
+      name: "OpenCode observation",
+      enabled: true,
+      runtime: "opencode",
+      passThreshold: 78,
+      retryLimit: 0,
+      requiredCapabilities: ["toolObservation"],
+      updatedAt: "2026-08-26T09:25:00.000Z",
+    },
+  ],
+  audit: [
+    {
+      id: "audit-908",
+      occurredAt: "2026-08-29T09:13:00.000Z",
+      actor: "Sisyphus policy engine",
+      action: "skill.quarantined",
+      summary: "Safe refactor 1.9.2 reached five terminal failures in ten verified runs.",
+      runtime: "opencode",
+    },
+    {
+      id: "audit-907",
+      occurredAt: "2026-08-29T09:12:00.000Z",
+      actor: "worker:delta-laptop",
+      action: "evaluation.completed",
+      summary: "Run run-1282 closed with a terminal failure and observed-only coverage.",
+      runtime: "opencode",
+    },
+    {
+      id: "audit-906",
+      occurredAt: "2026-08-29T08:54:00.000Z",
+      actor: "worker:studio-mac",
+      action: "evaluation.completed",
+      summary: "Run run-1281 passed with a score of 91.",
+      runtime: "cursor",
+    },
+    {
+      id: "audit-905",
+      occurredAt: "2026-08-28T11:10:00.000Z",
+      actor: "admin@acme.test",
+      action: "policy.updated",
+      summary: "Production baseline now requires local evidence access.",
+      runtime: null,
+    },
+    {
+      id: "audit-904",
+      occurredAt: "2026-08-27T14:02:00.000Z",
+      actor: "admin@acme.test",
+      action: "device.enrolled",
+      summary: "Enrolled CI runner eu-west-2 with verified plugin trust.",
+      runtime: "codex",
+    },
+  ],
+  devices: [
+    {
+      id: "device-delta",
+      name: "Delta laptop",
+      platform: "windows",
+      status: "online",
+      runtimes: ["codex", "claude-code", "opencode"],
+      lastSeenAt: "2026-08-29T09:49:00.000Z",
+      pluginTrust: "verified",
+      syncLagSeconds: 3,
+    },
+    {
+      id: "device-studio",
+      name: "Studio Mac",
+      platform: "macos",
+      status: "online",
+      runtimes: ["cursor", "claude-code"],
+      lastSeenAt: "2026-08-29T09:46:00.000Z",
+      pluginTrust: "verified",
+      syncLagSeconds: 8,
+    },
+    {
+      id: "device-ci-eu",
+      name: "CI runner eu-west-2",
+      platform: "linux",
+      status: "stale",
+      runtimes: ["codex"],
+      lastSeenAt: "2026-08-29T08:05:00.000Z",
+      pluginTrust: "warning",
+      syncLagSeconds: 6340,
+    },
+  ],
+};
+
+export function filterDashboardSnapshot(
+  snapshot: DashboardSnapshot,
+  query: DashboardQuery,
+): DashboardSnapshot {
+  if (query.runtime === undefined) {
+    return snapshot;
+  }
+
+  const runtime = query.runtime;
+  const selectedRuns = snapshot.runs.filter((run) => run.runtime === runtime);
+  const selectedAgents = snapshot.agents.filter((agent) => agent.runtime === runtime);
+
+  return {
+    generatedAt: snapshot.generatedAt,
+    workspace: snapshot.workspace,
+    overview: deriveOverview(selectedRuns, selectedAgents),
+    runs: selectedRuns,
+    agents: selectedAgents,
+    skills: snapshot.skills.filter((skill) => skill.runtime === runtime),
+    conflicts: snapshot.conflicts.filter((conflict) => conflict.runtime === runtime),
+    integrations: snapshot.integrations.filter(
+      (integration) => integration.runtime === runtime,
+    ),
+    policies: snapshot.policies.filter(
+      (policy) => policy.runtime === null || policy.runtime === runtime,
+    ),
+    audit: snapshot.audit.filter(
+      (event) => event.runtime === null || event.runtime === runtime,
+    ),
+    devices: snapshot.devices.filter((device) => device.runtimes.includes(runtime)),
+  };
+}
+
+export function createDemoSnapshot(): DashboardSnapshot {
+  return structuredClone(baseSnapshot);
+}
+
+export function createRestoredAuditEvent(input: {
+  skillName: string;
+  runtime: AgentRuntime;
+  reason: string;
+}): AuditEvent {
+  return {
+    id: `audit-restore-${input.skillName.toLowerCase().replaceAll(" ", "-")}`,
+    occurredAt: "2026-08-29T09:55:00.000Z",
+    actor: "demo-admin@sisyphus.local",
+    action: "skill.restored",
+    summary: `${input.skillName} entered probation. ${input.reason}`,
+    runtime: input.runtime,
+  };
+}

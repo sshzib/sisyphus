@@ -1,0 +1,14 @@
+{
+  "hook_event_name": "tool.execute.after",
+  "input": {
+    "tool": "bash",
+    "sessionID": "opencode-session-1",
+    "callID": "call-1",
+    "args": { "command": "pnpm test" }
+  },
+  "output": {
+    "title": "Run tests",
+    "output": "Tests passed",
+    "metadata": { "exitCode": 0 }
+  }
+}
