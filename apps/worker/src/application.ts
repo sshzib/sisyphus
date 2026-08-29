@@ -91,6 +91,7 @@ export async function createWorkerApplication(
   });
   const server = createWorkerHttpServer({
     hookToken: input.configuration.hookToken,
+    mcpToken: input.configuration.mcpToken,
     supervisor,
     mcpHandler: createMcpRequestHandler({
       journal,

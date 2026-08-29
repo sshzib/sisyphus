@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@sisyphus/ui": "workspace:*",
+    "@sisyphus/local-protocol": "workspace:*",
     "@sisyphus/worker": "workspace:*",
     "electron": "^37.4.0",
     "react": "^19.1.1",

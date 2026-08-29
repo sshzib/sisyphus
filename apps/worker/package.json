@@ -17,6 +17,7 @@
     "@modelcontextprotocol/sdk": "^1.17.4",
     "@sisyphus/domain": "workspace:*",
     "@sisyphus/kernel": "workspace:*",
+    "@sisyphus/local-protocol": "workspace:*",
     "zod": "^4.1.5"
   },
   "devDependencies": {
@@ -26,4 +27,3 @@
     "vitest": "^3.2.4"
   }
 }
-

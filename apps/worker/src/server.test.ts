@@ -41,6 +41,7 @@ describe("worker HTTP server", () => {
     const endpoint = await endpointFor(
       createWorkerHttpServer({
         hookToken,
+        mcpToken,
         supervisor: { supervise },
         mcpHandler: (_request, response) => response.writeHead(204).end(),
       }),
@@ -71,6 +72,7 @@ describe("worker HTTP server", () => {
     const endpoint = await endpointFor(
       createWorkerHttpServer({
         hookToken,
+        mcpToken,
         supervisor: { supervise },
         mcpHandler: (_request, response) => response.writeHead(204).end(),
       }),
@@ -95,6 +97,7 @@ describe("worker HTTP server", () => {
     const endpoint = await endpointFor(
       createWorkerHttpServer({
         hookToken,
+        mcpToken,
         supervisor: { supervise },
         mcpHandler: (_request, response) => response.writeHead(204).end(),
       }),
@@ -130,6 +133,7 @@ describe("worker HTTP server", () => {
     const endpoint = await endpointFor(
       createWorkerHttpServer({
         hookToken,
+        mcpToken,
         desktopToken,
         evidenceBroker: { evidenceFor },
         supervisor: { supervise: vi.fn() },

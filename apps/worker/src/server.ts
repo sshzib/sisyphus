@@ -7,6 +7,11 @@ import {
 } from "node:http";
 
 import { z, ZodError } from "zod";
+import {
+  LocalChallengeChannelSchema,
+  LocalChallengeNonceSchema,
+  signLocalChallenge,
+} from "@sisyphus/local-protocol";
 
 import {
   authorizeLocalRequest,
@@ -26,6 +31,7 @@ interface SupervisorPort {
 
 interface WorkerHttpServerInput {
   readonly hookToken: LocalBearerToken;
+  readonly mcpToken: LocalBearerToken;
   readonly supervisor: SupervisorPort;
   readonly mcpHandler: RequestListener;
   readonly desktopToken?: LocalBearerToken;
@@ -96,6 +102,40 @@ async function handleRequest(
   response: ServerResponse,
 ): Promise<void> {
   const url = new URL(request.url ?? "/", "http://worker.local");
+  if (url.pathname === "/v1/challenge") {
+    if (request.method !== "GET") {
+      writeJson(response, 405, { error: "method-not-allowed" });
+      return;
+    }
+    const channel = LocalChallengeChannelSchema.safeParse(
+      url.searchParams.get("channel"),
+    );
+    const nonce = LocalChallengeNonceSchema.safeParse(url.searchParams.get("nonce"));
+    if (!channel.success || !nonce.success) {
+      writeJson(response, 400, { error: "invalid-request" });
+      return;
+    }
+    const token =
+      channel.data === "hook"
+        ? input.hookToken
+        : channel.data === "mcp"
+          ? input.mcpToken
+          : input.desktopToken;
+    if (token === undefined) {
+      writeJson(response, 404, { error: "not-found" });
+      return;
+    }
+    writeJson(response, 200, {
+      channel: channel.data,
+      nonce: nonce.data,
+      proof: signLocalChallenge({
+        channel: channel.data,
+        nonce: nonce.data,
+        token,
+      }),
+    });
+    return;
+  }
   if (url.pathname === "/mcp") {
     input.mcpHandler(request, response);
     return;

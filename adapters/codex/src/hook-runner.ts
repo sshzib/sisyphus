@@ -1,4 +1,8 @@
 import { z } from "zod";
+import {
+  createLocalChallengeNonce,
+  verifyLocalChallenge,
+} from "@sisyphus/local-protocol";
 
 import { createCodexAdapter, type CodexRuntimeAdapter } from "./adapter.js";
 import { inspectCodexEvent } from "./codex-wire.js";
@@ -23,6 +27,34 @@ function supervisionUrl(input: string): URL {
   return endpoint;
 }
 
+async function authenticateWorker(input: {
+  readonly endpoint: string;
+  readonly token: string;
+  readonly request: typeof fetch;
+}): Promise<void> {
+  const nonce = createLocalChallengeNonce();
+  const url = supervisionUrl(input.endpoint);
+  url.pathname = "/v1/challenge";
+  url.searchParams.set("channel", "hook");
+  url.searchParams.set("nonce", nonce);
+  const response = await input.request(url, {
+    method: "GET",
+    signal: AbortSignal.timeout(2_000),
+  });
+  if (!response.ok) throw new Error("Sisyphus worker authentication failed.");
+  const body: unknown = await response.json();
+  if (
+    !verifyLocalChallenge({
+      response: body,
+      channel: "hook",
+      nonce,
+      token: input.token,
+    })
+  ) {
+    throw new Error("Sisyphus worker authentication failed.");
+  }
+}
+
 export type RunCodexHookInput = {
   readonly rawEvent: unknown;
   readonly workerToken: string;
@@ -45,8 +77,10 @@ export async function runCodexHook(input: RunCodexHookInput): Promise<CodexHookR
   });
   const request = input.request ?? fetch;
   const workerToken = WorkerHookTokenSchema.parse(input.workerToken);
+  const workerEndpoint = input.workerEndpoint ?? "http://127.0.0.1:7331";
+  await authenticateWorker({ endpoint: workerEndpoint, token: workerToken, request });
   const response = await request(
-    supervisionUrl(input.workerEndpoint ?? "http://127.0.0.1:7331"),
+    supervisionUrl(workerEndpoint),
     {
       method: "POST",
       headers: {
