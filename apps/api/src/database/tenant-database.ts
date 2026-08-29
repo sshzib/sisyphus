@@ -29,6 +29,12 @@ import {
 } from "../projection.js";
 import type { JudgeRequestClaim } from "../judge.js";
 import {
+  policyBundleExpiresAt,
+  policyBundleRequiresRenewal,
+  policyBundleStateDigest,
+  policyEntries,
+} from "../policy-bundle.js";
+import {
   EncryptedSecretSchema,
   type EncryptedSecret,
 } from "../secret-cipher.js";
@@ -64,6 +70,7 @@ export interface StoredPolicyBundleIssuance {
   deviceId: string;
   adapterInstallationId: string;
   revision: number;
+  issuedAt: string;
   adapterConfigurationDigest: AdapterConfigurationDigest;
   dispositionTransitions: SkillDispositionTransition[];
   snapshot: DashboardSnapshot;
@@ -83,6 +90,13 @@ export class PostgresStateTransitionError extends Error {
   }
 }
 
+export class PostgresInactiveDeviceError extends Error {
+  public constructor() {
+    super("The device credential is no longer attached to an active installation.");
+    this.name = "PostgresInactiveDeviceError";
+  }
+}
+
 const tenantRlsTables = [
   "tenants",
   "devices",
@@ -97,23 +111,120 @@ const tenantRlsTables = [
   "disposition_transitions",
   "dashboard_projections",
   "tenant_policy_states",
+  "policy_bundle_issuances",
 ] as const;
 
-const tenantPolicyNames = new Map<string, string>([
-  ["tenants", "tenant_self"],
-  ["devices", "tenant_devices"],
-  ["runs", "tenant_runs"],
-  ["evaluations", "tenant_evaluations"],
-  ["skill_dispositions", "tenant_skill_dispositions"],
-  ["policy_bundles", "tenant_policy_bundles"],
-  ["judge_provider_configs", "tenant_judge_provider_configs"],
-  ["judge_requests", "tenant_judge_requests"],
-  ["ingest_events", "tenant_ingest_events"],
-  ["ingest_outbox", "tenant_ingest_outbox"],
-  ["disposition_transitions", "tenant_disposition_transitions"],
-  ["dashboard_projections", "tenant_dashboard_projections"],
-  ["tenant_policy_states", "tenant_policy_states"],
+interface ExpectedPolicy {
+  name: string;
+  command: "ALL" | "SELECT";
+  usingExpression: string;
+  checkExpression: string | null;
+}
+
+export interface PostgresPolicyDefinition {
+  tablename: string;
+  policyname: string;
+  command: string;
+  permissive: string;
+  publicOnly: boolean;
+  usingExpression: string | null;
+  checkExpression: string | null;
+}
+
+function normalizePolicyExpression(expression: string | null): string | null {
+  return expression === null
+    ? null
+    : expression
+        .replace(/\s/gu, "")
+        .replace(/::text/gu, "")
+        .replace(/[()]/gu, "");
+}
+
+function tenantPolicy(input: {
+  name: string;
+  column?: "id" | "tenant_id";
+  missingOk?: boolean;
+}): ExpectedPolicy {
+  const expression = `${input.column ?? "tenant_id"} = current_setting('app.tenant_id'${input.missingOk === true ? ", true" : ""})::uuid`;
+  return {
+    name: input.name,
+    command: "ALL",
+    usingExpression: expression,
+    checkExpression: expression,
+  };
+}
+
+const expectedPolicies = new Map<string, ExpectedPolicy>([
+  [
+    "tenants",
+    tenantPolicy({ name: "tenant_self", column: "id", missingOk: true }),
+  ],
+  ["devices", tenantPolicy({ name: "tenant_devices" })],
+  ["runs", tenantPolicy({ name: "tenant_runs" })],
+  ["evaluations", tenantPolicy({ name: "tenant_evaluations" })],
+  [
+    "skill_dispositions",
+    tenantPolicy({ name: "tenant_skill_dispositions" }),
+  ],
+  ["policy_bundles", tenantPolicy({ name: "tenant_policy_bundles" })],
+  [
+    "judge_provider_configs",
+    tenantPolicy({ name: "tenant_judge_provider_configs" }),
+  ],
+  ["judge_requests", tenantPolicy({ name: "tenant_judge_requests" })],
+  ["ingest_events", tenantPolicy({ name: "tenant_ingest_events" })],
+  ["ingest_outbox", tenantPolicy({ name: "tenant_ingest_outbox" })],
+  [
+    "disposition_transitions",
+    tenantPolicy({ name: "tenant_disposition_transitions" }),
+  ],
+  [
+    "dashboard_projections",
+    tenantPolicy({ name: "tenant_dashboard_projections" }),
+  ],
+  [
+    "tenant_policy_states",
+    tenantPolicy({ name: "tenant_policy_states" }),
+  ],
+  [
+    "policy_bundle_issuances",
+    tenantPolicy({ name: "tenant_policy_bundle_issuances" }),
+  ],
+  [
+    "api_credentials",
+    {
+      name: "credential_self",
+      command: "SELECT",
+      usingExpression:
+        "token_hash = current_setting('app.credential_hash', true)",
+      checkExpression: null,
+    },
+  ],
 ]);
+
+export function isCanonicalPostgresPolicySetForTable(
+  table: string,
+  policies: readonly PostgresPolicyDefinition[],
+): boolean {
+  const expected = expectedPolicies.get(table);
+  const tablePolicies = policies.filter(
+    (policy) => policy.tablename === table,
+  );
+  const policy = tablePolicies[0];
+  return (
+    expected !== undefined &&
+    tablePolicies.length === 1 &&
+    policy !== undefined &&
+    policy.policyname === expected.name &&
+    policy.command === expected.command &&
+    policy.permissive === "PERMISSIVE" &&
+    policy.publicOnly &&
+    normalizePolicyExpression(policy.usingExpression) ===
+      normalizePolicyExpression(expected.usingExpression) &&
+    normalizePolicyExpression(policy.checkExpression) ===
+      normalizePolicyExpression(expected.checkExpression)
+  );
+}
 
 function evaluationResult(
   evaluation: CloudEvaluationMetadata,
@@ -306,11 +417,28 @@ export class PostgresTenantDatabase {
         "The PostgreSQL application role must exist and must not be SUPERUSER or BYPASSRLS.",
       );
     }
+    const privilegedMembershipRows = await this.#client<
+      { reachable: boolean }[]
+    >`
+      select exists (
+        select 1
+        from pg_roles privileged
+        where (privileged.rolsuper or privileged.rolbypassrls)
+          and privileged.rolname <> current_user
+          and pg_has_role(current_user, privileged.oid, 'MEMBER')
+      ) as reachable
+    `;
+    if (privilegedMembershipRows[0]?.reachable === true) {
+      throw new Error(
+        "The PostgreSQL application role must not be able to assume a SUPERUSER or BYPASSRLS role.",
+      );
+    }
 
     const rows = await this.#client<
       {
         relname: string;
         ownerName: string;
+        ownerReachable: boolean;
         relrowsecurity: boolean;
         relforcerowsecurity: boolean;
       }[]
@@ -318,6 +446,7 @@ export class PostgresTenantDatabase {
       select
         c.relname,
         pg_get_userbyid(c.relowner) as "ownerName",
+        pg_has_role(current_user, c.relowner, 'MEMBER') as "ownerReachable",
         c.relrowsecurity,
         c.relforcerowsecurity
       from pg_class c
@@ -332,12 +461,13 @@ export class PostgresTenantDatabase {
         row === undefined ||
         !row.relrowsecurity ||
         !row.relforcerowsecurity ||
-        row.ownerName === role.roleName
+        row.ownerName === role.roleName ||
+        row.ownerReachable
       );
     });
     if (unsafeTable !== undefined) {
       throw new Error(
-        `PostgreSQL readiness failed: ${unsafeTable} must have enabled and forced row-level security and must be owned by the migration role.`,
+        `PostgreSQL readiness failed: ${unsafeTable} must have enabled and forced row-level security and its owner must not be assumable by the application role.`,
       );
     }
 
@@ -359,28 +489,25 @@ export class PostgresTenantDatabase {
       );
     }
 
-    const policies = await this.#client<
-      { tablename: string; policyname: string; command: string }[]
-    >`
-      select tablename, policyname, cmd as command
+    const policies = await this.#client<PostgresPolicyDefinition[]>`
+      select
+        tablename,
+        policyname,
+        cmd as command,
+        permissive,
+        roles = array['public']::name[] as "publicOnly",
+        qual as "usingExpression",
+        with_check as "checkExpression"
       from pg_policies
       where schemaname = current_schema()
+        and tablename in ${this.#client([...expectedPolicies.keys()])}
     `;
-    const policiesByTable = new Map(
-      policies.map((policy) => [policy.tablename, policy.policyname]),
+    const unsafePolicy = [...expectedPolicies].find(
+      ([table]) => !isCanonicalPostgresPolicySetForTable(table, policies),
     );
-    const missingPolicy = [...tenantPolicyNames].find(
-      ([table, policy]) => policiesByTable.get(table) !== policy,
-    );
-    if (
-      missingPolicy !== undefined ||
-      policiesByTable.get("api_credentials") !== "credential_self" ||
-      policies.find(
-        (policy) => policy.tablename === "api_credentials",
-      )?.command !== "SELECT"
-    ) {
+    if (unsafePolicy !== undefined) {
       throw new Error(
-        "PostgreSQL readiness failed: one or more tenant or credential RLS policies are missing.",
+        `PostgreSQL readiness failed: ${unsafePolicy[0]} must have exactly one canonical tenant policy with no additional permissive policy.`,
       );
     }
 
@@ -408,6 +535,67 @@ export class PostgresTenantDatabase {
     ) {
       throw new Error(
         "PostgreSQL readiness failed: the application role must have read-only api_credentials access.",
+      );
+    }
+    const devicePrivileges = await this.#client<
+      {
+        canInsert: boolean;
+        canUpdateTable: boolean;
+        canDelete: boolean;
+        canUpdateLastSeen: boolean;
+        canUpdatePublicKey: boolean;
+        canUpdateInstallation: boolean;
+        canUpdateRevocation: boolean;
+      }[]
+    >`
+      select
+        has_table_privilege(current_user, 'devices', 'INSERT') as "canInsert",
+        has_table_privilege(current_user, 'devices', 'UPDATE') as "canUpdateTable",
+        has_table_privilege(current_user, 'devices', 'DELETE') as "canDelete",
+        has_column_privilege(current_user, 'devices', 'last_seen_at', 'UPDATE') as "canUpdateLastSeen",
+        has_column_privilege(current_user, 'devices', 'public_key', 'UPDATE') as "canUpdatePublicKey",
+        has_column_privilege(current_user, 'devices', 'adapter_installation_id', 'UPDATE') as "canUpdateInstallation",
+        has_column_privilege(current_user, 'devices', 'revoked_at', 'UPDATE') as "canUpdateRevocation"
+    `;
+    const devicePrivilege = devicePrivileges[0];
+    if (
+      devicePrivilege === undefined ||
+      devicePrivilege.canInsert ||
+      devicePrivilege.canUpdateTable ||
+      devicePrivilege.canDelete ||
+      !devicePrivilege.canUpdateLastSeen ||
+      devicePrivilege.canUpdatePublicKey ||
+      devicePrivilege.canUpdateInstallation ||
+      devicePrivilege.canUpdateRevocation
+    ) {
+      throw new Error(
+        "PostgreSQL readiness failed: the application role may update only devices.last_seen_at.",
+      );
+    }
+    const issuancePrivileges = await this.#client<
+      {
+        canSelect: boolean;
+        canInsert: boolean;
+        canUpdate: boolean;
+        canDelete: boolean;
+      }[]
+    >`
+      select
+        has_table_privilege(current_user, 'policy_bundle_issuances', 'SELECT') as "canSelect",
+        has_table_privilege(current_user, 'policy_bundle_issuances', 'INSERT') as "canInsert",
+        has_table_privilege(current_user, 'policy_bundle_issuances', 'UPDATE') as "canUpdate",
+        has_table_privilege(current_user, 'policy_bundle_issuances', 'DELETE') as "canDelete"
+    `;
+    const issuancePrivilege = issuancePrivileges[0];
+    if (
+      issuancePrivilege === undefined ||
+      !issuancePrivilege.canSelect ||
+      !issuancePrivilege.canInsert ||
+      issuancePrivilege.canUpdate ||
+      issuancePrivilege.canDelete
+    ) {
+      throw new Error(
+        "PostgreSQL readiness failed: policy bundle issuances must be append-only for the application role.",
       );
     }
   }
@@ -467,6 +655,27 @@ export class PostgresTenantDatabase {
         stored.adapterInstallationId === null
       ) {
         throw new Error("The stored device credential has an invalid shape.");
+      }
+      await transaction.execute(
+        sql`select set_config('app.tenant_id', ${stored.tenantId}, true)`,
+      );
+      const devices = await transaction
+        .select({ id: schema.devices.id })
+        .from(schema.devices)
+        .where(
+          and(
+            eq(schema.devices.tenantId, stored.tenantId),
+            eq(schema.devices.id, stored.deviceId),
+            eq(
+              schema.devices.adapterInstallationId,
+              stored.adapterInstallationId,
+            ),
+            isNull(schema.devices.revokedAt),
+          ),
+        )
+        .limit(1);
+      if (devices[0] === undefined) {
+        return undefined;
       }
       return {
         kind: "device",
@@ -855,6 +1064,8 @@ export class PostgresTenantDatabase {
     tenantId: string;
     deviceId: string;
     adapterInstallationId: string;
+    signingKeyId: string;
+    now: Date;
   }): Promise<StoredPolicyBundleIssuance | undefined> {
     return this.withTenant({
       tenantId: input.tenantId,
@@ -871,7 +1082,8 @@ export class PostgresTenantDatabase {
               isNull(schema.devices.revokedAt),
             ),
           )
-          .limit(1);
+          .limit(1)
+          .for("share");
         if (
           devices[0]?.adapterInstallationId !== input.adapterInstallationId
         ) {
@@ -891,26 +1103,6 @@ export class PostgresTenantDatabase {
         }
         const snapshot = DashboardSnapshotSchema.parse(storedProjection.snapshot);
         const digest = adapterConfigurationDigest(snapshot);
-        const policyRows = await transaction
-          .insert(schema.tenantPolicyStates)
-          .values({
-            tenantId: input.tenantId,
-            revision: 1,
-            adapterConfigurationDigest: digest,
-          })
-          .onConflictDoUpdate({
-            target: schema.tenantPolicyStates.tenantId,
-            set: {
-              revision: sql`${schema.tenantPolicyStates.revision} + 1`,
-              adapterConfigurationDigest: digest,
-              updatedAt: new Date(),
-            },
-          })
-          .returning({ revision: schema.tenantPolicyStates.revision });
-        const policyState = policyRows[0];
-        if (policyState === undefined) {
-          throw new Error("The policy bundle revision could not be allocated.");
-        }
         const transitionRows = await transaction
           .select()
           .from(schema.dispositionTransitions)
@@ -926,11 +1118,106 @@ export class PostgresTenantDatabase {
             revision: row.revision,
           }),
         );
+        const contentDigest = policyBundleStateDigest({
+          signingKeyId: input.signingKeyId,
+          tenantId: input.tenantId,
+          audience: {
+            deviceId: input.deviceId,
+            adapterInstallationId: input.adapterInstallationId,
+          },
+          adapterConfigurationDigest: digest,
+          policies: policyEntries(snapshot),
+          dispositionTransitions,
+        });
+        await transaction
+          .insert(schema.tenantPolicyStates)
+          .values({
+            tenantId: input.tenantId,
+            revision: 0,
+            adapterConfigurationDigest: digest,
+          })
+          .onConflictDoNothing({
+            target: schema.tenantPolicyStates.tenantId,
+          });
+        const policyRows = await transaction
+          .select({ revision: schema.tenantPolicyStates.revision })
+          .from(schema.tenantPolicyStates)
+          .where(eq(schema.tenantPolicyStates.tenantId, input.tenantId))
+          .limit(1)
+          .for("update");
+        const policyState = policyRows[0];
+        if (policyState === undefined) {
+          throw new Error("The policy bundle state could not be locked.");
+        }
+        const issuanceRows = await transaction
+          .select({
+            revision: schema.policyBundleIssuances.revision,
+            signingKeyId: schema.policyBundleIssuances.signingKeyId,
+            contentDigest: schema.policyBundleIssuances.contentDigest,
+            issuedAt: schema.policyBundleIssuances.issuedAt,
+            expiresAt: schema.policyBundleIssuances.expiresAt,
+          })
+          .from(schema.policyBundleIssuances)
+          .where(
+            and(
+              eq(schema.policyBundleIssuances.tenantId, input.tenantId),
+              eq(schema.policyBundleIssuances.deviceId, input.deviceId),
+              eq(
+                schema.policyBundleIssuances.adapterInstallationId,
+                input.adapterInstallationId,
+              ),
+            ),
+          )
+          .orderBy(desc(schema.policyBundleIssuances.revision))
+          .limit(1);
+        const previous = issuanceRows[0];
+        if (
+          previous !== undefined &&
+          previous.signingKeyId === input.signingKeyId &&
+          previous.contentDigest === contentDigest &&
+          !policyBundleRequiresRenewal({
+            expiresAt: previous.expiresAt,
+            now: input.now,
+          })
+        ) {
+          return {
+            tenantId: input.tenantId,
+            deviceId: input.deviceId,
+            adapterInstallationId: input.adapterInstallationId,
+            revision: previous.revision,
+            issuedAt: previous.issuedAt.toISOString(),
+            adapterConfigurationDigest: digest,
+            dispositionTransitions,
+            snapshot,
+          };
+        }
+        const revision = policyState.revision + 1;
+        const issuedAt = new Date(input.now);
+        const expiresAt = policyBundleExpiresAt(issuedAt);
+        await transaction
+          .update(schema.tenantPolicyStates)
+          .set({
+            revision,
+            adapterConfigurationDigest: digest,
+            updatedAt: issuedAt,
+          })
+          .where(eq(schema.tenantPolicyStates.tenantId, input.tenantId));
+        await transaction.insert(schema.policyBundleIssuances).values({
+          tenantId: input.tenantId,
+          deviceId: input.deviceId,
+          adapterInstallationId: input.adapterInstallationId,
+          revision,
+          signingKeyId: input.signingKeyId,
+          contentDigest,
+          issuedAt,
+          expiresAt,
+        });
         return {
           tenantId: input.tenantId,
           deviceId: input.deviceId,
           adapterInstallationId: input.adapterInstallationId,
-          revision: policyState.revision,
+          revision,
+          issuedAt: issuedAt.toISOString(),
           adapterConfigurationDigest: digest,
           dispositionTransitions,
           snapshot,
@@ -942,6 +1229,7 @@ export class PostgresTenantDatabase {
   public async ingestBatch(input: {
     tenantId: string;
     deviceId: string;
+    adapterInstallationId: string;
     records: CloudSupervisionEnvelope[];
   }): Promise<string[]> {
     const records = CloudSupervisionEnvelopeSchema.array()
@@ -951,6 +1239,25 @@ export class PostgresTenantDatabase {
     return this.withTenant({
       tenantId: input.tenantId,
       operation: async (transaction) => {
+        const activeDevices = await transaction
+          .select({ id: schema.devices.id })
+          .from(schema.devices)
+          .where(
+            and(
+              eq(schema.devices.tenantId, input.tenantId),
+              eq(schema.devices.id, input.deviceId),
+              eq(
+                schema.devices.adapterInstallationId,
+                input.adapterInstallationId,
+              ),
+              isNull(schema.devices.revokedAt),
+            ),
+          )
+          .limit(1)
+          .for("share");
+        if (activeDevices[0] === undefined) {
+          throw new PostgresInactiveDeviceError();
+        }
         const acceptedRecords: CloudSupervisionEnvelope[] = [];
         for (const record of records) {
           const digest = createHash("sha256")
@@ -1204,6 +1511,51 @@ export class PostgresTenantDatabase {
         ) {
           throw new Error(
             "The signed policy bundle audience is not an active enrolled installation.",
+          );
+        }
+        const issuanceRows = await transaction
+          .select({
+            deviceId: schema.policyBundleIssuances.deviceId,
+            adapterInstallationId:
+              schema.policyBundleIssuances.adapterInstallationId,
+            signingKeyId: schema.policyBundleIssuances.signingKeyId,
+            contentDigest: schema.policyBundleIssuances.contentDigest,
+            issuedAt: schema.policyBundleIssuances.issuedAt,
+            expiresAt: schema.policyBundleIssuances.expiresAt,
+          })
+          .from(schema.policyBundleIssuances)
+          .where(
+            and(
+              eq(schema.policyBundleIssuances.tenantId, input.tenantId),
+              eq(
+                schema.policyBundleIssuances.revision,
+                bundle.payload.revision,
+              ),
+            ),
+          )
+          .limit(1);
+        const issuance = issuanceRows[0];
+        const contentDigest = policyBundleStateDigest({
+          signingKeyId: bundle.keyId,
+          tenantId: bundle.payload.tenantId,
+          audience: bundle.payload.audience,
+          adapterConfigurationDigest:
+            bundle.payload.adapterConfigurationDigest,
+          policies: bundle.payload.policies,
+          dispositionTransitions: bundle.payload.dispositionTransitions,
+        });
+        if (
+          issuance === undefined ||
+          issuance.deviceId !== bundle.payload.audience.deviceId ||
+          issuance.adapterInstallationId !==
+            bundle.payload.audience.adapterInstallationId ||
+          issuance.signingKeyId !== bundle.keyId ||
+          issuance.contentDigest !== contentDigest ||
+          issuance.issuedAt.getTime() !== Date.parse(bundle.payload.issuedAt) ||
+          issuance.expiresAt.getTime() !== Date.parse(bundle.payload.expiresAt)
+        ) {
+          throw new Error(
+            "The signed policy bundle does not match its allocated issuance.",
           );
         }
         const policyStates = await transaction

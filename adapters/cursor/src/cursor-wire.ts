@@ -6,6 +6,7 @@ import {
   createActivationLeaseId,
   createAgentId,
   createEventId,
+  createRetryBudgetId,
   createRunId,
   createSessionId,
   createSkillVersionId,
@@ -16,6 +17,7 @@ import {
   type HookObservation,
   type RuntimeCapabilitySnapshot,
   type RuntimeIdentity,
+  type RuntimeInstallationIdentity,
   type SkillActivationEvidence,
 } from "@sisyphus/domain";
 
@@ -102,6 +104,7 @@ export type CursorHookEvent = z.infer<typeof CursorHookEventSchema>;
 export type CursorNormalizationOptions = {
   readonly adapterVersion: AdapterVersion;
   readonly capabilitiesForVersion: (runtimeVersion: string) => RuntimeCapabilitySnapshot;
+  readonly runtimeInstallation: RuntimeInstallationIdentity;
   readonly now: () => Date;
 };
 
@@ -266,16 +269,24 @@ function summaryOf(output: string): string {
 function observationBase(event: CursorHookEvent, options: CursorNormalizationOptions) {
   const occurredAt = options.now();
   if (Number.isNaN(occurredAt.getTime())) throw new Error("now() returned an invalid date");
+  const retryBudgetId = createRetryBudgetId(
+    `cursor:${event.conversation_id}:${event.generation_id}`,
+  );
+  const identity = deriveCursorIdentity(event);
+  const completionScope =
+    identity.agent.kind === "subagent"
+      ? `subagent:${identity.agent.agentId}`
+      : "root";
   return {
     eventId: eventIdFor(event),
-    workItemId: createWorkItemId(
-      `cursor:${event.conversation_id}:${event.generation_id}`,
-    ),
+    workItemId: createWorkItemId(`${retryBudgetId}:${completionScope}`),
+    retryBudgetId,
     runId: createRunId(`cursor:${event.conversation_id}:${event.generation_id}`),
     occurredAt: createTimestamp(occurredAt.toISOString()),
     adapterVersion: options.adapterVersion,
+    runtimeInstallation: options.runtimeInstallation,
     capabilities: options.capabilitiesForVersion(event.cursor_version),
-    identity: deriveCursorIdentity(event),
+    identity,
   };
 }
 

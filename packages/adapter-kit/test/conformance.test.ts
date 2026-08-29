@@ -9,6 +9,8 @@ import {
   createDeviceId,
   createEventId,
   createRunId,
+  createRetryBudgetId,
+  createRuntimeInstallationIdentity,
   createSessionId,
   createSkillVersionId,
   createTimestamp,
@@ -57,6 +59,10 @@ const identity: RuntimeIdentity = {
   sessionId: createSessionId("session-1"),
   agent: { kind: "root", agentId: createAgentId("agent-1") },
 };
+const installationIdentity = createRuntimeInstallationIdentity({
+  adapterInstallationId: "installation-1",
+  profile: "local",
+});
 const verified: SkillActivationEvidence = {
   kind: "verified",
   skillVersionId: createSkillVersionId("skill-1"),
@@ -68,9 +74,11 @@ function common(kind: string) {
   return {
     eventId: createEventId(`event-${kind}`),
     workItemId: createWorkItemId(`work-${kind}`),
+    retryBudgetId: createRetryBudgetId(`budget-${kind}`),
     runId: createRunId(`run-${kind}`),
     occurredAt: createTimestamp("2026-08-29T10:00:00.000Z"),
     adapterVersion: createAdapterVersion("adapter-1"),
+    runtimeInstallation: installationIdentity,
     capabilities,
     identity,
   };
@@ -78,6 +86,7 @@ function common(kind: string) {
 
 class FixtureAdapter implements AgentRuntimeAdapter {
   readonly runtime: AgentRuntime = "codex";
+  readonly installationIdentity = installationIdentity;
   uninstalled = false;
 
   async probe(): Promise<RuntimeCapabilitySnapshot> {
@@ -87,6 +96,7 @@ class FixtureAdapter implements AgentRuntimeAdapter {
   async install(input: AdapterInstallRequest): Promise<AdapterInstallation> {
     return {
       installationId: createAdapterInstallationId("installation-1"),
+      profile: "local",
       runtime: this.runtime,
       adapterVersion: input.adapterVersion,
       installedAt: createTimestamp("2026-08-29T10:00:00.000Z"),

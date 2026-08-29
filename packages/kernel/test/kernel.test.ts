@@ -8,6 +8,8 @@ import {
   createPolicyId,
   createPolicyVersionId,
   createRunId,
+  createRetryBudgetId,
+  createRuntimeInstallationIdentity,
   createSessionId,
   createSkillVersionId,
   createSkillVersionKey,
@@ -18,6 +20,7 @@ import {
   type DeterministicCheckResult,
   type Capability,
   type EvaluationConstraint,
+  type JudgeResult,
   type RootStopObservation,
   type PromptObservation,
   type RuntimeCapabilitySnapshot,
@@ -54,13 +57,19 @@ function capabilitySnapshot(
   };
 }
 
-function constraint(version = "policy-version-1"): EvaluationConstraint {
+function constraint(
+  version = "policy-version-1",
+  overrides: Partial<EvaluationConstraint> = {},
+): EvaluationConstraint {
   return {
     policyId: createPolicyId("policy-1"),
     policyVersionId: createPolicyVersionId(version),
+    passThreshold: 0.8,
+    retryLimit: 2,
     requiredCapabilities: [],
     skillCandidates: [],
     toolPolicy: { kind: "allow" },
+    ...overrides,
   };
 }
 
@@ -92,6 +101,7 @@ function skillCandidate(skill = "skill-1"): SkillMatchCandidate {
 function stop(input: {
   event: string;
   work?: string;
+  retryBudget?: string;
   attribution?: SkillAttribution;
   capabilities?: RuntimeCapabilitySnapshot;
   output?: string;
@@ -100,9 +110,14 @@ function stop(input: {
     kind: "root-stop",
     eventId: createEventId(input.event),
     workItemId: createWorkItemId(input.work ?? "work-1"),
+    retryBudgetId: createRetryBudgetId(input.retryBudget ?? input.work ?? "budget-1"),
     runId: createRunId(`run-${input.work ?? "work-1"}`),
     occurredAt: createTimestamp("2026-08-29T10:00:00.000Z"),
     adapterVersion: createAdapterVersion("adapter-1"),
+    runtimeInstallation: createRuntimeInstallationIdentity({
+      adapterInstallationId: "installation-1",
+      profile: "local",
+    }),
     capabilities: input.capabilities ?? capabilitySnapshot(),
     identity: {
       sessionId: createSessionId("session-1"),
@@ -234,6 +249,62 @@ describe("supervision kernel", () => {
     expect(await kernel.listSkillCompletions(createSkillVersionId("skill-1"))).toHaveLength(1);
   });
 
+  it("grades distinct completion work items that share one retry budget", async () => {
+    let evaluations = 0;
+    const kernel = createInMemoryKernel({
+      deterministicEvaluators: [
+        {
+          id: "counting-check",
+          async evaluate() {
+            evaluations += 1;
+            return { kind: "pass", checkId: "counting-check" };
+          },
+        },
+      ],
+    });
+
+    const subagent = await kernel.supervise(
+      stop({ event: "subagent-complete", work: "subagent-1", retryBudget: "turn-1" }),
+      constraint(),
+    );
+    const root = await kernel.supervise(
+      stop({ event: "root-complete", work: "root", retryBudget: "turn-1" }),
+      constraint(),
+    );
+
+    expect(subagent.evaluation.kind).toBe("pass");
+    expect(root.evaluation.kind).toBe("pass");
+    expect(evaluations).toBe(2);
+  });
+
+  it("shares at most two retry directives across distinct completion work items", async () => {
+    const kernel = createInMemoryKernel({
+      deterministicEvaluators: [
+        evaluator({ kind: "fail", checkId: "check", findings: [finding] }),
+      ],
+    });
+
+    const first = await kernel.supervise(
+      stop({ event: "shared-retry-1", work: "subagent-1", retryBudget: "turn-1" }),
+      constraint(),
+    );
+    const second = await kernel.supervise(
+      stop({ event: "shared-retry-2", work: "root", retryBudget: "turn-1" }),
+      constraint(),
+    );
+    const terminal = await kernel.supervise(
+      stop({ event: "shared-retry-3", work: "subagent-2", retryBudget: "turn-1" }),
+      constraint(),
+    );
+
+    expect(first.action).toBe("retry");
+    expect(second.action).toBe("retry");
+    expect(terminal.evaluation).toMatchObject({
+      kind: "terminal-failure",
+      reason: "retries-exhausted",
+    });
+  });
+
   it("issues at most two retries across event IDs and policy changes", async () => {
     const kernel = createInMemoryKernel({
       deterministicEvaluators: [
@@ -251,6 +322,51 @@ describe("supervision kernel", () => {
     expect(terminal.evaluation).toMatchObject({
       kind: "terminal-failure",
       reason: "retries-exhausted",
+    });
+  });
+
+  it.each([
+    { retryLimit: 0 as const, expectedActions: ["allow"] },
+    { retryLimit: 1 as const, expectedActions: ["retry", "allow"] },
+    { retryLimit: 2 as const, expectedActions: ["retry", "retry", "allow"] },
+  ])("enforces a signed retry limit of $retryLimit", async ({ retryLimit, expectedActions }) => {
+    const kernel = createInMemoryKernel({
+      deterministicEvaluators: [
+        evaluator({ kind: "fail", checkId: "check", findings: [finding] }),
+      ],
+    });
+
+    const actions = [];
+    for (let index = 0; index < expectedActions.length; index += 1) {
+      const decision = await kernel.supervise(
+        stop({ event: `limit-${retryLimit}-${index}` }),
+        constraint(`limit-policy-${index}`, { retryLimit }),
+      );
+      actions.push(decision.action);
+    }
+
+    expect(actions).toEqual(expectedActions);
+  });
+
+  it("turns a nominal judge pass below the policy threshold into a retry", async () => {
+    const kernel = createInMemoryKernel({
+      judge: {
+        async evaluate() {
+          return { kind: "pass", score: 0.79 };
+        },
+      },
+    });
+
+    const decision = await kernel.supervise(
+      stop({ event: "below-threshold" }),
+      constraint("threshold-policy", { passThreshold: 0.8, retryLimit: 1 }),
+    );
+
+    expect(decision.action).toBe("retry");
+    expect(decision.evaluation).toMatchObject({
+      kind: "retryable-failure",
+      score: 0.79,
+      findings: [{ criterion: "score-threshold" }],
     });
   });
 
@@ -470,6 +586,46 @@ describe("supervision kernel", () => {
     expect(decision.action).toBe("allow");
     expect(decision.evaluation).toMatchObject({ kind: "inconclusive" });
     expect(decision.sanction).toEqual({ kind: "not-applicable" });
+  });
+
+  it("persists a judge result that arrives after the enforcement deadline as advisory", async () => {
+    let resolveJudge: ((value: JudgeResult) => void) | undefined;
+    const advisories: unknown[] = [];
+    const kernel = createInMemoryKernel({
+      judge: {
+        evaluate() {
+          return new Promise<JudgeResult>((resolve) => {
+            resolveJudge = resolve;
+          });
+        },
+      },
+      judgeTimeoutMs: 5,
+      now: () => new Date("2026-08-29T10:00:09.000Z"),
+      advisoryResults: {
+        async record(advisory) {
+          advisories.push(advisory);
+        },
+      },
+    });
+
+    const decision = await kernel.supervise(
+      stop({ event: "judge-actually-late" }),
+      constraint("late-policy"),
+    );
+    expect(decision.evaluation).toMatchObject({ kind: "inconclusive" });
+
+    resolveJudge?.({ kind: "fail", score: 0.1, findings: [finding] });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(advisories).toEqual([
+      expect.objectContaining({
+        evaluationId: "evaluation:judge-actually-late:late-policy",
+        eventId: "judge-actually-late",
+        policyVersionId: "late-policy",
+        receivedAt: "2026-08-29T10:00:09.000Z",
+        advisory: { kind: "fail", score: 0.1, findings: [finding] },
+      }),
+    ]);
   });
 });
 

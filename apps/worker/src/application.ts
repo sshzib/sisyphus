@@ -2,6 +2,11 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { Server } from "node:http";
 
+import {
+  codexCapabilities,
+  probeCodexRuntimeVersion,
+} from "@sisyphus/adapter-codex";
+import { createAdapterVersion } from "@sisyphus/domain";
 import { createSupervisionKernel, type DeterministicEvaluator } from "@sisyphus/kernel";
 
 import type { WorkerConfiguration } from "./config.js";
@@ -18,10 +23,7 @@ import {
 import { createMcpRequestHandler } from "./mcp.js";
 import { OutboxSynchronizer } from "./outbox-sync.js";
 import { MutablePolicyProvider, PolicyBundleSynchronizer } from "./policy.js";
-import {
-  StaticRuntimeInstallationRegistry,
-  builtInCodexV1Installation,
-} from "./runtime-installation-registry.js";
+import { StaticRuntimeInstallationRegistry } from "./runtime-installation-registry.js";
 import { createWorkerHttpServer } from "./server.js";
 import { SQLiteSupervisionStore } from "./sqlite-store.js";
 import { WorkerSupervisor } from "./supervisor.js";
@@ -30,10 +32,16 @@ interface CreateWorkerApplicationInput {
   readonly configuration: WorkerConfiguration;
   readonly evidenceKey: Uint8Array;
   readonly onError?: ((error: unknown) => void) | undefined;
+  readonly codexRuntimeVersionProbe?: (() => Promise<string>) | undefined;
 }
 
 export interface WorkerApplication {
   readonly server: Server;
+  prepare(): Promise<
+    | { readonly kind: "not-configured" }
+    | { readonly kind: "refreshed" }
+    | { readonly kind: "restored"; readonly reason: string }
+  >;
   synchronize(): Promise<{ readonly outboxRecords: number; readonly policyUpdated: boolean }>;
   close(): Promise<void>;
 }
@@ -48,6 +56,22 @@ function closeServer(server: Server): Promise<void> {
 export async function createWorkerApplication(
   input: CreateWorkerApplicationInput,
 ): Promise<WorkerApplication> {
+  if (input.configuration.runtimeInstallation.profile !== "local") {
+    throw new Error("The bundled Codex adapter supports only the local runtime profile.");
+  }
+  let codexRuntimeVersion: string | undefined;
+  try {
+    codexRuntimeVersion = await (
+      input.codexRuntimeVersionProbe ?? probeCodexRuntimeVersion
+    )();
+  } catch (error: unknown) {
+    input.onError?.(
+      new Error(
+        "Codex adapter setup is required; no concrete Codex runtime version was detected.",
+        { cause: error },
+      ),
+    );
+  }
   await mkdir(input.configuration.dataDirectory, { recursive: true });
   const databasePath = join(input.configuration.dataDirectory, "metadata.sqlite");
   const journal = new LocalJournal({ path: databasePath });
@@ -81,6 +105,11 @@ export async function createWorkerApplication(
     store: kernelStore,
     deterministicEvaluators,
     judge,
+    advisoryResults: {
+      async record(advisory) {
+        journal.recordLateAdvisory(advisory);
+      },
+    },
   });
   const managedCatalog = await createManagedSkillCatalog(
     input.configuration.policy.managedCatalog,
@@ -95,15 +124,23 @@ export async function createWorkerApplication(
     },
   });
   const leaseAuthority = new ActivationLeaseAuthority({ key: input.evidenceKey });
+  const runtimeInstallations =
+    codexRuntimeVersion === undefined
+      ? []
+      : [
+          {
+            installationIdentity: input.configuration.runtimeInstallation,
+            adapterVersion: createAdapterVersion("0.1.0"),
+            capabilities: codexCapabilities(codexRuntimeVersion),
+          },
+        ];
   const supervisor = new WorkerSupervisor({
     journal,
     kernel,
     evidenceVault,
     policyProvider,
     leaseAuthority,
-    runtimeInstallations: new StaticRuntimeInstallationRegistry([
-      builtInCodexV1Installation(),
-    ]),
+    runtimeInstallations: new StaticRuntimeInstallationRegistry(runtimeInstallations),
   });
   const server = createWorkerHttpServer({
     hookToken: input.configuration.hookToken,
@@ -148,9 +185,47 @@ export async function createWorkerApplication(
           stateStore: journal,
           transitionApplier: kernel,
         });
+  let preparation:
+    | Promise<
+        | { readonly kind: "not-configured" }
+        | { readonly kind: "refreshed" }
+        | { readonly kind: "restored"; readonly reason: string }
+      >
+    | undefined;
 
   return {
     server,
+    prepare() {
+      preparation ??= (async () => {
+        if (policy === undefined) return { kind: "not-configured" } as const;
+        let restored = false;
+        let restoreError: unknown;
+        try {
+          restored = (await policy.restore()) !== undefined;
+        } catch (error: unknown) {
+          restoreError = error;
+        }
+        try {
+          await policy.refresh();
+          return { kind: "refreshed" } as const;
+        } catch (refreshError: unknown) {
+          if (restored) {
+            return {
+              kind: "restored",
+              reason:
+                refreshError instanceof Error
+                  ? refreshError.message
+                  : "policy refresh failed",
+            } as const;
+          }
+          throw new AggregateError(
+            [restoreError, refreshError].filter((error) => error !== undefined),
+            "No valid signed policy bundle is available; worker startup is blocked.",
+          );
+        }
+      })();
+      return preparation;
+    },
     async synchronize() {
       const outboxRecords = await outbox?.flush();
       const updatedPolicy = await policy?.refresh();

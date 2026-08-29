@@ -11,15 +11,20 @@ import type {
 import { filterDashboardSnapshot } from "@sisyphus/ui/demo";
 import type { AuthContext } from "../auth.js";
 import {
+  InactiveDeviceError,
   IngestCollisionError,
   InvalidStateTransitionError,
   type ControlPlaneRepository,
   type PolicyBundleIssuance,
 } from "../repository.js";
 import type { SecretCipher } from "../secret-cipher.js";
-import { grantPostgresApplicationRole } from "./grants.js";
+import {
+  assertPostgresMigrationRole,
+  grantPostgresApplicationRole,
+} from "./grants.js";
 import { migratePostgres } from "./migrate.js";
 import {
+  PostgresInactiveDeviceError,
   PostgresIngestCollisionError,
   PostgresStateTransitionError,
   PostgresTenantDatabase,
@@ -86,11 +91,15 @@ class PostgresControlPlaneRepository implements ControlPlaneRepository {
       return await this.database.ingestBatch({
         tenantId: input.auth.tenantId,
         deviceId: input.auth.subjectId,
+        adapterInstallationId: input.auth.adapterInstallationId,
         records,
       });
     } catch (error: unknown) {
       if (error instanceof PostgresIngestCollisionError) {
         throw new IngestCollisionError(error.eventId);
+      }
+      if (error instanceof PostgresInactiveDeviceError) {
+        throw new InactiveDeviceError(error.message);
       }
       throw error;
     }
@@ -144,11 +153,9 @@ class PostgresControlPlaneRepository implements ControlPlaneRepository {
     return this.database.judgeRequestResult(input);
   }
 
-  public async issuePolicyBundle(input: {
-    tenantId: string;
-    deviceId: string;
-    adapterInstallationId: string;
-  }): Promise<PolicyBundleIssuance | undefined> {
+  public async issuePolicyBundle(
+    input: Parameters<ControlPlaneRepository["issuePolicyBundle"]>[0],
+  ): Promise<PolicyBundleIssuance | undefined> {
     return this.database.issuePolicyBundle(input);
   }
 
@@ -172,6 +179,7 @@ export async function createPostgresControlPlaneRepository(input: {
   migrationDatabaseUrl: string;
   secretCipher: SecretCipher;
 }): Promise<ControlPlaneRepository> {
+  await assertPostgresMigrationRole(input);
   await migratePostgres(input.migrationDatabaseUrl);
   await grantPostgresApplicationRole({
     migrationDatabaseUrl: input.migrationDatabaseUrl,

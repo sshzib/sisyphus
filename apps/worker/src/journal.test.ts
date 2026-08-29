@@ -3,6 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import {
+  createEvaluationId,
+  createEventId,
+  createPolicyVersionId,
+  createTimestamp,
+} from "@sisyphus/domain";
+
 import { ActivationLeaseAuthority } from "./activation-lease.js";
 import { LocalJournal } from "./journal.js";
 
@@ -21,6 +28,24 @@ function decisionRecord(eventId: string, decision: unknown) {
 }
 
 describe("LocalJournal", () => {
+  it("persists a late advisory separately from the authoritative decision", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sisyphus-journal-"));
+    const journal = new LocalJournal({ path: join(directory, "worker.db") });
+    const advisory = {
+      evaluationId: createEvaluationId("evaluation:event-late:policy-late"),
+      eventId: createEventId("event-late"),
+      policyVersionId: createPolicyVersionId("policy-late"),
+      receivedAt: createTimestamp("2026-08-29T10:00:09.000Z"),
+      advisory: { kind: "pass" as const, score: 0.91 },
+    };
+
+    journal.recordLateAdvisory(advisory);
+
+    expect(journal.lateAdvisoryFor(advisory.evaluationId)).toEqual(advisory);
+    expect(journal.pendingOutbox()).toEqual([]);
+    journal.close();
+  });
+
   it("commits one decision and outbox record for a replayed event", async () => {
     const directory = await mkdtemp(join(tmpdir(), "sisyphus-journal-"));
     const journal = new LocalJournal({ path: join(directory, "worker.db") });
@@ -208,13 +233,15 @@ describe("LocalJournal", () => {
         eventId: "attempt-1",
         runId: "run-1",
         workItemId: "work-1",
+        retryBudgetId: "budget-1",
       }),
     ).toBe(1);
     expect(
       journal.recordCompletionAttempt({
         eventId: "attempt-2",
         runId: "run-1",
-        workItemId: "work-1",
+        workItemId: "work-2",
+        retryBudgetId: "budget-1",
       }),
     ).toBe(2);
     expect(
@@ -222,6 +249,7 @@ describe("LocalJournal", () => {
         eventId: "attempt-1",
         runId: "run-1",
         workItemId: "work-1",
+        retryBudgetId: "budget-1",
       }),
     ).toBe(1);
 

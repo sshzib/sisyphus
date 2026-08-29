@@ -32,6 +32,7 @@ import {
 import { EvaluationEngine } from "./evaluation-engine.js";
 import { InMemorySupervisionStore } from "./in-memory-store.js";
 import type {
+  AdvisoryResultPort,
   DeterministicEvaluator,
   EvaluationJudge,
   PersistedEventDecision,
@@ -103,6 +104,7 @@ function persistedDecision(
   if (
     persisted.observationKind !== event.kind ||
     persisted.workItemId !== event.workItemId ||
+    persisted.retryBudgetId !== event.retryBudgetId ||
     persisted.observationDigest !== observationDigest(event)
   ) {
     throw new Error(`event ID ${event.eventId} was reused for a different observation`);
@@ -138,6 +140,7 @@ function storeDecision(
   const persisted: PersistedEventDecision = {
     observationKind: event.kind,
     workItemId: event.workItemId,
+    retryBudgetId: event.retryBudgetId,
     observationDigest: observationDigest(event),
     decision,
   };
@@ -165,9 +168,10 @@ function effectiveCandidate(
   };
 }
 
-function nextRetry(count: RetryDirectiveCount):
+function nextRetry(count: RetryDirectiveCount, limit: number):
   | { readonly kind: "retry"; readonly ordinal: 1 | 2; readonly nextCount: 1 | 2 }
   | { readonly kind: "exhausted" } {
+  if (count >= limit) return { kind: "exhausted" };
   switch (count) {
     case 0:
       return { kind: "retry", ordinal: 1, nextCount: 1 };
@@ -234,8 +238,8 @@ function appendCompletion(input: {
   skillVersionId: SkillVersionId;
   outcome: SkillCompletionRecord["outcome"];
 }): SkillCompletionRecord {
-  const retryDirectives = input.transaction.getWorkItem(
-    input.event.workItemId,
+  const retryDirectives = input.transaction.getRetryBudget(
+    input.event.retryBudgetId,
   ).retryDirectives;
   const attempt = attemptFor(retryDirectives);
   const record: SkillCompletionRecord = {
@@ -308,12 +312,16 @@ export class DefaultSupervisionKernel implements SupervisionKernel {
     readonly deterministicEvaluators?: readonly DeterministicEvaluator[] | undefined;
     readonly judge?: EvaluationJudge | undefined;
     readonly judgeTimeoutMs?: number | undefined;
+    readonly advisoryResults?: AdvisoryResultPort | undefined;
+    readonly now?: (() => Date) | undefined;
   }) {
     this.#store = input.store;
     this.#evaluation = new EvaluationEngine({
       deterministicEvaluators: input.deterministicEvaluators,
       judge: input.judge,
       judgeTimeoutMs: input.judgeTimeoutMs,
+      advisoryResults: input.advisoryResults,
+      now: input.now,
     });
   }
 
@@ -513,6 +521,7 @@ export class DefaultSupervisionKernel implements SupervisionKernel {
         requiredCapabilities(constraint, [actionCapability]),
       );
       const workItem = transaction.getWorkItem(event.workItemId);
+      const retryBudget = transaction.getRetryBudget(event.retryBudgetId);
       let decision: StopDecision;
 
       if (workItem.finalEventId !== undefined) {
@@ -547,7 +556,6 @@ export class DefaultSupervisionKernel implements SupervisionKernel {
             }),
           };
           transaction.putWorkItem(event.workItemId, {
-            retryDirectives: workItem.retryDirectives,
             finalEventId: event.eventId,
           });
           break;
@@ -568,7 +576,6 @@ export class DefaultSupervisionKernel implements SupervisionKernel {
             sanction: { kind: "not-applicable" },
           };
           transaction.putWorkItem(event.workItemId, {
-            retryDirectives: workItem.retryDirectives,
             finalEventId: event.eventId,
           });
           break;
@@ -592,13 +599,15 @@ export class DefaultSupervisionKernel implements SupervisionKernel {
               },
             };
             transaction.putWorkItem(event.workItemId, {
-              retryDirectives: workItem.retryDirectives,
               finalEventId: event.eventId,
             });
             break;
           }
 
-          const retry = nextRetry(workItem.retryDirectives);
+          const retry = nextRetry(
+            retryBudget.retryDirectives,
+            constraint.retryLimit ?? 2,
+          );
           if (retry.kind === "retry") {
             decision = {
               kind: "stop-decision",
@@ -617,7 +626,7 @@ export class DefaultSupervisionKernel implements SupervisionKernel {
               },
               sanction: { kind: "not-applicable" },
             };
-            transaction.putWorkItem(event.workItemId, {
+            transaction.putRetryBudget(event.retryBudgetId, {
               retryDirectives: retry.nextCount,
             });
             break;
@@ -642,7 +651,6 @@ export class DefaultSupervisionKernel implements SupervisionKernel {
             }),
           };
           transaction.putWorkItem(event.workItemId, {
-            retryDirectives: workItem.retryDirectives,
             finalEventId: event.eventId,
           });
           break;
@@ -751,6 +759,8 @@ export function createSupervisionKernel(input: {
   readonly deterministicEvaluators?: readonly DeterministicEvaluator[] | undefined;
   readonly judge?: EvaluationJudge | undefined;
   readonly judgeTimeoutMs?: number | undefined;
+  readonly advisoryResults?: AdvisoryResultPort | undefined;
+  readonly now?: (() => Date) | undefined;
 }): SupervisionKernel {
   return new DefaultSupervisionKernel(input);
 }
@@ -761,6 +771,8 @@ export function createInMemoryKernel(
     readonly deterministicEvaluators?: readonly DeterministicEvaluator[] | undefined;
     readonly judge?: EvaluationJudge | undefined;
     readonly judgeTimeoutMs?: number | undefined;
+    readonly advisoryResults?: AdvisoryResultPort | undefined;
+    readonly now?: (() => Date) | undefined;
   } = {},
 ): SupervisionKernel {
   return createSupervisionKernel({
@@ -768,5 +780,7 @@ export function createInMemoryKernel(
     deterministicEvaluators: input.deterministicEvaluators,
     judge: input.judge,
     judgeTimeoutMs: input.judgeTimeoutMs,
+    advisoryResults: input.advisoryResults,
+    now: input.now,
   });
 }

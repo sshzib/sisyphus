@@ -388,6 +388,23 @@ textarea:focus-visible {
   padding: 28px 30px 48px;
 }
 
+.demo-notice {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 10px 13px;
+  color: var(--muted-bright);
+  background: var(--amber-soft);
+  border: 1px solid rgba(231, 183, 92, 0.25);
+  border-radius: 9px;
+  font-size: 12px;
+}
+
+.demo-notice strong {
+  color: var(--amber);
+}
+
 .view-stack {
   display: flex;
   flex-direction: column;
@@ -1722,6 +1739,12 @@ tbody tr:hover {
 
   .content-area {
     padding: 16px 14px 36px;
+  }
+
+  .demo-notice {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
   }
 
   .summary-strip {

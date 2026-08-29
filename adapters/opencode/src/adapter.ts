@@ -1,14 +1,15 @@
 import { z } from "zod";
 
 import {
-  createAdapterInstallationId,
   createAdapterVersion,
   createTimestamp,
+  defaultRuntimeInstallationIdentity,
   type AdapterVersion,
   type DecisionFor,
   type HookObservation,
   type RuntimeCapabilitySnapshot,
   type RuntimeIdentity,
+  type RuntimeInstallationIdentity,
   type SkillActivationEvidence,
 } from "@sisyphus/domain";
 import {
@@ -36,6 +37,7 @@ const VersionSchema = z.string().trim().min(1);
 export type OpenCodeAdapterOptions = {
   readonly runtimeVersion?: string;
   readonly adapterVersion?: string;
+  readonly installationIdentity?: RuntimeInstallationIdentity;
   readonly now?: () => Date;
   readonly turnCorrelation?: OpenCodeTurnCorrelationStore;
 };
@@ -44,7 +46,7 @@ type ParsedOpenCodeEvent = ReturnType<typeof parseOpenCodeHookEvent>;
 
 export interface OpenCodeTurnCorrelationStore {
   scopeFor(event: ParsedOpenCodeEvent): string;
-  close(input: { readonly sessionId: string; readonly workItemId: string }): void;
+  close(input: { readonly sessionId: string; readonly retryBudgetId: string }): void;
 }
 
 export class InMemoryOpenCodeTurnCorrelationStore implements OpenCodeTurnCorrelationStore {
@@ -78,9 +80,9 @@ export class InMemoryOpenCodeTurnCorrelationStore implements OpenCodeTurnCorrela
     return scope;
   }
 
-  close(input: { readonly sessionId: string; readonly workItemId: string }): void {
+  close(input: { readonly sessionId: string; readonly retryBudgetId: string }): void {
     const active = this.#active.get(input.sessionId);
-    if (active !== undefined && `opencode:${input.sessionId}:${active}` === input.workItemId) {
+    if (active !== undefined && `opencode:${input.sessionId}:${active}` === input.retryBudgetId) {
       this.#active.delete(input.sessionId);
     }
   }
@@ -119,17 +121,29 @@ export function openCodeCapabilities(runtimeVersion: string): RuntimeCapabilityS
 
 export class OpenCodeRuntimeAdapter implements AgentRuntimeAdapter {
   readonly runtime = "opencode";
+  readonly installationIdentity: RuntimeInstallationIdentity;
 
   readonly #adapterVersion: AdapterVersion;
   readonly #capabilities: RuntimeCapabilitySnapshot;
   readonly #now: () => Date;
   readonly #turnCorrelation: OpenCodeTurnCorrelationStore;
   readonly #installations = new Map<string, AdapterInstallation>();
+  readonly #installationRequestDigests = new Map<string, string>();
 
   constructor(input: OpenCodeAdapterOptions = {}) {
     this.#adapterVersion = createAdapterVersion(
       VersionSchema.parse(input.adapterVersion ?? "0.1.0"),
     );
+    this.installationIdentity =
+      input.installationIdentity ??
+      defaultRuntimeInstallationIdentity({
+        runtime: this.runtime,
+        adapterVersion: this.#adapterVersion,
+        profile: "local",
+      });
+    if (this.installationIdentity.profile !== "local") {
+      throw new Error("OpenCode installation profile must be local.");
+    }
     this.#capabilities = openCodeCapabilities(input.runtimeVersion ?? "unknown");
     this.#now = input.now ?? (() => new Date());
     this.#turnCorrelation =
@@ -142,20 +156,23 @@ export class OpenCodeRuntimeAdapter implements AgentRuntimeAdapter {
 
   async install(input: AdapterInstallRequest): Promise<AdapterInstallation> {
     const request = AdapterInstallRequestSchema.parse(input);
-    const installationId = createAdapterInstallationId(
-      `opencode:${stableOpenCodeDigest({
-        deviceId: request.deviceId,
-        adapterVersion: request.adapterVersion,
-        workerEndpoint: request.workerEndpoint,
-        scope: request.scope,
-      })}`,
-    );
+    if (request.adapterVersion !== this.#adapterVersion) {
+      throw new Error("OpenCode install request does not match the adapter version.");
+    }
+    const installationId = this.installationIdentity.adapterInstallationId;
+    const requestDigest = stableOpenCodeDigest(request);
     const existing = this.#installations.get(installationId);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      if (this.#installationRequestDigests.get(installationId) !== requestDigest) {
+        throw new Error("OpenCode installation identity belongs to another install request.");
+      }
+      return existing;
+    }
     const installedAt = this.#now();
     if (Number.isNaN(installedAt.getTime())) throw new Error("now() returned an invalid date");
     const installation: AdapterInstallation = {
       installationId,
+      profile: this.installationIdentity.profile,
       runtime: this.runtime,
       adapterVersion: request.adapterVersion,
       installedAt: createTimestamp(installedAt.toISOString()),
@@ -163,12 +180,14 @@ export class OpenCodeRuntimeAdapter implements AgentRuntimeAdapter {
       capabilities: this.#capabilities,
     };
     this.#installations.set(installationId, installation);
+    this.#installationRequestDigests.set(installationId, requestDigest);
     return installation;
   }
 
   async uninstall(input: AdapterUninstallRequest): Promise<void> {
     const request = AdapterUninstallRequestSchema.parse(input);
     this.#installations.delete(request.installationId);
+    this.#installationRequestDigests.delete(request.installationId);
   }
 
   parseEvent(input: UnknownRuntimeEvent): HookObservation {
@@ -176,6 +195,7 @@ export class OpenCodeRuntimeAdapter implements AgentRuntimeAdapter {
     return normalizeOpenCodeEvent(event, {
       adapterVersion: this.#adapterVersion,
       capabilities: this.#capabilities,
+      runtimeInstallation: this.installationIdentity,
       now: this.#now,
       turnScope: this.#turnCorrelation.scopeFor(event),
     });
@@ -192,7 +212,7 @@ export class OpenCodeRuntimeAdapter implements AgentRuntimeAdapter {
     ) {
       this.#turnCorrelation.close({
         sessionId: event.identity.sessionId,
-        workItemId: event.workItemId,
+        retryBudgetId: event.retryBudgetId,
       });
     }
     return renderOpenCodeDecision(decision);

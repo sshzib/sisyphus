@@ -173,10 +173,26 @@ export class ManagedCatalogPolicyProvider implements PolicyProvider {
 
     const candidatesByVersion = new Map<SkillVersionId, SkillMatchCandidate>();
     for (const candidate of base.skillCandidates) {
-      candidatesByVersion.set(candidate.skillVersionId, candidate);
+      const instruction = this.#catalog.instructionFor(
+        event.capabilities.runtime,
+        candidate.skillVersionId,
+      );
+      candidatesByVersion.set(candidate.skillVersionId, {
+        ...candidate,
+        activationAvailability:
+          instruction === undefined
+            ? {
+                kind: "unavailable",
+                reason: "The selected skill version has no managed instruction snapshot.",
+              }
+            : { kind: "available" },
+      });
     }
     for (const candidate of this.#catalog.catalog.matchPrompt({ prompt: event.prompt })) {
-      candidatesByVersion.set(candidate.skillVersionId, candidate);
+      candidatesByVersion.set(candidate.skillVersionId, {
+        ...candidate,
+        activationAvailability: { kind: "available" },
+      });
     }
 
     const candidates = await Promise.all(

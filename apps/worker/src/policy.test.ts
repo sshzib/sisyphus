@@ -1,4 +1,7 @@
 import { generateKeyPairSync, sign } from "node:crypto";
+import { mkdtemp } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   PromptObservationSchema,
@@ -22,6 +25,7 @@ import {
   type AppliedPolicyBundleState,
   type WorkerPolicyIdentity,
 } from "./policy.js";
+import { LocalJournal } from "./journal.js";
 
 const adapterConfigurationDigest = "a".repeat(64);
 const identity: WorkerPolicyIdentity = {
@@ -36,12 +40,17 @@ const observation = PromptObservationSchema.parse({
   kind: "prompt",
   eventId: "policy-prompt",
   workItemId: "policy-work",
+  retryBudgetId: "policy-budget",
   runId: "policy-run",
   occurredAt: "2026-08-29T12:00:00.000Z",
   adapterVersion: "0.1.0",
+  runtimeInstallation: {
+    adapterInstallationId: "installation-codex-local",
+    profile: "local",
+  },
   capabilities: {
     runtime: "codex",
-    runtimeVersion: "unknown",
+    runtimeVersion: "0.99.0",
     promptInterception: { kind: "supported" },
     skillSelectionControl: { kind: "supported" },
     rootStopContinuation: { kind: "supported" },
@@ -215,6 +224,56 @@ describe("signed policy bundles", () => {
     await expect(provider.constraintFor(observation)).resolves.toMatchObject({
       toolPolicy: { kind: "deny" },
     });
+  });
+
+  it("restores and re-verifies the exact signed bundle before an offline restart serves work", async () => {
+    const signed = signedBundle(payload({ revision: 3 }));
+    const directory = await mkdtemp(join(tmpdir(), "sisyphus-policy-restart-"));
+    const databasePath = join(directory, "worker.db");
+    const firstJournal = new LocalJournal({ path: databasePath });
+    const firstProvider = new MutablePolicyProvider(defaultEvaluationConstraint());
+    const first = new PolicyBundleSynchronizer({
+      endpoint: "http://127.0.0.1:7332",
+      deviceToken: "device-token",
+      provider: firstProvider,
+      publicKeys: signed.publicKeys,
+      identity,
+      stateStore: firstJournal,
+      transitionApplier: { applyDispositionTransition: async () => undefined },
+      now: () => new Date("2026-08-29T12:00:00.000Z"),
+      fetchImplementation: async () =>
+        new Response(JSON.stringify(signed.bundle), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    });
+    await first.refresh();
+    firstJournal.close();
+
+    const restartedJournal = new LocalJournal({ path: databasePath });
+    const restartedProvider = new MutablePolicyProvider(defaultEvaluationConstraint());
+    const restarted = new PolicyBundleSynchronizer({
+      endpoint: "http://127.0.0.1:7332",
+      deviceToken: "device-token",
+      provider: restartedProvider,
+      publicKeys: signed.publicKeys,
+      identity,
+      stateStore: restartedJournal,
+      transitionApplier: { applyDispositionTransition: async () => undefined },
+      now: () => new Date("2026-08-29T12:01:00.000Z"),
+      fetchImplementation: async () => {
+        throw new Error("offline");
+      },
+    });
+
+    await expect(restarted.restore()).resolves.toMatchObject({ revision: 3 });
+    await expect(restartedProvider.constraintFor(observation)).resolves.toMatchObject({
+      passThreshold: 0.8,
+      retryLimit: 2,
+      toolPolicy: { kind: "deny", reason: "blocked by signed team policy" },
+    });
+    await expect(restarted.refresh()).rejects.toThrow("offline");
+    restartedJournal.close();
   });
 
   it("rejects rollback below the persisted revision", async () => {

@@ -1,6 +1,8 @@
 import {
   DeterministicCheckResultSchema,
   JudgeResultSchema,
+  createEvaluationId,
+  createTimestamp,
   type EvaluationAssessment,
   type EvaluationConstraint,
   type EvaluationFinding,
@@ -8,7 +10,11 @@ import {
   type StopObservation,
 } from "@sisyphus/domain";
 
-import type { DeterministicEvaluator, EvaluationJudge } from "./ports.js";
+import type {
+  AdvisoryResultPort,
+  DeterministicEvaluator,
+  EvaluationJudge,
+} from "./ports.js";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "unknown evaluator error";
@@ -18,15 +24,21 @@ export class EvaluationEngine {
   readonly #deterministicEvaluators: readonly DeterministicEvaluator[];
   readonly #judge: EvaluationJudge | undefined;
   readonly #judgeTimeoutMs: number;
+  readonly #advisoryResults: AdvisoryResultPort | undefined;
+  readonly #now: () => Date;
 
   constructor(input: {
     readonly deterministicEvaluators?: readonly DeterministicEvaluator[] | undefined;
     readonly judge?: EvaluationJudge | undefined;
     readonly judgeTimeoutMs?: number | undefined;
+    readonly advisoryResults?: AdvisoryResultPort | undefined;
+    readonly now?: (() => Date) | undefined;
   }) {
     this.#deterministicEvaluators = input.deterministicEvaluators ?? [];
     this.#judge = input.judge;
     this.#judgeTimeoutMs = input.judgeTimeoutMs ?? 8_000;
+    this.#advisoryResults = input.advisoryResults;
+    this.#now = input.now ?? (() => new Date());
     if (!Number.isFinite(this.#judgeTimeoutMs) || this.#judgeTimeoutMs <= 0) {
       throw new Error("judgeTimeoutMs must be a positive finite number");
     }
@@ -83,6 +95,9 @@ export class EvaluationEngine {
         }));
       const invocation = await Promise.race([evaluation, timeout]);
       if (invocation.kind === "timeout") {
+        void evaluation
+          .then(({ result }) => this.#recordLateAdvisory(observation, constraint, result))
+          .catch(() => undefined);
         return {
           kind: "inconclusive",
           reason: `judge exceeded ${this.#judgeTimeoutMs}ms deadline`,
@@ -93,6 +108,23 @@ export class EvaluationEngine {
       );
       switch (result.kind) {
         case "pass":
+          if (
+            constraint.passThreshold !== undefined &&
+            result.score < constraint.passThreshold
+          ) {
+            return {
+              kind: "fail",
+              score: result.score,
+              findings: [
+                {
+                  criterion: "score-threshold",
+                  message: `Judge score ${result.score} is below the required threshold ${constraint.passThreshold}.`,
+                  correction: "Address the judge criteria and return a result that meets the policy threshold.",
+                  evidence: [`score=${result.score}`, `threshold=${constraint.passThreshold}`],
+                },
+              ],
+            };
+          }
           return { kind: "pass", score: result.score };
         case "fail":
           return { kind: "fail", findings: result.findings, score: result.score };
@@ -117,5 +149,29 @@ export class EvaluationEngine {
     } finally {
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
     }
+  }
+
+  async #recordLateAdvisory(
+    observation: StopObservation,
+    constraint: EvaluationConstraint,
+    candidate: JudgeResult,
+  ): Promise<void> {
+    if (this.#advisoryResults === undefined) return;
+    const result = JudgeResultSchema.parse(candidate);
+    if (result.kind === "inconclusive") return;
+    const receivedAt =
+      result.kind === "late"
+        ? result.receivedAt
+        : createTimestamp(this.#now().toISOString());
+    const advisory = result.kind === "late" ? result.advisory : result;
+    await this.#advisoryResults.record({
+      evaluationId: createEvaluationId(
+        `evaluation:${observation.eventId}:${constraint.policyVersionId}`,
+      ),
+      eventId: observation.eventId,
+      policyVersionId: constraint.policyVersionId,
+      receivedAt,
+      advisory,
+    });
   }
 }

@@ -19,7 +19,7 @@ import {
   type RunSummary,
   type SkillSummary,
 } from "./contracts.js";
-import type { SisyphusDataClient } from "./client.js";
+import type { SisyphusDataClient } from "./data-client.js";
 import {
   attributionLabel,
   enforcementLabel,
@@ -84,6 +84,7 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
   const [evidenceText, setEvidenceText] = useState<string>();
   const [evidenceError, setEvidenceError] = useState<string>();
   const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const isDemo = client.dataSource.kind === "demo";
 
   useEffect(() => {
     let active = true;
@@ -242,7 +243,7 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
           </div>
 
           <div className="top-bar__controls">
-            <HostStatus context={hostContext} />
+            <HostStatus context={hostContext} dataSource={client.dataSource} />
             <label className="runtime-filter">
               <span>Runtime</span>
               <select
@@ -262,6 +263,12 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
         </header>
 
         <div className="content-area">
+          {isDemo ? (
+            <div className="demo-notice" role="note">
+              <strong>Demo data</strong>
+              <span>No runtime or cloud service is connected.</span>
+            </div>
+          ) : null}
           {error === undefined ? null : (
             <div className="error-banner" role="alert">
               <span>{error}</span>
@@ -370,9 +377,25 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
   );
 }
 
-function HostStatus({ context }: { context: HostContext | undefined }) {
-  if (context?.kind !== "desktop") {
-    return <span className="host-pill"><span className="status-dot status-dot--good" />Cloud synced</span>;
+function HostStatus({
+  context,
+  dataSource,
+}: {
+  context: HostContext | undefined;
+  dataSource: SisyphusDataClient["dataSource"];
+}) {
+  if (dataSource.kind === "demo" && context?.kind !== "desktop") {
+    return <span className="host-pill host-pill--warning"><span className="status-dot status-dot--warning" />Sample data</span>;
+  }
+  if (context === undefined) {
+    return <span className="host-pill host-pill--warning"><span className="status-dot status-dot--warning" />Connection unknown</span>;
+  }
+  if (context.kind === "web") {
+    return dataSource.kind === "authenticated-session" ? (
+      <span className="host-pill"><span className="status-dot status-dot--good" />Authenticated session</span>
+    ) : (
+      <span className="host-pill">Web dashboard</span>
+    );
   }
   if (context.worker.kind === "offline") {
     return (
@@ -798,11 +821,11 @@ function PoliciesView({ snapshot }: { snapshot: DashboardSnapshot }) {
     <div className="policy-grid">
       {snapshot.policies.map((policy) => {
         const matchingIntegrations = snapshot.integrations.filter((integration) => policy.runtime === null || integration.runtime === policy.runtime);
-        const unsupportedCount = matchingIntegrations.reduce((sum, integration) => sum + policy.requiredCapabilities.filter((requirement) => integration.capabilities[requirement].kind === "unsupported").length, 0);
+        const gapCount = matchingIntegrations.reduce((sum, integration) => sum + policy.requiredCapabilities.filter((requirement) => integration.capabilities[requirement].kind !== "supported").length, 0);
         return (
           <article className="policy-card" key={policy.id}>
             <header><div><span className={policy.enabled ? "status-dot status-dot--good" : "status-dot"} /><div><h2>{policy.name}</h2><span>{policy.runtime === null ? "All runtimes" : runtimeLabel(policy.runtime)}</span></div></div><span className={policy.enabled ? "toggle-label toggle-label--on" : "toggle-label"}>{policy.enabled ? "Active" : "Off"}</span></header>
-            <div className="policy-stats"><div><span>Pass threshold</span><strong>{policy.passThreshold}</strong></div><div><span>Retry limit</span><strong>{policy.retryLimit}</strong></div><div><span>Capability gaps</span><strong className={unsupportedCount > 0 ? "text-danger" : ""}>{unsupportedCount}</strong></div></div>
+            <div className="policy-stats"><div><span>Pass threshold</span><strong>{policy.passThreshold}</strong></div><div><span>Retry limit</span><strong>{policy.retryLimit}</strong></div><div><span>Capability gaps</span><strong className={gapCount > 0 ? "text-danger" : ""}>{gapCount}</strong></div></div>
             <div className="tag-row">{policy.requiredCapabilities.map((capability) => <span key={capability}>{splitIdentifier(capability)}</span>)}</div>
             <footer>Updated {formatTimestamp(policy.updatedAt)}</footer>
           </article>

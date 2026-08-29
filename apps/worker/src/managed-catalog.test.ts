@@ -7,11 +7,17 @@ import {
   createAdapterVersion,
   createAgentId,
   createRunId,
+  createRetryBudgetId,
+  createRuntimeInstallationIdentity,
   createEventId,
   createSessionId,
   createSkillId,
+  createSkillVersionId,
+  createSkillVersionKey,
   createTimestamp,
+  createTriggerId,
   createWorkItemId,
+  resolveSkill,
   type EvaluationConstraint,
   type HookObservation,
   type SkillDisposition,
@@ -36,11 +42,16 @@ function promptEvent(prompt: string): HookObservation {
     eventId: createEventId("event-managed-catalog"),
     runId: createRunId("run-managed-catalog"),
     workItemId: createWorkItemId("work-managed-catalog"),
+    retryBudgetId: createRetryBudgetId("budget-managed-catalog"),
     occurredAt: createTimestamp("2026-08-29T10:00:00.000Z"),
     adapterVersion: createAdapterVersion("0.1.0"),
+    runtimeInstallation: createRuntimeInstallationIdentity({
+      adapterInstallationId: "installation-managed-catalog",
+      profile: "local",
+    }),
     capabilities: {
       runtime: "codex",
-      runtimeVersion: "unknown",
+      runtimeVersion: "0.99.0",
       promptInterception: { kind: "supported" },
       skillSelectionControl: { kind: "supported" },
       rootStopContinuation: { kind: "supported" },
@@ -117,6 +128,55 @@ describe("managed skill catalog integration", () => {
         (candidate) => candidate.skillVersionId === priorityVersion.skillVersionId,
       )?.disposition,
     ).toBe("quarantined");
+  });
+
+  it("records a policy candidate without a managed instruction as unavailable", async () => {
+    const unavailableSkillVersionId = createSkillVersionId("missing-managed-snapshot");
+    const base: PolicyProvider = {
+      async constraintFor() {
+        return {
+          ...defaultEvaluationConstraint(),
+          skillCandidates: [
+            {
+              skillVersionId: unavailableSkillVersionId,
+              stableVersionKey: createSkillVersionKey("missing-managed-snapshot-v1"),
+              displayName: "Missing managed snapshot",
+              administratorPriority: 100,
+              specificity: 100,
+              disposition: "active",
+              trigger: {
+                triggerId: createTriggerId("missing-managed-snapshot-trigger"),
+                kind: "contains",
+                pattern: "review",
+              },
+            },
+          ],
+        };
+      },
+    };
+    const service = await createManagedSkillCatalog({
+      skills: [],
+      administratorPriorities: [],
+      wrappers: [],
+    });
+    const provider = new ManagedCatalogPolicyProvider({
+      base,
+      catalog: service,
+      standing: { dispositionFor: async () => "active" },
+    });
+
+    const constraint = await provider.constraintFor(promptEvent("review this change"));
+
+    expect(constraint.skillCandidates).toHaveLength(1);
+    expect(constraint.skillCandidates[0]?.activationAvailability).toMatchObject({
+      kind: "unavailable",
+    });
+    expect(resolveSkill(constraint.skillCandidates)).toMatchObject({
+      kind: "none",
+      candidates: [
+        { outcome: { kind: "rejected", reason: "wrapper-unavailable" } },
+      ],
+    });
   });
 
   it("keeps wrappers separate and returns a hash-verified runtime instruction", async () => {

@@ -33,34 +33,36 @@ export class OutboxSynchronizer {
   }
 
   async flush(): Promise<number> {
-    const records = this.#journal.pendingOutbox();
-    if (records.length === 0) return 0;
-    const uploadRecords = records.map(({ id, eventId, payload }) => ({
-      id,
-      eventId,
-      payload,
-    }));
+    let acknowledgedTotal = 0;
+    while (true) {
+      const records = this.#journal.pendingOutbox(100);
+      if (records.length === 0) return acknowledgedTotal;
+      const uploadRecords = records.map(({ id, eventId, payload }) => ({
+        id,
+        eventId,
+        payload,
+      }));
 
-    const response = await this.#fetch(this.#endpoint, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.#deviceToken}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({ records: uploadRecords }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!response.ok) {
-      throw new Error(`Control plane rejected outbox batch with HTTP ${response.status}.`);
+      const response = await this.#fetch(this.#endpoint, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.#deviceToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ records: uploadRecords }),
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) {
+        throw new Error(`Control plane rejected outbox batch with HTTP ${response.status}.`);
+      }
+      const parsed = batchResponseSchema.parse(await response.json());
+      const pendingIds = new Set(records.map((record) => record.id));
+      const acceptedIds = new Set(
+        parsed.acceptedIds.filter((id) => pendingIds.has(id)),
+      );
+      for (const id of acceptedIds) this.#journal.acknowledge(id);
+      acknowledgedTotal += acceptedIds.size;
+      if (acceptedIds.size === 0) return acknowledgedTotal;
     }
-    const parsed = batchResponseSchema.parse(await response.json());
-    const pendingIds = new Set(records.map((record) => record.id));
-    let acknowledged = 0;
-    for (const id of parsed.acceptedIds) {
-      if (!pendingIds.has(id)) continue;
-      this.#journal.acknowledge(id);
-      acknowledged += 1;
-    }
-    return acknowledged;
   }
 }

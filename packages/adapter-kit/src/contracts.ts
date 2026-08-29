@@ -6,6 +6,7 @@ import {
   AgentRuntimeSchema,
   DeviceIdSchema,
   RuntimeCapabilitySnapshotSchema,
+  RuntimeProfileSchema,
   SkillActivationEvidenceSchema,
   TimestampSchema,
   type AgentRuntime,
@@ -15,6 +16,7 @@ import {
   type RootStopObservation,
   type RuntimeCapabilitySnapshot,
   type RuntimeIdentity,
+  type RuntimeInstallationIdentity,
   type SkillActivationEvidence,
   type SubagentStopObservation,
   type ToolRequestObservation,
@@ -40,6 +42,7 @@ export type AdapterInstallRequest = z.infer<typeof AdapterInstallRequestSchema>;
 
 export const AdapterInstallationSchema = z.object({
   installationId: AdapterInstallationIdSchema,
+  profile: RuntimeProfileSchema,
   runtime: AgentRuntimeSchema,
   adapterVersion: AdapterVersionSchema,
   installedAt: TimestampSchema,
@@ -55,6 +58,7 @@ export type AdapterUninstallRequest = z.infer<typeof AdapterUninstallRequestSche
 
 export interface AgentRuntimeAdapter {
   readonly runtime: AgentRuntime;
+  readonly installationIdentity: RuntimeInstallationIdentity;
 
   probe(): Promise<RuntimeCapabilitySnapshot>;
   install(input: AdapterInstallRequest): Promise<AdapterInstallation>;

@@ -10,6 +10,49 @@ export function postgresRoleFromUrl(connectionUrl: string): string {
   return PostgresRoleNameSchema.parse(decodeURIComponent(parsed.username));
 }
 
+export async function assertPostgresMigrationRole(input: {
+  migrationDatabaseUrl: string;
+  applicationDatabaseUrl: string;
+}): Promise<void> {
+  const migrationRole = postgresRoleFromUrl(input.migrationDatabaseUrl);
+  const applicationRole = postgresRoleFromUrl(input.applicationDatabaseUrl);
+  if (migrationRole === applicationRole) {
+    throw new Error(
+      "PostgreSQL migration and application URLs must use distinct roles.",
+    );
+  }
+
+  const client = postgres(input.migrationDatabaseUrl, {
+    max: 1,
+    prepare: false,
+    connect_timeout: 10,
+  });
+  try {
+    const roles = await client<
+      { roleName: string; rolsuper: boolean; rolbypassrls: boolean }[]
+    >`
+      select
+        current_user as "roleName",
+        rolsuper,
+        rolbypassrls
+      from pg_roles
+      where rolname = current_user
+    `;
+    const role = roles[0];
+    if (
+      role === undefined ||
+      role.roleName !== migrationRole ||
+      (!role.rolsuper && !role.rolbypassrls)
+    ) {
+      throw new Error(
+        "The PostgreSQL migration role must be the URL role and must have SUPERUSER or BYPASSRLS so data migrations can cross forced tenant policies.",
+      );
+    }
+  } finally {
+    await client.end({ timeout: 5 });
+  }
+}
+
 export async function grantPostgresApplicationRole(input: {
   migrationDatabaseUrl: string;
   applicationDatabaseUrl: string;
@@ -65,7 +108,11 @@ export async function grantPostgresApplicationRole(input: {
         to ${transaction(applicationRole)}
       `;
       await transaction`
-        grant select, update on table devices
+        grant select on table devices
+        to ${transaction(applicationRole)}
+      `;
+      await transaction`
+        grant update (last_seen_at) on table devices
         to ${transaction(applicationRole)}
       `;
       await transaction`
@@ -84,7 +131,8 @@ export async function grantPostgresApplicationRole(input: {
           evaluations,
           skill_dispositions,
           ingest_events,
-          disposition_transitions
+          disposition_transitions,
+          policy_bundle_issuances
         to ${transaction(applicationRole)}
       `;
     });

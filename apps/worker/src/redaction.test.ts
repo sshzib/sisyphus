@@ -36,6 +36,23 @@ describe("redactEvidence", () => {
     expect(result.redactions).toBe(3);
   });
 
+  it("removes every Sisyphus channel credential from JSON evidence", () => {
+    const credentials = {
+      SISYPHUS_HOOK_TOKEN: "hook-secret-0123456789abcdef0123456789abcdef",
+      SISYPHUS_MCP_TOKEN: "mcp-secret-0123456789abcdef0123456789abcdef",
+      SISYPHUS_DESKTOP_TOKEN: "desktop-secret-0123456789abcdef0123456789abcdef",
+      deviceCredential: "device-secret-0123456789abcdef0123456789abcdef",
+      evidence_access_token: "evidence-secret-0123456789abcdef0123456789abcdef",
+    };
+
+    const result = redactEvidence({ source: JSON.stringify(credentials), maximumCharacters: 4_000 });
+
+    for (const credential of Object.values(credentials)) {
+      expect(result.text).not.toContain(credential);
+    }
+    expect(result.redactions).toBe(Object.keys(credentials).length);
+  });
+
   it("clips excerpts without splitting a surrogate pair", () => {
     const result = redactEvidence({ source: `pass ✅ ${"x".repeat(100)}`, maximumCharacters: 8 });
     expect(result.text).toBe("pass ✅ …");

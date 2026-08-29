@@ -2,6 +2,7 @@ import {
   HookObservationSchema,
   RuntimeCapabilitySnapshotSchema,
   RuntimeIdentitySchema,
+  RuntimeInstallationIdentitySchema,
   SkillActivationEvidenceSchema,
 } from "@sisyphus/domain";
 
@@ -70,6 +71,22 @@ function checkCase(
       ? passed(`activation:${fixture.kind}`, "activation evidence is valid")
       : failed(`activation:${fixture.kind}`, activation.error.message),
   ];
+  const runtimeInstallation = RuntimeInstallationIdentitySchema.safeParse(
+    parsed.data.runtimeInstallation,
+  );
+  checks.push(
+    runtimeInstallation.success &&
+      JSON.stringify(runtimeInstallation.data) ===
+        JSON.stringify(adapter.installationIdentity)
+      ? passed(
+          `installation:${fixture.kind}`,
+          "observation carries the adapter installation identity",
+        )
+      : failed(
+          `installation:${fixture.kind}`,
+          "observation installation identity does not match the adapter",
+        ),
+  );
   checks.push(
     fixture.decision.eventId === parsed.data.eventId
       ? passed(`decision:${fixture.kind}`, "decision targets the parsed event")
@@ -151,6 +168,9 @@ export async function runAdapterConformance(input: {
   const installation = AdapterInstallationSchema.parse(
     await input.adapter.install(input.fixture.installRequest),
   );
+  const replayedInstallation = AdapterInstallationSchema.parse(
+    await input.adapter.install(input.fixture.installRequest),
+  );
   if (installation.runtime !== input.adapter.runtime) {
     throw new Error(
       `adapter runtime ${input.adapter.runtime} does not match installation runtime ${installation.runtime}`,
@@ -176,6 +196,14 @@ export async function runAdapterConformance(input: {
     JSON.stringify(installation.capabilities) === JSON.stringify(capabilities)
       ? passed("installation:capabilities", "installation snapshot matches the probe")
       : failed("installation:capabilities", "installation snapshot differs from the probe"),
+    installation.installationId ===
+        input.adapter.installationIdentity.adapterInstallationId &&
+      installation.profile === input.adapter.installationIdentity.profile
+      ? passed("installation:identity", "installation identity matches the adapter")
+      : failed("installation:identity", "installation identity differs from the adapter"),
+    JSON.stringify(replayedInstallation) === JSON.stringify(installation)
+      ? passed("installation:idempotency", "repeated installation converged")
+      : failed("installation:idempotency", "repeated installation changed its record"),
   ];
   const checks = [
     ...coverageChecks,

@@ -117,7 +117,13 @@ describe("worker MCP tools", () => {
     const directory = await mkdtemp(join(tmpdir(), "sisyphus-mcp-"));
     const journal = new LocalJournal({ path: join(directory, "worker.db") });
     cleanups.push(() => journal.close());
-    const server = createServer(createMcpRequestHandler({ journal, mcpToken }));
+    const server = createServer(
+      createMcpRequestHandler({
+        journal,
+        mcpToken,
+        instructionForSkill: () => undefined,
+      }),
+    );
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
     const address = server.address();
@@ -149,6 +155,7 @@ describe("worker MCP tools", () => {
       createMcpRequestHandler({
         journal,
         mcpToken,
+        instructionForSkill: () => undefined,
         now: () => new Date("2026-08-29T10:01:00.000Z"),
       }),
     );
@@ -170,5 +177,65 @@ describe("worker MCP tools", () => {
     });
 
     expect(result.isError).toBe(true);
+  });
+
+  it("refuses a valid lease without consuming it when its instruction is unavailable", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sisyphus-mcp-"));
+    const journal = new LocalJournal({ path: join(directory, "worker.db") });
+    cleanups.push(() => journal.close());
+    const issued = authority.issue({
+      promptEventId: "prompt-event-missing-instruction",
+      runtime: "codex",
+      runId: "run-missing-instruction",
+      workItemId: "work-missing-instruction",
+      skillVersionId: "skill-version-missing-instruction",
+      issuedAt: "2026-08-29T10:00:00.000Z",
+      expiresAt: "2026-08-29T10:05:00.000Z",
+    });
+    journal.recordDecision({
+      eventId: "prompt-event-missing-instruction",
+      decision: { kind: "prompt-decision" },
+      envelopeDigest: "c".repeat(64),
+      receivedAt: "2026-08-29T10:00:00.000Z",
+      evidence: { handle: "evidence-missing", digest: "d".repeat(64) },
+      cloudEvent: { kind: "prompt-observed" },
+      activationLease: issued.record,
+    });
+    const server = createServer(
+      createMcpRequestHandler({
+        journal,
+        mcpToken,
+        instructionForSkill: () => undefined,
+        now: () => new Date("2026-08-29T10:01:00.000Z"),
+      }),
+    );
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => new Promise<void>((resolve) => server.close(() => resolve())));
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Missing server port.");
+    const client = new Client({ name: "worker-test", version: "0.1.0" });
+    const transport = new StreamableHTTPClientTransport(
+      new URL(`http://127.0.0.1:${address.port}/mcp`),
+      { requestInit: { headers: { authorization: `Bearer ${mcpToken}` } } },
+    );
+    await client.connect(transport as Transport);
+    cleanups.push(() => client.close());
+
+    const result = await client.callTool({
+      name: "activate_skill",
+      arguments: {
+        skillVersionId: "skill-version-missing-instruction",
+        activationLeaseId: issued.lease.activationLeaseId,
+      },
+    });
+
+    expect(result.isError).toBe(true);
+    const pending = journal.pendingActivationLease({
+      activationLeaseDigest: issued.record.activationLeaseDigest,
+      skillVersionId: "skill-version-missing-instruction",
+      observedAt: "2026-08-29T10:02:00.000Z",
+    });
+    expect(pending).toBeDefined();
+    expect(pending).not.toHaveProperty("consumedAt");
   });
 });

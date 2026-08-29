@@ -10,6 +10,7 @@ import {
   type EvaluationConstraint,
   type HookObservation,
   type SignedPolicyBundlePayload,
+  type SignedPolicyBundle,
   type SkillDispositionTransition,
   type TenantId,
 } from "@sisyphus/domain";
@@ -31,6 +32,7 @@ export interface AppliedPolicyBundleState {
   readonly revision: number;
   readonly payloadDigest: string;
   readonly dispositionRevision: number;
+  readonly signedBundle?: SignedPolicyBundle;
 }
 
 export interface PolicyBundleStateStore {
@@ -66,6 +68,8 @@ export function defaultEvaluationConstraint(): EvaluationConstraint {
   return parseEvaluationConstraint({
     policyId: "local-default",
     policyVersionId: "local-default-v1",
+    passThreshold: 0.8,
+    retryLimit: 2,
     requiredCapabilities: [],
     skillCandidates: [],
     toolPolicy: { kind: "allow" },
@@ -148,7 +152,13 @@ export class MutablePolicyProvider implements PolicyProvider {
         supportsCapability(event.capabilities, capability),
       ),
     );
-    return capable?.constraint ?? applicable?.[0]?.constraint ?? this.#localConstraint;
+    const selected = capable ?? applicable?.[0];
+    if (selected === undefined) return this.#localConstraint;
+    return parseEvaluationConstraint({
+      ...selected.constraint,
+      passThreshold: selected.passThreshold,
+      retryLimit: selected.retryLimit,
+    });
   }
 
   public replaceBundle(payload: SignedPolicyBundlePayload): void {
@@ -203,6 +213,25 @@ export class PolicyBundleSynchronizer {
     this.#fetch = input.fetchImplementation ?? fetch;
   }
 
+  public async restore(): Promise<SignedPolicyBundlePayload | undefined> {
+    const stored = this.#stateStore.policyBundleState();
+    if (stored?.signedBundle === undefined) return undefined;
+    const payload = verifyPolicyBundle(stored.signedBundle, {
+      publicKeys: this.#publicKeys,
+      identity: this.#identity,
+      now: this.#now(),
+    });
+    if (payload.revision !== stored.revision || payloadDigest(payload) !== stored.payloadDigest) {
+      throw new Error("Stored policy bundle does not match its persisted state.");
+    }
+    const maximumTransitionRevision = payload.dispositionTransitions.at(-1)?.revision ?? 0;
+    if (maximumTransitionRevision !== stored.dispositionRevision) {
+      throw new Error("Stored policy disposition revision does not match its payload.");
+    }
+    this.#provider.replaceBundle(payload);
+    return payload;
+  }
+
   public async refresh(): Promise<SignedPolicyBundlePayload> {
     const response = await this.#fetch(this.#endpoint, {
       method: "GET",
@@ -212,7 +241,8 @@ export class PolicyBundleSynchronizer {
     if (!response.ok) {
       throw new Error(`Policy control plane returned HTTP ${response.status}.`);
     }
-    const payload = verifyPolicyBundle(await response.json(), {
+    const signedBundle = SignedPolicyBundleSchema.parse(await response.json());
+    const payload = verifyPolicyBundle(signedBundle, {
       publicKeys: this.#publicKeys,
       identity: this.#identity,
       now: this.#now(),
@@ -243,6 +273,7 @@ export class PolicyBundleSynchronizer {
       revision: payload.revision,
       payloadDigest: digest,
       dispositionRevision,
+      signedBundle,
     });
     this.#provider.replaceBundle(payload);
     return payload;

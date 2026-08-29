@@ -18,6 +18,8 @@ import { canonicalJson } from "./canonical-json.js";
 import type { JudgeProvider, JudgeProviderInput } from "./judge.js";
 import {
   Ed25519PolicyBundleSigner,
+  POLICY_BUNDLE_RENEWAL_LEAD_MS,
+  POLICY_BUNDLE_VALIDITY_MS,
   SignedPolicyBundleSchema,
 } from "./policy-bundle.js";
 import { demoCredentials } from "./repository.js";
@@ -96,7 +98,10 @@ function cloudPayload(input: {
   agentId?: string;
 }): CompletionCloudRecord {
   const record = CloudSupervisionRecordSchema.parse({
-    ...cloudRecordBase({ runId: input.runId, agentId: input.agentId }),
+    ...cloudRecordBase({
+      runId: input.runId,
+      ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
+    }),
     kind: "completion",
     completionKind: "root",
     attribution: {
@@ -172,8 +177,8 @@ function cloudEnvelope(input: {
     eventId: input.eventId,
     payload: cloudPayload({
       runId: `run-${input.eventId}`,
-      score: input.score,
-      agentId: input.agentId,
+      ...(input.score === undefined ? {} : { score: input.score }),
+      ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
     }),
   };
 }
@@ -795,7 +800,7 @@ describe("signed policy bundles", () => {
     ).toBe(true);
   });
 
-  it("increments revisions and rejects signature reuse after payload tampering", async () => {
+  it("reuses an unchanged signed payload and rejects signature reuse after tampering", async () => {
     const signer = Ed25519PolicyBundleSigner.generate("tamper-test-key");
     const app = await testApp({ policyBundleSigner: signer });
     const firstResponse = await app.inject({
@@ -810,7 +815,30 @@ describe("signed policy bundles", () => {
     });
     const first = SignedPolicyBundleSchema.parse(firstResponse.json());
     const second = SignedPolicyBundleSchema.parse(secondResponse.json());
-    expect(second.payload.revision).toBe(first.payload.revision + 1);
+    expect(second).toEqual(first);
+
+    const metricsOnlyIngest = await app.inject({
+      method: "POST",
+      url: "/v1/events/batch",
+      headers: bearer(demoCredentials.acmeDevice),
+      payload: {
+        records: [
+          cloudEnvelope({
+            id: "policy-metrics-record",
+            eventId: "policy-metrics-event",
+          }),
+        ],
+      },
+    });
+    expect(metricsOnlyIngest.statusCode).toBe(202);
+    const afterMetricsResponse = await app.inject({
+      method: "GET",
+      url: "/v1/policy-bundle",
+      headers: bearer(demoCredentials.acmeDevice),
+    });
+    expect(
+      SignedPolicyBundleSchema.parse(afterMetricsResponse.json()),
+    ).toEqual(first);
 
     const tamperedPayload = {
       ...first.payload,
@@ -824,6 +852,35 @@ describe("signed policy bundles", () => {
         Buffer.from(first.signature, "base64"),
       ),
     ).toBe(false);
+  });
+
+  it("renews an unchanged bundle only when its validity window is nearly spent", async () => {
+    let nowMs = Date.parse("2026-08-29T10:00:00.000Z");
+    const app = await testApp({
+      policyBundleSigner:
+        Ed25519PolicyBundleSigner.generate("renewal-test-key"),
+      clock: () => new Date(nowMs),
+    });
+    const getBundle = async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/policy-bundle",
+        headers: bearer(demoCredentials.acmeDevice),
+      });
+      return SignedPolicyBundleSchema.parse(response.json());
+    };
+
+    const first = await getBundle();
+    nowMs +=
+      POLICY_BUNDLE_VALIDITY_MS - POLICY_BUNDLE_RENEWAL_LEAD_MS - 1;
+    const stillCurrent = await getBundle();
+    expect(stillCurrent).toEqual(first);
+
+    nowMs += 1;
+    const renewed = await getBundle();
+    expect(renewed.payload.revision).toBe(first.payload.revision + 1);
+    expect(renewed.payload.issuedAt).not.toBe(first.payload.issuedAt);
+    expect(renewed.signature).not.toBe(first.signature);
   });
 
   it("binds bundles to the authenticated tenant and installation", async () => {
@@ -891,6 +948,14 @@ describe("signed policy bundles", () => {
 
   it("promotes provisional quarantine and converges restoration in later bundles", async () => {
     const app = await testApp();
+    const initialBundleResponse = await app.inject({
+      method: "GET",
+      url: "/v1/policy-bundle",
+      headers: bearer(demoCredentials.acmeDevice),
+    });
+    const initialBundle = SignedPolicyBundleSchema.parse(
+      initialBundleResponse.json(),
+    );
     const completion = cloudPayload({ runId: "run-provisional-hold" });
     const quarantinedCompletion = CloudSupervisionRecordSchema.parse({
       ...completion,
@@ -923,6 +988,9 @@ describe("signed policy bundles", () => {
       headers: bearer(demoCredentials.acmeDevice),
     });
     const heldBundle = SignedPolicyBundleSchema.parse(heldBundleResponse.json());
+    expect(heldBundle.payload.revision).toBe(
+      initialBundle.payload.revision + 1,
+    );
     expect(heldBundle.payload.dispositionTransitions).toMatchObject([
       {
         kind: "quarantine",
@@ -948,6 +1016,9 @@ describe("signed policy bundles", () => {
     });
     const restoredBundle = SignedPolicyBundleSchema.parse(
       restoredBundleResponse.json(),
+    );
+    expect(restoredBundle.payload.revision).toBe(
+      heldBundle.payload.revision + 1,
     );
     expect(
       restoredBundle.payload.dispositionTransitions.map((transition) => ({

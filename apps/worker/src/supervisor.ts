@@ -6,6 +6,7 @@ import {
   RuntimeCapabilitySnapshotSchema,
   RuntimeEventIdSchema,
   RuntimeIdentitySchema,
+  RuntimeInstallationIdentitySchema,
   SkillActivationEvidenceSchema,
   createTimestamp,
   parseHookObservation,
@@ -40,6 +41,7 @@ export const WorkerSupervisionEnvelopeSchema = z
   .object({
     runtime: AgentRuntimeSchema,
     adapterVersion: AdapterVersionSchema,
+    runtimeInstallation: RuntimeInstallationIdentitySchema,
     eventId: RuntimeEventIdSchema,
     event: z.unknown(),
     nativeEvent: z.unknown().optional(),
@@ -118,6 +120,7 @@ function envelopeDigest(
     return canonicalSha256({
       runtime: envelope.runtime,
       adapterVersion: envelope.adapterVersion,
+      runtimeInstallation: envelope.runtimeInstallation,
       eventId: envelope.eventId,
       identity: envelope.identity,
       activation: envelope.activation,
@@ -250,6 +253,7 @@ export class WorkerSupervisor {
           eventId: event.eventId,
           runId: event.runId,
           workItemId: event.workItemId,
+          retryBudgetId: event.retryBudgetId,
         })
       : 1;
     const evaluationStartedAt = performance.now();
@@ -303,7 +307,7 @@ export class WorkerSupervisor {
     if (!isStop(event)) return event;
     const consumed = this.#journal.activationFor({
       runId: event.runId,
-      workItemId: event.workItemId,
+      workItemId: event.retryBudgetId,
     });
     if (consumed === undefined) {
       return { ...event, attribution: { kind: "none" } };
@@ -346,7 +350,7 @@ export class WorkerSupervisor {
       promptEventId: event.eventId,
       runtime: event.capabilities.runtime,
       runId: event.runId,
-      workItemId: event.workItemId,
+      workItemId: event.retryBudgetId,
       skillVersionId: decision.resolution.selected.skillVersionId,
       issuedAt,
       expiresAt,
@@ -378,6 +382,7 @@ export class WorkerSupervisor {
       runtime: event.capabilities.runtime,
       runtimeVersion: event.capabilities.runtimeVersion,
       adapterVersion: event.adapterVersion,
+      installationIdentity: event.runtimeInstallation,
     });
     if (authoritative === undefined) {
       throw new WorkerRequestError("No registered runtime installation matches this event.");
@@ -399,6 +404,14 @@ export class WorkerSupervisor {
     if (envelope.adapterVersion !== event.adapterVersion) {
       throw new WorkerRequestError(
         "Envelope adapterVersion does not match the normalized event.",
+      );
+    }
+    if (
+      canonicalSha256(envelope.runtimeInstallation) !==
+      canonicalSha256(event.runtimeInstallation)
+    ) {
+      throw new WorkerRequestError(
+        "Envelope runtime installation does not match the normalized event.",
       );
     }
     if (envelope.runtime !== event.capabilities.runtime) {

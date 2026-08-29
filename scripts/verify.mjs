@@ -33,5 +33,7 @@ run(process.execPath, ["scripts/check-boundaries.mjs"]);
 run(pnpm, ["typecheck"]);
 run(pnpm, ["test"]);
 run(pnpm, ["build"]);
+run(pnpm, ["--filter", "@sisyphus/desktop", "package:dir"]);
+run(pnpm, ["--filter", "@sisyphus/desktop", "smoke:packaged-worker"]);
 
 process.stdout.write("Sisyphus verification passed.\n");

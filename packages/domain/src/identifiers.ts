@@ -42,6 +42,10 @@ export const RunIdSchema = identifier.brand<"RunId">();
 export type RunId = z.infer<typeof RunIdSchema>;
 export const createRunId = RunIdSchema.parse;
 
+export const RetryBudgetIdSchema = identifier.brand<"RetryBudgetId">();
+export type RetryBudgetId = z.infer<typeof RetryBudgetIdSchema>;
+export const createRetryBudgetId = RetryBudgetIdSchema.parse;
+
 export const SessionIdSchema = identifier.brand<"SessionId">();
 export type SessionId = z.infer<typeof SessionIdSchema>;
 export const createSessionId = SessionIdSchema.parse;

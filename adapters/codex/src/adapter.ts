@@ -1,14 +1,15 @@
 import { z } from "zod";
 
 import {
-  createAdapterInstallationId,
   createAdapterVersion,
   createTimestamp,
+  defaultRuntimeInstallationIdentity,
   type AdapterVersion,
   type DecisionFor,
   type HookObservation,
   type RuntimeCapabilitySnapshot,
   type RuntimeIdentity,
+  type RuntimeInstallationIdentity,
   type SkillActivationEvidence,
 } from "@sisyphus/domain";
 import {
@@ -31,50 +32,73 @@ import {
 } from "./codex-wire.js";
 import { renderCodexDecision } from "./responses.js";
 
-const version = z.string().trim().min(1);
+const version = z
+  .string()
+  .trim()
+  .min(1)
+  .refine((value) => value.toLowerCase() !== "unknown", {
+    message: "A concrete Codex runtime version is required.",
+  });
 
 export type CodexAdapterOptions = {
-  readonly runtimeVersion?: string;
+  readonly runtimeVersion: string;
   readonly adapterVersion?: string;
+  readonly installationIdentity?: RuntimeInstallationIdentity;
   readonly now?: () => Date;
 };
 
+export function codexCapabilities(runtimeVersion: string): RuntimeCapabilitySnapshot {
+  const supported: { readonly kind: "supported" } = { kind: "supported" };
+  return {
+    runtime: "codex",
+    runtimeVersion: version.parse(runtimeVersion),
+    promptInterception: supported,
+    skillSelectionControl: supported,
+    rootStopContinuation: supported,
+    subagentStopContinuation: supported,
+    toolPrevention: supported,
+    toolObservation: supported,
+    stableTokenUsage: {
+      kind: "unsupported",
+      reason: "Codex lifecycle hooks do not report stable token counts.",
+    },
+    localEvidenceAccess: {
+      kind: "partial",
+      limitation: "Hook payloads are stable, but the optional transcript format is not.",
+    },
+  };
+}
+
 export class CodexRuntimeAdapter implements AgentRuntimeAdapter {
   readonly runtime = "codex";
+  readonly installationIdentity: RuntimeInstallationIdentity;
 
   readonly #adapterVersion: AdapterVersion;
   readonly #capabilities: RuntimeCapabilitySnapshot;
   readonly #now: () => Date;
   readonly #installations = new Map<string, AdapterInstallation>();
+  readonly #installationRequestDigests = new Map<string, string>();
 
-  constructor(input: CodexAdapterOptions = {}) {
-    const runtimeVersion = version.parse(input.runtimeVersion ?? "unknown");
+  constructor(input: CodexAdapterOptions) {
     this.#adapterVersion = createAdapterVersion(version.parse(input.adapterVersion ?? "0.1.0"));
+    this.installationIdentity =
+      input.installationIdentity ??
+      defaultRuntimeInstallationIdentity({
+        runtime: this.runtime,
+        adapterVersion: this.#adapterVersion,
+        profile: "local",
+      });
+    if (this.installationIdentity.profile !== "local") {
+      throw new Error("Codex installation profile must be local.");
+    }
     this.#now = input.now ?? (() => new Date());
-    const supported: { readonly kind: "supported" } = { kind: "supported" };
-    this.#capabilities = {
-      runtime: "codex",
-      runtimeVersion,
-      promptInterception: supported,
-      skillSelectionControl: supported,
-      rootStopContinuation: supported,
-      subagentStopContinuation: supported,
-      toolPrevention: supported,
-      toolObservation: supported,
-      stableTokenUsage: {
-        kind: "unsupported",
-        reason: "Codex lifecycle hooks do not report stable token counts.",
-      },
-      localEvidenceAccess: {
-        kind: "partial",
-        limitation: "Hook payloads are stable, but the optional transcript format is not.",
-      },
-    };
+    this.#capabilities = codexCapabilities(input.runtimeVersion);
   }
 
   normalizationOptions() {
     return {
       adapterVersion: this.#adapterVersion,
+      runtimeInstallation: this.installationIdentity,
       capabilities: this.#capabilities,
       now: this.#now,
     };
@@ -86,21 +110,24 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter {
 
   async install(input: AdapterInstallRequest): Promise<AdapterInstallation> {
     const request = AdapterInstallRequestSchema.parse(input);
-    const installationId = createAdapterInstallationId(
-      `codex:${stableDigest({
-        deviceId: request.deviceId,
-        adapterVersion: request.adapterVersion,
-        workerEndpoint: request.workerEndpoint,
-        scope: request.scope,
-      })}`,
-    );
+    if (request.adapterVersion !== this.#adapterVersion) {
+      throw new Error("Codex install request does not match the adapter version.");
+    }
+    const installationId = this.installationIdentity.adapterInstallationId;
+    const requestDigest = stableDigest(request);
     const existing = this.#installations.get(installationId);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      if (this.#installationRequestDigests.get(installationId) !== requestDigest) {
+        throw new Error("Codex installation identity belongs to another install request.");
+      }
+      return existing;
+    }
 
     const installedAt = this.#now();
     if (Number.isNaN(installedAt.getTime())) throw new Error("now() returned an invalid date");
     const installation: AdapterInstallation = {
       installationId,
+      profile: this.installationIdentity.profile,
       runtime: this.runtime,
       adapterVersion: request.adapterVersion,
       installedAt: createTimestamp(installedAt.toISOString()),
@@ -108,12 +135,14 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter {
       capabilities: this.#capabilities,
     };
     this.#installations.set(installationId, installation);
+    this.#installationRequestDigests.set(installationId, requestDigest);
     return installation;
   }
 
   async uninstall(input: AdapterUninstallRequest): Promise<void> {
     const request = AdapterUninstallRequestSchema.parse(input);
     this.#installations.delete(request.installationId);
+    this.#installationRequestDigests.delete(request.installationId);
   }
 
   parseEvent(input: UnknownRuntimeEvent): HookObservation {
@@ -136,6 +165,6 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter {
   }
 }
 
-export function createCodexAdapter(input: CodexAdapterOptions = {}): CodexRuntimeAdapter {
+export function createCodexAdapter(input: CodexAdapterOptions): CodexRuntimeAdapter {
   return new CodexRuntimeAdapter(input);
 }

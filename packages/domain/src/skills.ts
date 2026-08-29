@@ -47,6 +47,17 @@ export const SkillMatchCandidateSchema = z.object({
   administratorPriority: z.number().int(),
   specificity: z.number().int().nonnegative(),
   disposition: SkillDispositionSchema,
+  activationAvailability: z
+    .discriminatedUnion("kind", [
+      z.object({ kind: z.literal("available") }).strict(),
+      z
+        .object({
+          kind: z.literal("unavailable"),
+          reason: z.string().trim().min(1).max(500),
+        })
+        .strict(),
+    ])
+    .optional(),
   trigger: SkillTriggerSchema,
 });
 export type SkillMatchCandidate = z.infer<typeof SkillMatchCandidateSchema>;
@@ -54,6 +65,7 @@ export type SkillMatchCandidate = z.infer<typeof SkillMatchCandidateSchema>;
 export const CandidateRejectionReasonSchema = z.enum([
   "quarantined",
   "revoked",
+  "wrapper-unavailable",
   "lower-priority",
   "lower-specificity",
   "lexical-tiebreak",
@@ -118,7 +130,9 @@ export function resolveSkill(candidates: readonly SkillMatchCandidate[]): SkillR
   const eligible = candidates
     .filter(
       (candidate) =>
-        candidate.disposition !== "quarantined" && candidate.disposition !== "revoked",
+        candidate.disposition !== "quarantined" &&
+        candidate.disposition !== "revoked" &&
+        candidate.activationAvailability?.kind !== "unavailable",
     )
     .toSorted(compareCandidates);
   const winner = eligible[0];
@@ -129,6 +143,12 @@ export function resolveSkill(candidates: readonly SkillMatchCandidate[]): SkillR
     }
     if (candidate.disposition === "revoked") {
       return { candidate, outcome: { kind: "rejected", reason: "revoked" } };
+    }
+    if (candidate.activationAvailability?.kind === "unavailable") {
+      return {
+        candidate,
+        outcome: { kind: "rejected", reason: "wrapper-unavailable" },
+      };
     }
     if (winner === undefined) {
       return { candidate, outcome: { kind: "rejected", reason: "lexical-tiebreak" } };

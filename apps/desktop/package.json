@@ -8,12 +8,15 @@
   "main": "dist-electron/main.js",
   "scripts": {
     "build": "vite build && tsc -p tsconfig.main.json && node scripts/stage-worker.mjs",
+    "build:release": "pnpm run build:worker && pnpm run build",
+    "build:worker": "pnpm --filter @sisyphus/worker... build",
     "build:main": "tsc -p tsconfig.main.json",
     "build:renderer": "vite build",
     "dev": "vite --host 127.0.0.1",
     "start": "electron .",
-    "package": "npm run build && electron-builder",
-    "package:dir": "npm run build && electron-builder --dir",
+    "package": "pnpm run build:release && electron-builder",
+    "package:dir": "pnpm run build:release && electron-builder --dir",
+    "smoke:packaged-worker": "node scripts/smoke-packaged-worker.mjs",
     "test": "vitest run --config vitest.config.ts",
     "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.renderer.json --noEmit"
   },

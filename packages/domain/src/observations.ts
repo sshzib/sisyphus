@@ -1,11 +1,15 @@
 import { z } from "zod";
 
 import { SkillAttributionSchema } from "./attribution.js";
-import { RuntimeCapabilitySnapshotSchema } from "./capabilities.js";
+import {
+  RuntimeCapabilitySnapshotSchema,
+  RuntimeInstallationIdentitySchema,
+} from "./capabilities.js";
 import {
   AdapterVersionSchema,
   AgentIdSchema,
   RunIdSchema,
+  RetryBudgetIdSchema,
   RuntimeEventIdSchema,
   SessionIdSchema,
   TimestampSchema,
@@ -53,9 +57,11 @@ export type TokenUsage = z.infer<typeof TokenUsageSchema>;
 const observationBase = {
   eventId: RuntimeEventIdSchema,
   workItemId: WorkItemIdSchema,
+  retryBudgetId: RetryBudgetIdSchema,
   runId: RunIdSchema,
   occurredAt: TimestampSchema,
   adapterVersion: AdapterVersionSchema,
+  runtimeInstallation: RuntimeInstallationIdentitySchema,
   capabilities: RuntimeCapabilitySnapshotSchema,
   identity: RuntimeIdentitySchema,
 };

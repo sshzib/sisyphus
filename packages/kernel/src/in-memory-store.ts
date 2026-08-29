@@ -1,5 +1,6 @@
 import type {
   RuntimeEventId,
+  RetryBudgetId,
   SkillCompletionRecord,
   SkillVersionId,
   WorkItemId,
@@ -10,11 +11,12 @@ import type {
   SupervisionStore,
   SupervisionTransaction,
 } from "./ports.js";
-import type { SkillStanding, WorkItemState } from "./state.js";
+import type { RetryBudgetState, SkillStanding, WorkItemState } from "./state.js";
 
 export class InMemorySupervisionStore implements SupervisionStore {
   readonly #decisions = new Map<RuntimeEventId, PersistedEventDecision>();
   readonly #workItems = new Map<WorkItemId, WorkItemState>();
+  readonly #retryBudgets = new Map<RetryBudgetId, RetryBudgetState>();
   readonly #standings = new Map<SkillVersionId, SkillStanding>();
   readonly #completions = new Map<SkillVersionId, readonly SkillCompletionRecord[]>();
   readonly #windowStarts = new Map<SkillVersionId, number>();
@@ -25,10 +27,14 @@ export class InMemorySupervisionStore implements SupervisionStore {
       putDecision: (eventId, persisted) => {
         this.#decisions.set(eventId, persisted);
       },
-      getWorkItem: (workItemId) =>
-        this.#workItems.get(workItemId) ?? { retryDirectives: 0 },
+      getWorkItem: (workItemId) => this.#workItems.get(workItemId) ?? {},
       putWorkItem: (workItemId, state) => {
         this.#workItems.set(workItemId, state);
+      },
+      getRetryBudget: (retryBudgetId) =>
+        this.#retryBudgets.get(retryBudgetId) ?? { retryDirectives: 0 },
+      putRetryBudget: (retryBudgetId, state) => {
+        this.#retryBudgets.set(retryBudgetId, state);
       },
       getSkillStanding: (skillVersionId) =>
         this.#standings.get(skillVersionId) ?? { disposition: "active" },

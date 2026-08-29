@@ -16,14 +16,19 @@ const constraint = parseEvaluationConstraint({
   toolPolicy: { kind: "allow" },
 });
 
-function stop(eventId: string) {
+function stop(eventId: string, workItemId = "work-1") {
   return parseHookObservation({
     kind: "root-stop",
     eventId,
-    workItemId: "work-1",
+    workItemId,
+    retryBudgetId: "budget-1",
     runId: "run-1",
     occurredAt: "2026-08-29T10:00:00.000Z",
     adapterVersion: "adapter-1",
+    runtimeInstallation: {
+      adapterInstallationId: "installation-1",
+      profile: "local",
+    },
     capabilities: {
       runtime: "codex",
       runtimeVersion: "0.1.0",
@@ -76,7 +81,10 @@ describe("SQLiteSupervisionStore", () => {
       store: restartedStore,
       deterministicEvaluators: [{ id: "fixture", evaluate }],
     });
-    const second = await restartedKernel.supervise(stop("event-2"), constraint);
+    const second = await restartedKernel.supervise(
+      stop("event-2", "work-2"),
+      constraint,
+    );
     restartedStore.close();
 
     expect(first).toMatchObject({

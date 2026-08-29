@@ -4,11 +4,15 @@ import { join, resolve } from "node:path";
 
 import {
   AdapterConfigurationDigestSchema,
+  createAdapterVersion,
   createAdapterInstallationId,
   createDeviceId,
+  createRuntimeInstallationIdentity,
+  defaultRuntimeInstallationIdentity,
   createTenantId,
   EvaluationConstraintSchema,
   type EvaluationConstraint,
+  type RuntimeInstallationIdentity,
 } from "@sisyphus/domain";
 import { z } from "zod";
 
@@ -66,6 +70,7 @@ export interface WorkerConfiguration {
   readonly hookToken: LocalBearerToken;
   readonly mcpToken: LocalBearerToken;
   readonly desktopToken?: LocalBearerToken;
+  readonly runtimeInstallation: RuntimeInstallationIdentity;
   readonly policy: WorkerPolicyConfiguration;
   readonly controlPlane?: WorkerControlPlaneConfiguration;
 }
@@ -190,12 +195,28 @@ export async function loadWorkerConfiguration(
       ? join(homedir(), ".sisyphus")
       : configuredDataDirectory,
   );
+  const runtimeProfile = z
+    .enum(["local", "cloud-agent"])
+    .parse(input.environment["SISYPHUS_RUNTIME_PROFILE"] ?? "local");
+  const configuredInstallationId =
+    input.environment["SISYPHUS_ADAPTER_INSTALLATION_ID"];
   const common = {
     dataDirectory,
     host: parseHost(input.environment["SISYPHUS_WORKER_HOST"]),
     port: parsePort(input.environment["SISYPHUS_WORKER_PORT"]),
     hookToken,
     mcpToken,
+    runtimeInstallation:
+      configuredInstallationId === undefined
+        ? defaultRuntimeInstallationIdentity({
+            runtime: "codex",
+            adapterVersion: createAdapterVersion("0.1.0"),
+            profile: runtimeProfile,
+          })
+        : createRuntimeInstallationIdentity({
+            adapterInstallationId: configuredInstallationId,
+            profile: runtimeProfile,
+          }),
     ...(desktopToken === undefined ? {} : { desktopToken }),
     policy: await loadPolicy(input.environment["SISYPHUS_POLICY_FILE"]),
   };

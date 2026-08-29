@@ -29,6 +29,13 @@
       "when": 1788000000000,
       "tag": "0004_production_repository",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1788005000000,
+      "tag": "0005_idempotent_policy_issuance",
+      "breakpoints": true
     }
   ]
 }

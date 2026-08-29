@@ -382,9 +382,9 @@ function deriveOverview(selectedRuns: RunSummary[], selectedAgents: AgentSummary
 const baseSnapshot: DashboardSnapshot = {
   generatedAt: "2026-08-29T09:50:00.000Z",
   workspace: {
-    id: "tenant-acme",
-    name: "Acme Engineering",
-    environment: "Production workspace",
+    id: "tenant-demo",
+    name: "Sisyphus sample",
+    environment: "Demo workspace",
   },
   overview: deriveOverview(runs, agents),
   runs,
@@ -532,7 +532,7 @@ const baseSnapshot: DashboardSnapshot = {
   policies: [
     {
       id: "policy-default",
-      name: "Production baseline",
+      name: "Sample team baseline",
       enabled: true,
       runtime: null,
       passThreshold: 80,
@@ -591,7 +591,7 @@ const baseSnapshot: DashboardSnapshot = {
       occurredAt: "2026-08-28T11:10:00.000Z",
       actor: "admin@acme.test",
       action: "policy.updated",
-      summary: "Production baseline now requires local evidence access.",
+      summary: "Sample team baseline now requires local evidence access.",
       runtime: null,
     },
     {

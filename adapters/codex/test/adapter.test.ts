@@ -50,6 +50,20 @@ describe("Codex event parsing", () => {
     expect(first.workItemId).toBe(second.workItemId);
   });
 
+  it("separates root and subagent completions while sharing the turn retry budget", () => {
+    const root = adapter().parseEvent(loadFixture("stop.json"));
+    const subagent = adapter().parseEvent(loadFixture("subagent-stop.json"));
+
+    expect(root.kind).toBe("root-stop");
+    expect(subagent.kind).toBe("subagent-stop");
+    expect(root.workItemId).not.toBe(subagent.workItemId);
+    expect(root.retryBudgetId).toBe(subagent.retryBudgetId);
+    expect(root.runtimeInstallation).toEqual({
+      adapterInstallationId: "codex:local:0.1.0",
+      profile: "local",
+    });
+  });
+
   it("rejects malformed hook input at the adapter boundary", () => {
     expect(() =>
       adapter().parseEvent({

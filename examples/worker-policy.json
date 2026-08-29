@@ -2,6 +2,8 @@
   "constraint": {
     "policyId": "local-default",
     "policyVersionId": "local-default-v1",
+    "passThreshold": 0.8,
+    "retryLimit": 2,
     "requiredCapabilities": [],
     "skillCandidates": [],
     "toolPolicy": { "kind": "allow" }

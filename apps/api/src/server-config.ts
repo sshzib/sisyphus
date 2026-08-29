@@ -4,13 +4,24 @@ import type { ControlPlaneRepository } from "./repository.js";
 import { createInMemoryRepository } from "./repository.js";
 import type { SecretCipher } from "./secret-cipher.js";
 
+const PostgresConnectionUrlSchema = z
+  .string()
+  .url()
+  .refine(
+    (value) => {
+      const protocol = new URL(value).protocol;
+      return protocol === "postgres:" || protocol === "postgresql:";
+    },
+    "Expected a postgres:// or postgresql:// connection URL.",
+  );
+
 const RawServerEnvironmentSchema = z.object({
   SISYPHUS_API_HOST: z.string().min(1).default("127.0.0.1"),
   SISYPHUS_API_PORT: z.coerce.number().int().min(1).max(65_535).default(7330),
   SISYPHUS_WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
   SISYPHUS_REPOSITORY_MODE: z.enum(["memory", "postgres"]).optional(),
-  SISYPHUS_DATABASE_URL: z.string().url().optional(),
-  SISYPHUS_MIGRATION_DATABASE_URL: z.string().url().optional(),
+  SISYPHUS_DATABASE_URL: PostgresConnectionUrlSchema.optional(),
+  SISYPHUS_MIGRATION_DATABASE_URL: PostgresConnectionUrlSchema.optional(),
   SISYPHUS_SECRET_ENCRYPTION_KEY: z.string().min(1).optional(),
   SISYPHUS_POLICY_SIGNING_KEY: z.string().min(1).optional(),
   SISYPHUS_POLICY_KEY_ID: z.string().min(1).default("sisyphus-dev-ed25519"),

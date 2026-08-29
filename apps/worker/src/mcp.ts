@@ -21,12 +21,10 @@ import {
 interface McpRequestHandlerInput {
   readonly journal: LocalJournal;
   readonly mcpToken: LocalBearerToken;
-  readonly instructionForSkill?:
-    | ((input: {
-        readonly runtime: AgentRuntime;
-        readonly skillVersionId: SkillVersionId;
-      }) => ManagedSkillInstruction | undefined)
-    | undefined;
+  readonly instructionForSkill: (input: {
+    readonly runtime: AgentRuntime;
+    readonly skillVersionId: SkillVersionId;
+  }) => ManagedSkillInstruction | undefined;
   readonly now?: (() => Date) | undefined;
 }
 
@@ -103,29 +101,41 @@ async function handleMcpRequest(
         activated: z.literal(true),
         skillVersionId: z.string(),
         activationLeaseId: z.string(),
-        instruction: ManagedSkillInstructionSchema.optional(),
+        instruction: ManagedSkillInstructionSchema,
       },
     },
     async ({ activationLeaseId, skillVersionId }) => {
       const now = (input.now ?? (() => new Date()))();
       if (Number.isNaN(now.getTime())) throw new Error("Worker clock is invalid.");
+      const digest = activationLeaseDigest(activationLeaseId);
+      const pending = input.journal.pendingActivationLease({
+        activationLeaseDigest: digest,
+        skillVersionId,
+        observedAt: now.toISOString(),
+      });
+      if (pending === undefined) {
+        throw new Error("Activation lease is invalid, expired, or already consumed.");
+      }
+      const instruction = input.instructionForSkill({
+        runtime: pending.runtime,
+        skillVersionId: createSkillVersionId(pending.skillVersionId),
+      });
+      if (instruction === undefined) {
+        throw new Error("The activation lease has no managed instruction snapshot.");
+      }
       const consumed = input.journal.consumeActivationLease({
-        activationLeaseDigest: activationLeaseDigest(activationLeaseId),
+        activationLeaseDigest: digest,
         skillVersionId,
         consumedAt: now.toISOString(),
       });
       if (consumed === undefined) {
         throw new Error("Activation lease is invalid, expired, or already consumed.");
       }
-      const instruction = input.instructionForSkill?.({
-        runtime: consumed.runtime,
-        skillVersionId: createSkillVersionId(consumed.skillVersionId),
-      });
       const result = {
         activated: true as const,
         skillVersionId,
         activationLeaseId,
-        ...(instruction === undefined ? {} : { instruction }),
+        instruction,
       };
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],

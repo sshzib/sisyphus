@@ -8,7 +8,7 @@ import { z } from "zod";
 const migrationsFolder = fileURLToPath(
   new URL("../../migrations", import.meta.url),
 );
-export const latestMigrationTimestamp = 1_788_000_000_000;
+export const latestMigrationTimestamp = 1_788_005_000_000;
 
 export async function migratePostgres(connectionUrl: string): Promise<void> {
   const client = postgres(z.string().url().parse(connectionUrl), {
@@ -29,7 +29,7 @@ if (
   resolve(invokedPath) === resolve(fileURLToPath(import.meta.url))
 ) {
   const environment = z
-    .object({ SISYPHUS_DATABASE_URL: z.string().url() })
+    .object({ SISYPHUS_MIGRATION_DATABASE_URL: z.string().url() })
     .parse(process.env);
-  await migratePostgres(environment.SISYPHUS_DATABASE_URL);
+  await migratePostgres(environment.SISYPHUS_MIGRATION_DATABASE_URL);
 }

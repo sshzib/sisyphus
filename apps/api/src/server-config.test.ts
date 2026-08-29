@@ -10,6 +10,17 @@ import {
 describe("production repository selection", () => {
   afterEach(() => vi.unstubAllEnvs());
 
+  const postgresEnvironment = {
+    NODE_ENV: "production",
+    SISYPHUS_REPOSITORY_MODE: "postgres",
+    SISYPHUS_DATABASE_URL:
+      "postgres://sisyphus_app:secret@127.0.0.1:5432/sisyphus",
+    SISYPHUS_MIGRATION_DATABASE_URL:
+      "postgres://sisyphus_migrator:secret@127.0.0.1:5432/sisyphus",
+    SISYPHUS_SECRET_ENCRYPTION_KEY: Buffer.alloc(32, 7).toString("base64"),
+    SISYPHUS_POLICY_SIGNING_KEY: "cGVyc2lzdGVudC1wZW0=",
+  } as const;
+
   it("refuses an explicit in-memory production repository", () => {
     expect(() =>
       parseServerEnvironment({
@@ -28,24 +39,74 @@ describe("production repository selection", () => {
     ).toThrow(/SISYPHUS_DATABASE_URL/u);
   });
 
-  it("fails closed before a production process can expose demo credentials", () => {
-    const environment = parseServerEnvironment({
-      NODE_ENV: "production",
-      SISYPHUS_REPOSITORY_MODE: "postgres",
-      SISYPHUS_DATABASE_URL: "postgres://sisyphus:secret@127.0.0.1:5432/sisyphus",
-    });
+  it("requires a separate migration role and stable production keys", () => {
     expect(() =>
+      parseServerEnvironment({
+        NODE_ENV: "production",
+        SISYPHUS_REPOSITORY_MODE: "postgres",
+        SISYPHUS_DATABASE_URL: postgresEnvironment.SISYPHUS_DATABASE_URL,
+      }),
+    ).toThrow(/SISYPHUS_MIGRATION_DATABASE_URL/u);
+    expect(() =>
+      parseServerEnvironment({
+        ...postgresEnvironment,
+        SISYPHUS_SECRET_ENCRYPTION_KEY: undefined,
+      }),
+    ).toThrow(/SISYPHUS_SECRET_ENCRYPTION_KEY/u);
+    expect(() =>
+      parseServerEnvironment({
+        ...postgresEnvironment,
+        SISYPHUS_POLICY_SIGNING_KEY: undefined,
+      }),
+    ).toThrow(/SISYPHUS_POLICY_SIGNING_KEY/u);
+  });
+
+  it("rejects non-PostgreSQL connection URL schemes", () => {
+    expect(() =>
+      parseServerEnvironment({
+        ...postgresEnvironment,
+        SISYPHUS_DATABASE_URL: "https://db.example.test/sisyphus",
+      }),
+    ).toThrow(/postgres/u);
+  });
+
+  it("passes the restricted and migration URLs to the PostgreSQL factory", async () => {
+    const environment = parseServerEnvironment(postgresEnvironment);
+    const repository = createInMemoryRepository();
+    const postgresFactory = vi.fn(async () => repository);
+
+    await expect(
       selectServerRepository({
         environment,
         secretCipher: new AesGcmSecretCipher(),
+        postgresFactory,
       }),
-    ).toThrow(/Production startup refused/u);
+    ).resolves.toBe(repository);
+    expect(postgresFactory).toHaveBeenCalledWith({
+      applicationDatabaseUrl: postgresEnvironment.SISYPHUS_DATABASE_URL,
+      migrationDatabaseUrl:
+        postgresEnvironment.SISYPHUS_MIGRATION_DATABASE_URL,
+      secretCipher: expect.any(AesGcmSecretCipher),
+    });
+  });
+
+  it("propagates PostgreSQL readiness failure without a memory fallback", async () => {
+    const environment = parseServerEnvironment(postgresEnvironment);
+    await expect(
+      selectServerRepository({
+        environment,
+        secretCipher: new AesGcmSecretCipher(),
+        postgresFactory: async () => {
+          throw new Error("forced RLS readiness failed");
+        },
+      }),
+    ).rejects.toThrow(/forced RLS readiness failed/u);
   });
 
   it("does not let production createApp construct its demo repository", async () => {
     vi.stubEnv("NODE_ENV", "production");
     await expect(createApp()).rejects.toThrow(
-      /Production API startup is disabled/u,
+      /requires a migrated, RLS-verified PostgreSQL/u,
     );
     await expect(
       createApp({ repository: createInMemoryRepository() }),

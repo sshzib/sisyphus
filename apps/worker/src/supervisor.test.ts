@@ -6,6 +6,7 @@ import {
   CloudSupervisionRecordSchema,
   createAdapterVersion,
   createEventId,
+  createRuntimeInstallationIdentity,
   createSkillVersionId,
   createSkillVersionKey,
   createTriggerId,
@@ -38,6 +39,10 @@ const identity = {
   sessionId: "session-1",
   agent: { kind: "root" as const, agentId: "agent-1" },
 };
+const runtimeInstallation = createRuntimeInstallationIdentity({
+  adapterInstallationId: "installation-1",
+  profile: "local",
+});
 
 const selectedSkill = {
   skillVersionId: createSkillVersionId("skill-version-1"),
@@ -115,7 +120,11 @@ async function fixture() {
     evidenceVault: { store },
     leaseAuthority,
     runtimeInstallations: new StaticRuntimeInstallationRegistry([
-      { adapterVersion: createAdapterVersion("adapter-1"), capabilities },
+      {
+        installationIdentity: runtimeInstallation,
+        adapterVersion: createAdapterVersion("adapter-1"),
+        capabilities,
+      },
     ]),
     now: () => new Date("2026-08-29T10:00:00.000Z"),
     policyProvider: {
@@ -136,6 +145,7 @@ function promptEnvelope() {
   return {
     runtime: "codex" as const,
     adapterVersion: "adapter-1",
+    runtimeInstallation,
     eventId: "prompt-event",
     identity,
     activation: { kind: "none" as const },
@@ -144,9 +154,11 @@ function promptEnvelope() {
       kind: "prompt" as const,
       eventId: "prompt-event",
       workItemId: "work-1",
+      retryBudgetId: "work-1",
       runId: "run-1",
       occurredAt: "2026-08-29T10:00:00.000Z",
       adapterVersion: "adapter-1",
+      runtimeInstallation,
       capabilities,
       identity,
       prompt: "Use the fixture skill.",
@@ -158,6 +170,7 @@ function stopEnvelope() {
   return {
     runtime: "codex" as const,
     adapterVersion: "adapter-1",
+    runtimeInstallation,
     eventId: "stop-event",
     identity,
     activation: { kind: "none" as const },
@@ -166,9 +179,11 @@ function stopEnvelope() {
       kind: "root-stop" as const,
       eventId: createEventId("stop-event"),
       workItemId: "work-1",
+      retryBudgetId: "work-1",
       runId: "run-1",
       occurredAt: "2026-08-29T10:00:02.000Z",
       adapterVersion: "adapter-1",
+      runtimeInstallation,
       capabilities,
       identity,
       output: "finished with sk-proj-1234567890abcdefghijkl secret",
@@ -257,6 +272,8 @@ describe("WorkerSupervisor", () => {
 
   it("persists only a strict redacted cloud projection of decision findings", async () => {
     const { journal, supervise, supervisor } = await fixture();
+    const hookCredential = "hook-secret-0123456789abcdef0123456789abcdef";
+    const mcpCredential = "mcp-secret-0123456789abcdef0123456789abcdef";
     supervise.mockResolvedValueOnce({
       kind: "stop-decision",
       action: "allow",
@@ -277,7 +294,18 @@ describe("WorkerSupervisor", () => {
       sanction: { kind: "not-eligible", reason: "fixture" },
     });
 
-    await supervisor.supervise(stopEnvelope());
+    const envelope = stopEnvelope();
+    await supervisor.supervise({
+      ...envelope,
+      nativeEvent: {
+        ...envelope.nativeEvent,
+        tool_output: JSON.stringify({ SISYPHUS_MCP_TOKEN: mcpCredential }),
+      },
+      event: {
+        ...envelope.event,
+        output: JSON.stringify({ SISYPHUS_HOOK_TOKEN: hookCredential }),
+      },
+    });
 
     const [outbox] = journal.pendingOutbox();
     expect(outbox).toBeDefined();
@@ -287,6 +315,9 @@ describe("WorkerSupervisor", () => {
     expect(JSON.stringify(projected)).not.toContain("captured-worker-secret-token");
     expect(JSON.stringify(projected)).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz123456");
     expect(JSON.stringify(projected)).not.toContain("sk-proj-1234567890abcdefghijkl");
+    expect(JSON.stringify(projected)).not.toContain(hookCredential);
+    expect(JSON.stringify(projected)).not.toContain(mcpCredential);
+    expect(JSON.stringify(projected)).toContain("[redacted]");
     expect(projected).not.toHaveProperty("decision");
     journal.close();
   });

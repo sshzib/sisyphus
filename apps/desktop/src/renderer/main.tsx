@@ -2,7 +2,6 @@ import {
   DashboardApp,
   HostContextSchema,
   createDemoDataClient,
-  createHttpDataClient,
   type HostContext,
   type SisyphusDataClient,
 } from "@sisyphus/ui";
@@ -12,16 +11,18 @@ import "@sisyphus/ui/styles.css";
 import "./renderer.css";
 
 function dataClient(): SisyphusDataClient {
-  const apiUrl = import.meta.env.VITE_SISYPHUS_API_URL;
-  const demoToken = import.meta.env.VITE_SISYPHUS_DEMO_TOKEN;
-  if (typeof apiUrl === "string" && typeof demoToken === "string") {
-    return createHttpDataClient({ baseUrl: apiUrl, token: demoToken });
-  }
-  return createDemoDataClient();
+  return {
+    dataSource: { kind: "remote-api" },
+    getDashboard: (query) => window.sisyphusDesktop.getDashboard(query),
+    restoreSkill: (skillVersionId, input) =>
+      window.sisyphusDesktop.restoreSkill(skillVersionId, input),
+  };
 }
 
 function DesktopApp() {
-  const client = useMemo(() => dataClient(), []);
+  const demoClient = useMemo(() => createDemoDataClient(), []);
+  const remoteClient = useMemo(() => dataClient(), []);
+  const [client, setClient] = useState<SisyphusDataClient>(demoClient);
   const [hostContext, setHostContext] = useState<HostContext>(() =>
     HostContextSchema.parse({
       kind: "desktop",
@@ -34,8 +35,14 @@ function DesktopApp() {
   useEffect(() => {
     let active = true;
     const refresh = async () => {
-      const nextContext = await window.sisyphusDesktop.getHostContext();
-      if (active) setHostContext(nextContext);
+      const [nextContext, source] = await Promise.all([
+        window.sisyphusDesktop.getHostContext(),
+        window.sisyphusDesktop.getDataSource(),
+      ]);
+      if (active) {
+        setHostContext(nextContext);
+        setClient(source === "remote-api" ? remoteClient : demoClient);
+      }
     };
     void refresh();
     const interval = window.setInterval(() => void refresh(), 2_000);
@@ -43,7 +50,7 @@ function DesktopApp() {
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [demoClient, remoteClient]);
 
   return (
     <DashboardApp

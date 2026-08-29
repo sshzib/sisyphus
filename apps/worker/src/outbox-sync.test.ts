@@ -107,6 +107,51 @@ describe("OutboxSynchronizer", () => {
     expect(journal.pendingOutbox()).toHaveLength(1);
     journal.close();
   });
+
+  it("drains 101 offline records in bounded batches and survives partial acknowledgements", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "sisyphus-sync-"));
+    const journal = new LocalJournal({ path: join(directory, "worker.db") });
+    for (let index = 0; index < 101; index += 1) {
+      journal.recordDecision({
+        eventId: `offline-event-${index.toString().padStart(3, "0")}`,
+        decision: { kind: "allow-stop" },
+        envelopeDigest: index.toString(16).padStart(64, "0"),
+        receivedAt: "2026-08-29T10:00:00.000Z",
+        evidence: {
+          handle: `offline-evidence-${index}`,
+          digest: (index + 1).toString(16).padStart(64, "0"),
+        },
+        cloudEvent: { kind: "evaluation", index },
+      });
+    }
+    const batchSizes: number[] = [];
+    let request = 0;
+    const synchronizer = new OutboxSynchronizer({
+      endpoint: "http://127.0.0.1:7332",
+      deviceToken: "device-secret",
+      journal,
+      fetchImplementation: async (_url, init) => {
+        const body: unknown = JSON.parse(String(init?.body));
+        if (typeof body !== "object" || body === null || !("records" in body)) {
+          throw new Error("Missing records.");
+        }
+        const records = (body as { records: Array<{ id: string }> }).records;
+        batchSizes.push(records.length);
+        const accepted = request === 0 ? records.slice(0, 40) : records;
+        request += 1;
+        return new Response(
+          JSON.stringify({ acceptedIds: accepted.map((record) => record.id) }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    await expect(synchronizer.flush()).resolves.toBe(101);
+    expect(batchSizes).toEqual([100, 61]);
+    expect(batchSizes.every((size) => size <= 100)).toBe(true);
+    expect(journal.pendingOutbox()).toEqual([]);
+    journal.close();
+  });
 });
 
 function extractFirstRecordId(input: unknown): string {

@@ -7,6 +7,7 @@ import {
   createAgentId,
   createEventId,
   createRunId,
+  createRetryBudgetId,
   createSessionId,
   createSkillVersionId,
   createTimestamp,
@@ -16,6 +17,7 @@ import {
   type HookObservation,
   type RuntimeCapabilitySnapshot,
   type RuntimeIdentity,
+  type RuntimeInstallationIdentity,
   type SkillActivationEvidence,
 } from "@sisyphus/domain";
 
@@ -91,6 +93,7 @@ export type CodexHookEventName = CodexHookEvent["hook_event_name"];
 export type CodexNormalizationOptions = {
   readonly adapterVersion: AdapterVersion;
   readonly capabilities: RuntimeCapabilitySnapshot;
+  readonly runtimeInstallation: RuntimeInstallationIdentity;
   readonly now: () => Date;
 };
 
@@ -258,14 +261,24 @@ function responseSummary(response: z.infer<typeof JsonValueSchema>): string {
 function observationBase(event: CodexHookEvent, options: CodexNormalizationOptions) {
   const occurredAt = options.now();
   if (Number.isNaN(occurredAt.getTime())) throw new Error("now() returned an invalid date");
+  const retryBudgetId = createRetryBudgetId(
+    `codex:${event.session_id}:${event.turn_id}`,
+  );
+  const identity = deriveCodexIdentity(event);
+  const completionScope =
+    identity.agent.kind === "subagent"
+      ? `subagent:${identity.agent.agentId}`
+      : "root";
   return {
     eventId: eventIdFor(event),
-    workItemId: createWorkItemId(`codex:${event.session_id}:${event.turn_id}`),
+    workItemId: createWorkItemId(`${retryBudgetId}:${completionScope}`),
+    retryBudgetId,
     runId: createRunId(`codex:${event.session_id}:${event.turn_id}`),
     occurredAt: createTimestamp(occurredAt.toISOString()),
     adapterVersion: options.adapterVersion,
+    runtimeInstallation: options.runtimeInstallation,
     capabilities: options.capabilities,
-    identity: deriveCodexIdentity(event),
+    identity,
   };
 }
 

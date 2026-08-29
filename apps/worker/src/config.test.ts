@@ -55,6 +55,10 @@ describe("loadWorkerConfiguration", () => {
       port: 7441,
       hookToken,
       mcpToken,
+      runtimeInstallation: {
+        adapterInstallationId: "installation-codex-local",
+        profile: "local",
+      },
       policy: {
         constraint: { policyVersionId: "policy-version-1" },
         completionGuards: { maximumOutputTokens: 500 },

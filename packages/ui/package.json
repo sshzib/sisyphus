@@ -12,6 +12,18 @@
       "types": "./dist/contracts.d.ts",
       "import": "./dist/contracts.js"
     },
+    "./dashboard": {
+      "types": "./dist/DashboardApp.d.ts",
+      "import": "./dist/DashboardApp.js"
+    },
+    "./demo-client": {
+      "types": "./dist/demo-client.d.ts",
+      "import": "./dist/demo-client.js"
+    },
+    "./session-client": {
+      "types": "./dist/session-client.d.ts",
+      "import": "./dist/session-client.js"
+    },
     "./demo": {
       "types": "./dist/demo-data.d.ts",
       "import": "./dist/demo-data.js"

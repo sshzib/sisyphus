@@ -32,6 +32,12 @@ import {
   projectAcceptedCloudRecords,
 } from "./projection.js";
 import {
+  policyBundleExpiresAt,
+  policyBundleRequiresRenewal,
+  policyBundleStateDigest,
+  policyEntries,
+} from "./policy-bundle.js";
+import {
   AesGcmSecretCipher,
   type EncryptedSecret,
   type SecretCipher,
@@ -45,6 +51,16 @@ interface StoredIngestEvent {
   acceptedAt: string;
 }
 
+interface StoredPolicyBundleIssuance {
+  revision: number;
+  deviceId: string;
+  adapterInstallationId: string;
+  signingKeyId: string;
+  contentDigest: string;
+  issuedAt: string;
+  expiresAt: string;
+}
+
 interface TenantState {
   name: string;
   snapshot: DashboardSnapshot;
@@ -52,6 +68,7 @@ interface TenantState {
   dispositionTransitions: SkillDispositionTransition[];
   policyRevision: number;
   adapterConfigurationDigest: AdapterConfigurationDigest;
+  policyBundleIssuances: Map<number, StoredPolicyBundleIssuance>;
   signedPolicyBundles: Map<number, SignedPolicyBundle>;
   judgeRequests: Map<
     string,
@@ -92,6 +109,8 @@ export interface ControlPlaneRepository extends CredentialResolver, JudgeConfigu
     tenantId: string;
     deviceId: string;
     adapterInstallationId: string;
+    signingKeyId: string;
+    now: Date;
   }): Promise<PolicyBundleIssuance | undefined>;
   recordSignedPolicyBundle(input: {
     tenantId: string;
@@ -104,6 +123,7 @@ export interface PolicyBundleIssuance {
   deviceId: string;
   adapterInstallationId: string;
   revision: number;
+  issuedAt: string;
   adapterConfigurationDigest: AdapterConfigurationDigest;
   dispositionTransitions: SkillDispositionTransition[];
   snapshot: DashboardSnapshot;
@@ -120,6 +140,13 @@ export class IngestCollisionError extends Error {
   public constructor(public readonly eventId: string) {
     super(`Event ${eventId} was already ingested with a different payload.`);
     this.name = "IngestCollisionError";
+  }
+}
+
+export class InactiveDeviceError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "InactiveDeviceError";
   }
 }
 
@@ -225,6 +252,7 @@ function tenantSeed(): Map<string, TenantState> {
         dispositionTransitions: [],
         policyRevision: 0,
         adapterConfigurationDigest: adapterConfigurationDigest(acmeSnapshot),
+        policyBundleIssuances: new Map(),
         signedPolicyBundles: new Map(),
         judgeRequests: new Map(),
       },
@@ -238,6 +266,7 @@ function tenantSeed(): Map<string, TenantState> {
         dispositionTransitions: [],
         policyRevision: 0,
         adapterConfigurationDigest: adapterConfigurationDigest(beta),
+        policyBundleIssuances: new Map(),
         signedPolicyBundles: new Map(),
         judgeRequests: new Map(),
       },
@@ -604,23 +633,91 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
     tenantId: string;
     deviceId: string;
     adapterInstallationId: string;
+    signingKeyId: string;
+    now: Date;
   }): Promise<PolicyBundleIssuance | undefined> {
     const tenant = this.#tenants.get(input.tenantId);
     if (tenant === undefined) {
       return undefined;
     }
-    tenant.policyRevision += 1;
+    const audienceValid = [...this.#credentials.values()].some(
+      (credential) =>
+        credential.kind === "device" &&
+        credential.tenantId === input.tenantId &&
+        credential.subjectId === input.deviceId &&
+        credential.adapterInstallationId === input.adapterInstallationId,
+    );
+    if (!audienceValid) {
+      throw new Error(
+        "The policy bundle audience is not an enrolled installation.",
+      );
+    }
     tenant.adapterConfigurationDigest = adapterConfigurationDigest(
       tenant.snapshot,
     );
+    const dispositionTransitions = structuredClone(
+      tenant.dispositionTransitions,
+    );
+    const snapshot = structuredClone(tenant.snapshot);
+    const contentDigest = policyBundleStateDigest({
+      signingKeyId: input.signingKeyId,
+      tenantId: input.tenantId,
+      audience: {
+        deviceId: input.deviceId,
+        adapterInstallationId: input.adapterInstallationId,
+      },
+      adapterConfigurationDigest: tenant.adapterConfigurationDigest,
+      policies: policyEntries(snapshot),
+      dispositionTransitions,
+    });
+    const previous = [...tenant.policyBundleIssuances.values()]
+      .filter(
+        (issuance) =>
+          issuance.deviceId === input.deviceId &&
+          issuance.adapterInstallationId === input.adapterInstallationId,
+      )
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (
+      previous !== undefined &&
+      previous.signingKeyId === input.signingKeyId &&
+      previous.contentDigest === contentDigest &&
+      !policyBundleRequiresRenewal({
+        expiresAt: new Date(previous.expiresAt),
+        now: input.now,
+      })
+    ) {
+      return {
+        tenantId: input.tenantId,
+        deviceId: input.deviceId,
+        adapterInstallationId: input.adapterInstallationId,
+        revision: previous.revision,
+        issuedAt: previous.issuedAt,
+        adapterConfigurationDigest: tenant.adapterConfigurationDigest,
+        dispositionTransitions,
+        snapshot,
+      };
+    }
+    tenant.policyRevision += 1;
+    const issuedAt = new Date(input.now);
+    const expiresAt = policyBundleExpiresAt(issuedAt);
+    tenant.policyBundleIssuances.set(tenant.policyRevision, {
+      revision: tenant.policyRevision,
+      deviceId: input.deviceId,
+      adapterInstallationId: input.adapterInstallationId,
+      signingKeyId: input.signingKeyId,
+      contentDigest,
+      issuedAt: issuedAt.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    });
     return {
       tenantId: input.tenantId,
       deviceId: input.deviceId,
       adapterInstallationId: input.adapterInstallationId,
       revision: tenant.policyRevision,
+      issuedAt: issuedAt.toISOString(),
       adapterConfigurationDigest: tenant.adapterConfigurationDigest,
-      dispositionTransitions: structuredClone(tenant.dispositionTransitions),
-      snapshot: structuredClone(tenant.snapshot),
+      dispositionTransitions,
+      snapshot,
     };
   }
 
@@ -635,6 +732,51 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
       bundle.payload.tenantId !== input.tenantId
     ) {
       throw new Error("The signed policy bundle tenant does not match repository state.");
+    }
+    const audienceValid = [...this.#credentials.values()].some(
+      (credential) =>
+        credential.kind === "device" &&
+        credential.tenantId === input.tenantId &&
+        credential.subjectId === bundle.payload.audience.deviceId &&
+        credential.adapterInstallationId ===
+          bundle.payload.audience.adapterInstallationId,
+    );
+    if (!audienceValid) {
+      throw new Error(
+        "The signed policy bundle audience is not an enrolled installation.",
+      );
+    }
+    const issuance = tenant.policyBundleIssuances.get(bundle.payload.revision);
+    const contentDigest = policyBundleStateDigest({
+      signingKeyId: bundle.keyId,
+      tenantId: bundle.payload.tenantId,
+      audience: bundle.payload.audience,
+      adapterConfigurationDigest: bundle.payload.adapterConfigurationDigest,
+      policies: bundle.payload.policies,
+      dispositionTransitions: bundle.payload.dispositionTransitions,
+    });
+    if (
+      issuance === undefined ||
+      issuance.deviceId !== bundle.payload.audience.deviceId ||
+      issuance.adapterInstallationId !==
+        bundle.payload.audience.adapterInstallationId ||
+      issuance.signingKeyId !== bundle.keyId ||
+      issuance.contentDigest !== contentDigest ||
+      issuance.issuedAt !== bundle.payload.issuedAt ||
+      issuance.expiresAt !== bundle.payload.expiresAt
+    ) {
+      throw new Error(
+        "The signed policy bundle does not match its allocated issuance.",
+      );
+    }
+    const existing = tenant.signedPolicyBundles.get(bundle.payload.revision);
+    if (
+      existing !== undefined &&
+      canonicalJson(existing) !== canonicalJson(bundle)
+    ) {
+      throw new Error(
+        "The policy bundle revision already contains different signed content.",
+      );
     }
     tenant.signedPolicyBundles.set(bundle.payload.revision, bundle);
   }

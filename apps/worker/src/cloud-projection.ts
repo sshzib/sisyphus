@@ -85,7 +85,6 @@ function evaluationMetadata(input: {
         JSON.stringify({
           eventId: input.event.eventId,
           policyVersionId: input.constraint.policyVersionId,
-          evaluation,
         }),
       )}`,
     ),

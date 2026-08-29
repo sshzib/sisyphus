@@ -36,7 +36,11 @@ pnpm install
 pnpm verify
 ```
 
-`pnpm verify` checks runtime boundaries, strict TypeScript compilation, tests, and production builds.
+`pnpm verify` checks runtime boundaries, strict TypeScript compilation, tests,
+production builds, an unpacked Electron release, and the authenticated worker bundled
+inside that release. The live PostgreSQL isolation suite runs when
+`SISYPHUS_TEST_DATABASE_URL` points to a disposable test database; otherwise that one
+test is reported as skipped.
 
 ## Run the local stack
 
@@ -56,16 +60,33 @@ pnpm --filter @sisyphus/api dev
 pnpm --filter @sisyphus/web dev
 ```
 
-The dashboard uses built-in sample data unless both `NEXT_PUBLIC_SISYPHUS_API_URL` and `NEXT_PUBLIC_SISYPHUS_DEMO_TOKEN` are set. Use `http://127.0.0.1:7330` and `demo-admin` to connect it to the development control plane.
+The hosted dashboard uses clearly labeled sample data when all three hosted settings
+are absent. To connect the real control plane, set the server-only
+`SISYPHUS_WEB_API_URL`, `SISYPHUS_WEB_ORIGIN`, and
+`SISYPHUS_WEB_SESSION_KEY` values, then enter an access token in the connection form.
+The Next.js server validates the token and keeps it in an encrypted, `HttpOnly`
+session; no bearer credential is compiled into browser JavaScript. Partial hosted
+configuration fails closed. See [the hosted dashboard guide](apps/web/README.md).
+
+The Electron renderer follows the same rule. Set `SISYPHUS_API_URL` and
+`SISYPHUS_DESKTOP_API_TOKEN` together to use a real control plane. The token remains
+in the Electron main process and reaches the renderer only through validated IPC
+responses. With both settings absent, Electron labels the dashboard as demo data.
 
 The sample [worker policy](examples/worker-policy.json) imports an immutable canonical skill and matches it by prompt trigger. Runtime wrapper files are optional. When present, the worker verifies their declared SHA-256 hash before startup and returns the matching wrapper from the activation tool; otherwise it returns the canonical snapshot.
 
-To prepare PostgreSQL, start `compose.yaml` and run the API migration:
+To prepare PostgreSQL, start `compose.yaml` and run the API migration with the schema
+owner URL. Serve requests with the separate restricted application URL shown in
+`.env.example`:
 
 ```sh
 docker compose up -d postgres
 pnpm --filter @sisyphus/api migrate
 ```
+
+The Compose initialization script creates `sisyphus_app` only for a fresh development
+volume. PostgreSQL does not rerun initialization scripts for an existing volume; add
+the role manually or recreate only a disposable development volume before migrating.
 
 ## Codex plugin
 
@@ -86,8 +107,13 @@ python ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins
 - Failed local redaction blocks upload and judge requests.
 - Authenticated user or device credentials determine tenant scope; request bodies cannot select a tenant.
 - Every run stores its runtime and adapter versions plus its capability snapshot.
+- Every run also stores the adapter installation and runtime profile that produced it;
+  capability changes affect only later runs.
 - Unsupported policy actions degrade to visibly labeled observation.
 - Only verified skill activation contributes to quarantine.
 - Duplicate vendor events replay the stored decision without consuming another retry or failure sample.
+- Signed policy bundles are restored and reverified before the worker listens. Repeated
+  unchanged policy reads return the same signed revision, while changed policy state
+  reserves a new append-only revision.
 
 Development credentials, generated signing keys, the example policy, and the in-memory API seed are not production identity or key management. Production startup stays fail-closed unless the PostgreSQL repository, migrations, and tenant policies initialize successfully.

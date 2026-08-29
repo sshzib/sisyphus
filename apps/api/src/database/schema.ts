@@ -206,6 +206,38 @@ export const tenantPolicyStates = pgTable("tenant_policy_states", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+export const policyBundleIssuances = pgTable(
+  "policy_bundle_issuances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").notNull().references(() => tenants.id),
+    deviceId: uuid("device_id").notNull(),
+    adapterInstallationId: text("adapter_installation_id").notNull(),
+    revision: integer("revision").notNull(),
+    signingKeyId: text("signing_key_id").notNull(),
+    contentDigest: text("content_digest").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("policy_bundle_issuances_tenant_revision_unique").on(
+      table.tenantId,
+      table.revision,
+    ),
+    index("policy_bundle_issuances_audience_revision_idx").on(
+      table.tenantId,
+      table.deviceId,
+      table.adapterInstallationId,
+      table.revision,
+    ),
+    foreignKey({
+      columns: [table.tenantId, table.deviceId],
+      foreignColumns: [devices.tenantId, devices.id],
+      name: "policy_bundle_issuances_tenant_device_fk",
+    }),
+  ],
+);
+
 export const skillDispositions = pgTable(
   "skill_dispositions",
   {
@@ -352,6 +384,7 @@ export const tenantRlsStatements = [
   sql`ALTER TABLE disposition_transitions ENABLE ROW LEVEL SECURITY`,
   sql`ALTER TABLE dashboard_projections ENABLE ROW LEVEL SECURITY`,
   sql`ALTER TABLE tenant_policy_states ENABLE ROW LEVEL SECURITY`,
+  sql`ALTER TABLE policy_bundle_issuances ENABLE ROW LEVEL SECURITY`,
   sql`ALTER TABLE tenants FORCE ROW LEVEL SECURITY`,
   sql`ALTER TABLE api_credentials FORCE ROW LEVEL SECURITY`,
   sql`ALTER TABLE devices FORCE ROW LEVEL SECURITY`,
@@ -366,6 +399,7 @@ export const tenantRlsStatements = [
   sql`ALTER TABLE disposition_transitions FORCE ROW LEVEL SECURITY`,
   sql`ALTER TABLE dashboard_projections FORCE ROW LEVEL SECURITY`,
   sql`ALTER TABLE tenant_policy_states FORCE ROW LEVEL SECURITY`,
+  sql`ALTER TABLE policy_bundle_issuances FORCE ROW LEVEL SECURITY`,
   sql`CREATE POLICY tenant_self ON tenants USING (id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (id = current_setting('app.tenant_id', true)::uuid)`,
   sql`CREATE POLICY credential_self ON api_credentials FOR SELECT USING (token_hash = current_setting('app.credential_hash', true))`,
   sql`CREATE POLICY tenant_devices ON devices USING (tenant_id = current_setting('app.tenant_id')::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid)`,
@@ -380,4 +414,5 @@ export const tenantRlsStatements = [
   sql`CREATE POLICY tenant_disposition_transitions ON disposition_transitions USING (tenant_id = current_setting('app.tenant_id')::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid)`,
   sql`CREATE POLICY tenant_dashboard_projections ON dashboard_projections USING (tenant_id = current_setting('app.tenant_id')::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid)`,
   sql`CREATE POLICY tenant_policy_states ON tenant_policy_states USING (tenant_id = current_setting('app.tenant_id')::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid)`,
+  sql`CREATE POLICY tenant_policy_bundle_issuances ON policy_bundle_issuances USING (tenant_id = current_setting('app.tenant_id')::uuid) WITH CHECK (tenant_id = current_setting('app.tenant_id')::uuid)`,
 ];

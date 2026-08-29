@@ -1,7 +1,45 @@
 import { z } from "zod";
 
+import {
+  AdapterInstallationIdSchema,
+  createAdapterInstallationId,
+  type AdapterVersion,
+} from "./identifiers.js";
+
 export const AgentRuntimeSchema = z.enum(["codex", "claude-code", "cursor", "opencode"]);
 export type AgentRuntime = z.infer<typeof AgentRuntimeSchema>;
+
+export const RuntimeProfileSchema = z.enum(["local", "cloud-agent"]);
+export type RuntimeProfile = z.infer<typeof RuntimeProfileSchema>;
+
+export const RuntimeInstallationIdentitySchema = z
+  .object({
+    adapterInstallationId: AdapterInstallationIdSchema,
+    profile: RuntimeProfileSchema,
+  })
+  .strict();
+export type RuntimeInstallationIdentity = z.infer<
+  typeof RuntimeInstallationIdentitySchema
+>;
+
+export function createRuntimeInstallationIdentity(
+  input: unknown,
+): RuntimeInstallationIdentity {
+  return RuntimeInstallationIdentitySchema.parse(input);
+}
+
+export function defaultRuntimeInstallationIdentity(input: {
+  readonly runtime: AgentRuntime;
+  readonly adapterVersion: AdapterVersion;
+  readonly profile: RuntimeProfile;
+}): RuntimeInstallationIdentity {
+  return createRuntimeInstallationIdentity({
+    adapterInstallationId: createAdapterInstallationId(
+      `${input.runtime}:${input.profile}:${input.adapterVersion}`,
+    ),
+    profile: input.profile,
+  });
+}
 
 export const CapabilitySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("supported") }).strict(),

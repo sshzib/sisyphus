@@ -1,4 +1,5 @@
 import {
+  createHash,
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
@@ -18,6 +19,9 @@ import { canonicalJson } from "./canonical-json.js";
 
 export { SignedPolicyBundleSchema } from "@sisyphus/domain";
 export type { SignedPolicyBundle } from "@sisyphus/domain";
+
+export const POLICY_BUNDLE_VALIDITY_MS = 15 * 60 * 1000;
+export const POLICY_BUNDLE_RENEWAL_LEAD_MS = 60 * 1000;
 
 export interface PolicyBundleSigner {
   readonly keyId: string;
@@ -63,7 +67,9 @@ export class Ed25519PolicyBundleSigner implements PolicyBundleSigner {
   }
 }
 
-function policyEntries(snapshot: DashboardSnapshot): RuntimePolicyEntry[] {
+export function policyEntries(
+  snapshot: DashboardSnapshot,
+): RuntimePolicyEntry[] {
   return snapshot.policies
     .filter((policy) => policy.enabled)
     .sort((left, right) => {
@@ -93,6 +99,43 @@ function policyEntries(snapshot: DashboardSnapshot): RuntimePolicyEntry[] {
     }));
 }
 
+export function policyBundleStateDigest(input: {
+  signingKeyId: string;
+  tenantId: string;
+  audience: { deviceId: string; adapterInstallationId: string };
+  adapterConfigurationDigest: string;
+  policies: SignedPolicyBundle["payload"]["policies"];
+  dispositionTransitions: SignedPolicyBundle["payload"]["dispositionTransitions"];
+}): string {
+  return createHash("sha256")
+    .update(
+      canonicalJson({
+        signingKeyId: input.signingKeyId,
+        tenantId: input.tenantId,
+        audience: input.audience,
+        adapterConfigurationDigest: input.adapterConfigurationDigest,
+        policies: input.policies,
+        dispositionTransitions: input.dispositionTransitions,
+      }),
+      "utf8",
+    )
+    .digest("hex");
+}
+
+export function policyBundleExpiresAt(issuedAt: Date): Date {
+  return new Date(issuedAt.getTime() + POLICY_BUNDLE_VALIDITY_MS);
+}
+
+export function policyBundleRequiresRenewal(input: {
+  expiresAt: Date;
+  now: Date;
+}): boolean {
+  return (
+    input.expiresAt.getTime() <=
+    input.now.getTime() + POLICY_BUNDLE_RENEWAL_LEAD_MS
+  );
+}
+
 export function createSignedPolicyBundle(input: {
   snapshot: DashboardSnapshot;
   signer: PolicyBundleSigner;
@@ -113,7 +156,7 @@ export function createSignedPolicyBundle(input: {
     },
     revision: input.revision,
     issuedAt: issuedAt.toISOString(),
-    expiresAt: new Date(issuedAt.getTime() + 15 * 60 * 1000).toISOString(),
+    expiresAt: policyBundleExpiresAt(issuedAt).toISOString(),
     adapterConfigurationDigest: input.adapterConfigurationDigest,
     policies: policyEntries(input.snapshot),
     dispositionTransitions: input.dispositionTransitions,

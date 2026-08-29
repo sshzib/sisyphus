@@ -207,6 +207,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.17.4
         version: 1.30.0(zod@4.5.2)
+      '@sisyphus/adapter-codex':
+        specifier: workspace:*
+        version: link:../../adapters/codex
       '@sisyphus/catalog':
         specifier: workspace:*
         version: link:../../packages/catalog

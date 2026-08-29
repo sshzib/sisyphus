@@ -9,8 +9,11 @@ import type {
 export type RetryDirectiveCount = 0 | 1 | 2;
 
 export type WorkItemState = {
+  readonly finalEventId?: RuntimeEventId | undefined;
+};
+
+export type RetryBudgetState = {
   readonly retryDirectives: RetryDirectiveCount;
-  readonly finalEventId?: RuntimeEventId;
 };
 
 export type SkillStanding =

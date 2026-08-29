@@ -10,6 +10,8 @@ import {
   createAgentId,
   createEventId,
   createRunId,
+  createRetryBudgetId,
+  createRuntimeInstallationIdentity,
   createSessionId,
   createSkillVersionId,
   createSkillVersionKey,
@@ -128,9 +130,14 @@ describe("normalized observations", () => {
       kind: "root-stop",
       eventId: createEventId("event-1"),
       workItemId: createWorkItemId("work-1"),
+      retryBudgetId: createRetryBudgetId("budget-1"),
       runId: createRunId("run-1"),
       occurredAt: "2026-08-29T10:00:00.000Z",
       adapterVersion: createAdapterVersion("adapter-1"),
+      runtimeInstallation: createRuntimeInstallationIdentity({
+        adapterInstallationId: "installation-1",
+        profile: "local",
+      }),
       capabilities,
       identity: {
         sessionId: createSessionId("session-1"),

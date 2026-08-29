@@ -65,6 +65,15 @@ describe("Claude Code adapter", () => {
     expect(secondPrompt.workItemId).not.toBe(firstPrompt.workItemId);
   });
 
+  it("separates root and subagent completions under one prompt retry budget", () => {
+    const adapter = createClaudeCodeAdapter({ runtimeVersion: "2.1.229" });
+    const root = adapter.parseEvent(loadFixture("stop.json"));
+    const subagent = adapter.parseEvent(loadFixture("subagent-stop.json"));
+
+    expect(root.workItemId).not.toBe(subagent.workItemId);
+    expect(root.retryBudgetId).toBe(subagent.retryBudgetId);
+  });
+
   it("proves activation only from a matching managed MCP result", () => {
     const adapter = createClaudeCodeAdapter();
     expect(adapter.verifySkillActivation(loadFixture("post-tool-use-activation.json"))).toEqual({

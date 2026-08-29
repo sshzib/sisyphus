@@ -258,6 +258,10 @@ export const RestoreSkillRequestSchema = z
   .strict();
 export type RestoreSkillRequest = z.infer<typeof RestoreSkillRequestSchema>;
 
+export const RestoreSkillParamsSchema = z
+  .object({ skillVersionId: z.string().min(1).max(240) })
+  .strict();
+
 export const RestoreSkillResponseSchema = z
   .object({ skill: SkillSummarySchema, auditEvent: AuditEventSchema })
   .strict();
@@ -301,6 +305,86 @@ export const HostContextSchema = z.discriminatedUnion("kind", [
     .strict(),
 ]);
 export type HostContext = z.infer<typeof HostContextSchema>;
+
+export const HostedCsrfTokenSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+
+export const HostedBearerCredentialSchema = z
+  .object({
+    token: z.string().trim().min(1).max(4096).regex(/^[A-Za-z0-9._~-]+$/u),
+  })
+  .strict();
+
+export const HostedSessionPayloadSchema = z
+  .object({
+    version: z.literal(1),
+    bearerToken: HostedBearerCredentialSchema.shape.token,
+    csrfToken: HostedCsrfTokenSchema,
+    expiresAt: z.number().int().positive(),
+  })
+  .strict();
+export type HostedSessionPayload = z.infer<typeof HostedSessionPayloadSchema>;
+
+export const HostedWebServerSettingsSchema = z
+  .object({
+    apiUrl: z.url(),
+    publicOrigin: z.url(),
+    sessionKey: z.string().regex(/^[A-Za-z0-9+/]{43}=$/u),
+    nodeEnv: z.enum(["development", "production", "test"]),
+  })
+  .strict()
+  .superRefine((settings, context) => {
+    const apiUrl = new URL(settings.apiUrl);
+    const publicOrigin = new URL(settings.publicOrigin);
+    if (!new Set(["http:", "https:"]).has(apiUrl.protocol)) {
+      context.addIssue({
+        code: "custom",
+        path: ["apiUrl"],
+        message: "The control-plane URL must use HTTP or HTTPS.",
+      });
+    }
+    if (!new Set(["http:", "https:"]).has(publicOrigin.protocol)) {
+      context.addIssue({
+        code: "custom",
+        path: ["publicOrigin"],
+        message: "The public origin must use HTTP or HTTPS.",
+      });
+    }
+    if (
+      apiUrl.username.length > 0 ||
+      apiUrl.password.length > 0 ||
+      apiUrl.search.length > 0 ||
+      apiUrl.hash.length > 0
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["apiUrl"],
+        message: "The control-plane URL cannot contain credentials, a query, or a fragment.",
+      });
+    }
+    if (
+      publicOrigin.username.length > 0 ||
+      publicOrigin.password.length > 0 ||
+      publicOrigin.pathname !== "/" ||
+      publicOrigin.search.length > 0 ||
+      publicOrigin.hash.length > 0
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["publicOrigin"],
+        message: "The public origin must contain only a scheme and host.",
+      });
+    }
+    if (
+      settings.nodeEnv === "production" &&
+      (apiUrl.protocol !== "https:" || publicOrigin.protocol !== "https:")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Production control-plane and public URLs must use HTTPS.",
+      });
+    }
+  });
+export type HostedWebServerSettings = z.infer<typeof HostedWebServerSettingsSchema>;
 
 export const EventIngestRequestSchema = z
   .object({

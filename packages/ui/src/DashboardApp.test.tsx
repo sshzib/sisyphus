@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DashboardApp } from "./DashboardApp.js";
@@ -7,6 +7,15 @@ import { createDemoDataClient } from "./client.js";
 afterEach(() => cleanup());
 
 describe("DashboardApp", () => {
+  it("labels built-in sample data without claiming a cloud connection", async () => {
+    render(<DashboardApp client={createDemoDataClient()} hostContext={{ kind: "web" }} />);
+
+    expect(await screen.findByText("Demo data")).toBeInTheDocument();
+    expect(screen.getByText("No runtime or cloud service is connected.")).toBeInTheDocument();
+    expect(screen.queryByText("Production workspace")).not.toBeInTheDocument();
+    expect(screen.queryByText("Cloud synced")).not.toBeInTheDocument();
+  });
+
   it("filters the dashboard to one runtime cohort", async () => {
     const user = userEvent.setup();
     render(<DashboardApp client={createDemoDataClient()} />);
@@ -88,5 +97,17 @@ describe("DashboardApp", () => {
     await user.click(screen.getByRole("button", { name: /^Integrations/u }));
     expect(await screen.findByText(reason)).toBeInTheDocument();
     expect(screen.getAllByText("Degraded").length).toBeGreaterThan(0);
+  });
+
+  it("counts partial policy capabilities as gaps", async () => {
+    const user = userEvent.setup();
+    render(<DashboardApp client={createDemoDataClient()} />);
+
+    await screen.findByText("Comparable runtime cohorts");
+    await user.click(screen.getByRole("button", { name: /^Policies/u }));
+
+    const baseline = screen.getByText("Sample team baseline").closest("article");
+    if (baseline === null) throw new Error("Missing sample team baseline policy card.");
+    expect(within(baseline).getByText("Capability gaps").nextElementSibling).toHaveTextContent("2");
   });
 });

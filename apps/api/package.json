@@ -9,7 +9,7 @@
     "migrate": "tsx src/database/migrate.ts",
     "start": "node dist/server.js",
     "test": "vitest run",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",

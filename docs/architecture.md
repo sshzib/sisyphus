@@ -20,13 +20,20 @@ Hosted API <- redacted records <- worker
 ## Live decision path
 
 1. The adapter validates an unknown vendor payload at its boundary and produces a `HookObservation`.
-2. The worker checks the vendor event ID. A duplicate returns the committed decision immediately.
+2. The worker resolves the exact adapter installation and runtime profile, then checks
+   the vendor event ID. A duplicate returns the committed decision immediately.
 3. The worker stores raw evidence locally, correlates any activation lease, matches the prompt against the managed catalog, and calls `SupervisionKernel.supervise`.
-4. The kernel resolves one skill, evaluates a completion or tool request, applies the shared retry limit, and derives any eligible quarantine transition.
+4. The kernel resolves one skill, evaluates a completion or tool request, applies the
+   shared retry budget, and derives any eligible quarantine transition. Root and
+   subagent completions remain separate work items even when they draw from the same
+   retry budget.
 5. The kernel and journal apply idempotent state transitions. The journal commits the decision and cloud outbox record in one SQLite transaction, so replay converges after a crash.
 6. The adapter converts the typed decision into the runtime's response format.
 
-The hosted service is not on the deterministic enforcement path. A remote judge timeout becomes `inconclusive`, allows completion, and cannot affect automatic quarantine. Late results are advisory.
+The hosted service is not on the deterministic enforcement path. A remote judge
+timeout becomes `inconclusive`, allows completion, and cannot affect automatic
+quarantine. Late results are advisory and are persisted locally without changing the
+authoritative decision.
 
 ## Skill resolution and attribution
 
@@ -36,7 +43,12 @@ Selection alone is not attribution. A run affects skill standing only when the a
 
 ## Capability snapshots
 
-Each adapter installation publishes a versioned capability snapshot. The worker copies that snapshot onto every run, so a later runtime upgrade cannot rewrite historical enforcement claims. Policies declare the capabilities they require. Missing or partial capabilities downgrade the action to observation with a concrete reason.
+Each adapter installation publishes a versioned capability snapshot and a concrete
+runtime version. The worker copies the installation identity, profile, and snapshot
+onto every run, so a later runtime upgrade cannot rewrite historical enforcement
+claims. Policies declare the capabilities they require. Missing or partial
+capabilities downgrade the action to observation with a concrete reason. If Codex is
+not installed, the worker reports setup-required and registers no fictional runtime.
 
 Cursor local sessions and cloud agents use separate profiles. OpenCode advertises grading, telemetry, and tool controls but keeps stop continuation unsupported until its continuation conformance fixture passes.
 
@@ -44,10 +56,22 @@ Cursor local sessions and cloud agents use separate profiles. OpenCode advertise
 
 SQLite in WAL mode stores normalized observations, encrypted evidence handles, retry and quarantine state, activation leases, persisted decisions, and the idempotent cloud outbox. The evidence vault uses AES-256-GCM with a device key supplied by the operating-system credential boundary. Hook, MCP, and desktop channels use distinct bearer tokens plus challenge-first HMAC authentication; the MCP bearer and tool arguments remain inside the stdio proxy until the worker proves possession of the channel secret.
 
-The PostgreSQL schema stores tenant-scoped devices, runs, evaluations, skill dispositions, policy bundles, encrypted judge configuration, ingest events, and an ingest outbox. Tenant transactions set `app.tenant_id`; row-level policies constrain reads and writes.
+The PostgreSQL schema stores tenant-scoped devices, runs, evaluations, skill
+dispositions, policy bundles, encrypted judge configuration, ingest events, and an
+ingest outbox. A privileged migration role owns the schema; the serving role receives
+only the grants it needs. Startup verifies migration head, exact forced row-level
+policies, role isolation, and grants before listening. Tenant transactions set
+`app.tenant_id`, and unchanged policy reads reuse the same signed issuance record.
 
 Before a cloud or judge payload exists, the worker redacts its input. A redaction failure stops the transfer. The projection excludes native payload objects and permits only typed metadata plus bounded redacted excerpts. The hosted service still cannot prove the lineage of arbitrary excerpt text without a future device-attestation protocol.
 
 ## Package boundaries
 
-`packages/domain` and `packages/kernel` cannot import vendor modules. `packages/adapter-kit` owns the translation contract and reusable conformance checks. Adapters own vendor schemas. The worker owns filesystem, SQLite, encryption, IPC, HTTP, and model-provider boundaries. The API owns authentication, tenant transactions, signed policy distribution, and hosted projections. Both web and Electron consume `packages/ui` contracts.
+`packages/domain` and `packages/kernel` cannot import vendor modules.
+`packages/adapter-kit` owns the translation contract and reusable conformance checks.
+Adapters own vendor schemas. The worker owns filesystem, SQLite, encryption, IPC,
+HTTP, and model-provider boundaries. The API owns authentication, tenant transactions,
+signed policy distribution, and hosted projections. Both web and Electron consume
+`packages/ui` contracts. The hosted browser reaches the API through a same-origin,
+encrypted-session BFF; Electron keeps its control-plane bearer in the main process and
+exposes only schema-validated IPC operations.

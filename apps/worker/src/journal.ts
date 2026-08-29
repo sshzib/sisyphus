@@ -1,7 +1,21 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
-import { AgentRuntimeSchema } from "@sisyphus/domain";
+import {
+  AdvisoryEvaluationSchema,
+  AgentRuntimeSchema,
+  EvaluationIdSchema,
+  PolicyVersionIdSchema,
+  RuntimeEventIdSchema,
+  SignedPolicyBundleSchema,
+  TimestampSchema,
+  type AdvisoryEvaluation,
+  type EvaluationId,
+  type PolicyVersionId,
+  type RuntimeEventId,
+  type SignedPolicyBundle,
+  type Timestamp,
+} from "@sisyphus/domain";
 import { z } from "zod";
 
 import type { StoredActivationLease } from "./activation-lease.js";
@@ -45,6 +59,12 @@ interface ConsumeActivationLeaseInput {
   readonly consumedAt: string;
 }
 
+interface PendingActivationLeaseInput {
+  readonly activationLeaseDigest: string;
+  readonly skillVersionId: string;
+  readonly observedAt: string;
+}
+
 interface WorkItemIdentity {
   readonly runId: string;
   readonly workItemId: string;
@@ -52,6 +72,7 @@ interface WorkItemIdentity {
 
 interface CompletionAttemptInput extends WorkItemIdentity {
   readonly eventId: string;
+  readonly retryBudgetId: string;
 }
 
 interface LocalDispositionRevisionInput {
@@ -85,6 +106,15 @@ export interface StoredPolicyBundleState {
   readonly revision: number;
   readonly payloadDigest: string;
   readonly dispositionRevision: number;
+  readonly signedBundle?: SignedPolicyBundle;
+}
+
+export interface StoredLateAdvisory {
+  readonly evaluationId: EvaluationId;
+  readonly eventId: RuntimeEventId;
+  readonly policyVersionId: PolicyVersionId;
+  readonly receivedAt: Timestamp;
+  readonly advisory: AdvisoryEvaluation;
 }
 
 type SQLiteRow = Record<string, string | number | bigint | null | Uint8Array>;
@@ -181,6 +211,26 @@ function ensureActivationLeaseRuntimeColumn(database: DatabaseSync): void {
   }
 }
 
+function ensurePolicyBundleColumn(database: DatabaseSync): void {
+  const columns = database.prepare("PRAGMA table_info(policy_bundle_state)").all();
+  const exists = columns.some((row) => row["name"] === "signed_bundle_json");
+  if (!exists) {
+    database.exec("ALTER TABLE policy_bundle_state ADD COLUMN signed_bundle_json TEXT;");
+  }
+}
+
+function ensureCompletionAttemptRetryBudgetColumn(database: DatabaseSync): void {
+  const columns = database.prepare("PRAGMA table_info(completion_attempts)").all();
+  const exists = columns.some((row) => row["name"] === "retry_budget_id");
+  if (exists) return;
+  database.exec(
+    "ALTER TABLE completion_attempts ADD COLUMN retry_budget_id TEXT NOT NULL DEFAULT '';",
+  );
+  database.exec(
+    "UPDATE completion_attempts SET retry_budget_id = work_item_id WHERE retry_budget_id = '';",
+  );
+}
+
 export class LocalJournal {
   readonly #database: DatabaseSync;
 
@@ -211,6 +261,7 @@ export class LocalJournal {
         event_id TEXT PRIMARY KEY,
         run_id TEXT NOT NULL,
         work_item_id TEXT NOT NULL,
+        retry_budget_id TEXT NOT NULL,
         attempt INTEGER NOT NULL CHECK(attempt BETWEEN 1 AND 3)
       ) STRICT;
       CREATE INDEX IF NOT EXISTS completion_attempts_by_work_item
@@ -225,7 +276,8 @@ export class LocalJournal {
         singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
         revision INTEGER NOT NULL CHECK(revision > 0),
         payload_digest TEXT NOT NULL,
-        disposition_revision INTEGER NOT NULL CHECK(disposition_revision >= 0)
+        disposition_revision INTEGER NOT NULL CHECK(disposition_revision >= 0),
+        signed_bundle_json TEXT
       ) STRICT;
       CREATE TABLE IF NOT EXISTS outbox (
         id TEXT PRIMARY KEY,
@@ -248,8 +300,21 @@ export class LocalJournal {
       ) STRICT;
       CREATE INDEX IF NOT EXISTS activation_leases_consumed_work_item
         ON activation_leases(run_id, work_item_id, consumed_at);
+      CREATE TABLE IF NOT EXISTS late_advisories (
+        evaluation_id TEXT PRIMARY KEY,
+        event_id TEXT NOT NULL,
+        policy_version_id TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        advisory_json TEXT NOT NULL
+      ) STRICT;
     `);
     ensureActivationLeaseRuntimeColumn(this.#database);
+    ensurePolicyBundleColumn(this.#database);
+    ensureCompletionAttemptRetryBudgetColumn(this.#database);
+    this.#database.exec(`
+      CREATE INDEX IF NOT EXISTS completion_attempts_by_retry_budget
+        ON completion_attempts(run_id, retry_budget_id, attempt);
+    `);
   }
 
   recordDecision(input: RecordDecisionInput): RecordedDecision {
@@ -422,28 +487,32 @@ export class LocalJournal {
     try {
       this.#database
         .prepare(
-          `INSERT OR IGNORE INTO completion_attempts(event_id, run_id, work_item_id, attempt)
-          SELECT ?, ?, ?,
+          `INSERT OR IGNORE INTO completion_attempts(
+            event_id, run_id, work_item_id, retry_budget_id, attempt
+          )
+          SELECT ?, ?, ?, ?,
             CASE WHEN COALESCE(MAX(attempt), 0) >= 3 THEN 3 ELSE COALESCE(MAX(attempt), 0) + 1 END
           FROM completion_attempts
-          WHERE run_id = ? AND work_item_id = ?`,
+          WHERE run_id = ? AND retry_budget_id = ?`,
         )
         .run(
           input.eventId,
           input.runId,
           input.workItemId,
+          input.retryBudgetId,
           input.runId,
-          input.workItemId,
+          input.retryBudgetId,
         );
       const row = this.#database
         .prepare(
-          "SELECT run_id, work_item_id, attempt FROM completion_attempts WHERE event_id = ?",
+          "SELECT run_id, work_item_id, retry_budget_id, attempt FROM completion_attempts WHERE event_id = ?",
         )
         .get(input.eventId);
       if (row === undefined) throw new Error("Completion attempt was not persisted.");
       if (
         requiredString(row, "run_id") !== input.runId ||
-        requiredString(row, "work_item_id") !== input.workItemId
+        requiredString(row, "work_item_id") !== input.workItemId ||
+        requiredString(row, "retry_budget_id") !== input.retryBudgetId
       ) {
         throw new JournalEventCollisionError(
           `Event ID ${input.eventId} belongs to a different work item.`,
@@ -496,7 +565,7 @@ export class LocalJournal {
   policyBundleState(): StoredPolicyBundleState | undefined {
     const row = this.#database
       .prepare(
-        `SELECT revision, payload_digest, disposition_revision
+        `SELECT revision, payload_digest, disposition_revision, signed_bundle_json
         FROM policy_bundle_state
         WHERE singleton = 1`,
       )
@@ -504,6 +573,7 @@ export class LocalJournal {
     if (row === undefined) return undefined;
     const payloadDigest = requiredString(row, "payload_digest");
     assertDigest(payloadDigest, "Policy payload digest");
+    const signedBundleJson = optionalString(row, "signed_bundle_json");
     return {
       revision: z.number().int().positive().parse(row["revision"]),
       payloadDigest,
@@ -512,6 +582,9 @@ export class LocalJournal {
         .int()
         .nonnegative()
         .parse(row["disposition_revision"]),
+      ...(signedBundleJson === undefined
+        ? {}
+        : { signedBundle: SignedPolicyBundleSchema.parse(JSON.parse(signedBundleJson)) }),
     };
   }
 
@@ -537,22 +610,29 @@ export class LocalJournal {
     this.#database
       .prepare(
         `INSERT INTO policy_bundle_state(
-          singleton, revision, payload_digest, disposition_revision
-        ) VALUES (1, ?, ?, ?)
+          singleton, revision, payload_digest, disposition_revision, signed_bundle_json
+        ) VALUES (1, ?, ?, ?, ?)
         ON CONFLICT(singleton) DO UPDATE SET
           revision = excluded.revision,
           payload_digest = excluded.payload_digest,
-          disposition_revision = excluded.disposition_revision`,
+          disposition_revision = excluded.disposition_revision,
+          signed_bundle_json = excluded.signed_bundle_json`,
       )
-      .run(input.revision, input.payloadDigest, input.dispositionRevision);
+      .run(
+        input.revision,
+        input.payloadDigest,
+        input.dispositionRevision,
+        input.signedBundle === undefined ? null : encodeJson(input.signedBundle),
+      );
   }
 
-  pendingOutbox(): readonly OutboxRecord[] {
+  pendingOutbox(limit = 100): readonly OutboxRecord[] {
+    z.number().int().min(1).max(100).parse(limit);
     return this.#database
       .prepare(
-        "SELECT id, event_id, payload_json, created_at FROM outbox WHERE acknowledged_at IS NULL ORDER BY created_at, id",
+        "SELECT id, event_id, payload_json, created_at FROM outbox WHERE acknowledged_at IS NULL ORDER BY created_at, id LIMIT ?",
       )
-      .all()
+      .all(limit)
       .map((row) => ({
         id: requiredString(row, "id"),
         eventId: requiredString(row, "event_id"),
@@ -567,6 +647,49 @@ export class LocalJournal {
         "UPDATE outbox SET acknowledged_at = COALESCE(acknowledged_at, ?) WHERE id = ?",
       )
       .run(new Date().toISOString(), id);
+  }
+
+  recordLateAdvisory(input: StoredLateAdvisory): void {
+    const evaluationId = EvaluationIdSchema.parse(input.evaluationId);
+    const eventId = RuntimeEventIdSchema.parse(input.eventId);
+    const policyVersionId = PolicyVersionIdSchema.parse(input.policyVersionId);
+    const receivedAt = TimestampSchema.parse(input.receivedAt);
+    const advisory = AdvisoryEvaluationSchema.parse(input.advisory);
+    const advisoryJson = encodeJson(advisory);
+    this.#database
+      .prepare(
+        `INSERT OR IGNORE INTO late_advisories(
+          evaluation_id, event_id, policy_version_id, received_at, advisory_json
+        ) VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(evaluationId, eventId, policyVersionId, receivedAt, advisoryJson);
+    const stored = this.lateAdvisoryFor(evaluationId);
+    if (stored === undefined || encodeJson(stored.advisory) !== advisoryJson) {
+      throw new JournalEventCollisionError(
+        `Evaluation ID ${evaluationId} belongs to a different advisory result.`,
+      );
+    }
+  }
+
+  lateAdvisoryFor(evaluationId: EvaluationId): StoredLateAdvisory | undefined {
+    const row = this.#database
+      .prepare(
+        `SELECT evaluation_id, event_id, policy_version_id, received_at, advisory_json
+        FROM late_advisories WHERE evaluation_id = ?`,
+      )
+      .get(evaluationId);
+    if (row === undefined) return undefined;
+    return {
+      evaluationId: EvaluationIdSchema.parse(requiredString(row, "evaluation_id")),
+      eventId: RuntimeEventIdSchema.parse(requiredString(row, "event_id")),
+      policyVersionId: PolicyVersionIdSchema.parse(
+        requiredString(row, "policy_version_id"),
+      ),
+      receivedAt: TimestampSchema.parse(requiredString(row, "received_at")),
+      advisory: AdvisoryEvaluationSchema.parse(
+        parseJson(requiredString(row, "advisory_json")),
+      ),
+    };
   }
 
   consumeActivationLease(
@@ -607,6 +730,22 @@ export class LocalJournal {
       if (this.#database.isTransaction) this.#database.exec("ROLLBACK;");
       throw error;
     }
+  }
+
+  pendingActivationLease(
+    input: PendingActivationLeaseInput,
+  ): StoredActivationLease | undefined {
+    const row = this.#database
+      .prepare(
+        `SELECT ${activationLeaseSelect()}
+        FROM activation_leases
+        WHERE activation_lease_digest = ?
+          AND skill_version_id = ?
+          AND consumed_at IS NULL
+          AND expires_at > ?`,
+      )
+      .get(input.activationLeaseDigest, input.skillVersionId, input.observedAt);
+    return row === undefined ? undefined : storedActivationLease(row);
   }
 
   activationFor(input: WorkItemIdentity): StoredActivationLease | undefined {

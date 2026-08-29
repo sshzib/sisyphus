@@ -1,5 +1,12 @@
-import { codexFailOpenResponse, type CodexHookResponse } from "./responses.js";
+import {
+  RuntimeProfileSchema,
+  createAdapterVersion,
+  createRuntimeInstallationIdentity,
+  defaultRuntimeInstallationIdentity,
+} from "@sisyphus/domain";
+
 import { runCodexHook } from "./hook-runner.js";
+import { codexFailOpenResponse, type CodexHookResponse } from "./responses.js";
 
 const maximumInputBytes = 8 * 1024 * 1024;
 
@@ -56,10 +63,34 @@ async function main(): Promise<void> {
     const configuredEndpoint = process.env.SISYPHUS_WORKER_URL;
     const workerToken = process.env.SISYPHUS_HOOK_TOKEN;
     if (workerToken === undefined) throw new Error("hook credential is unavailable");
+    const configuredInstallationId = process.env.SISYPHUS_ADAPTER_INSTALLATION_ID;
+    const profile = RuntimeProfileSchema.parse(
+      process.env.SISYPHUS_RUNTIME_PROFILE ?? "local",
+    );
+    const installationIdentity =
+      configuredInstallationId === undefined
+        ? defaultRuntimeInstallationIdentity({
+            runtime: "codex",
+            adapterVersion: createAdapterVersion("0.1.0"),
+            profile,
+          })
+        : createRuntimeInstallationIdentity({
+            adapterInstallationId: configuredInstallationId,
+            profile,
+          });
     const response = await runCodexHook(
       configuredEndpoint === undefined
-        ? { rawEvent, workerToken }
-        : { rawEvent, workerToken, workerEndpoint: configuredEndpoint },
+        ? {
+            rawEvent,
+            workerToken,
+            installationIdentity,
+          }
+        : {
+            rawEvent,
+            workerToken,
+            workerEndpoint: configuredEndpoint,
+            installationIdentity,
+          },
     );
     writeResponse(response);
   } catch {

@@ -1,14 +1,15 @@
 import { z } from "zod";
 
 import {
-  createAdapterInstallationId,
   createAdapterVersion,
   createTimestamp,
+  defaultRuntimeInstallationIdentity,
   type AdapterVersion,
   type DecisionFor,
   type HookObservation,
   type RuntimeCapabilitySnapshot,
   type RuntimeIdentity,
+  type RuntimeInstallationIdentity,
   type SkillActivationEvidence,
 } from "@sisyphus/domain";
 import {
@@ -39,6 +40,7 @@ export type CursorAdapterOptions = {
   readonly profile?: CursorExecutionProfile;
   readonly runtimeVersion?: string;
   readonly adapterVersion?: string;
+  readonly installationIdentity?: RuntimeInstallationIdentity;
   readonly now?: () => Date;
 };
 
@@ -105,17 +107,30 @@ export function cursorCapabilities(
 export class CursorRuntimeAdapter implements AgentRuntimeAdapter {
   readonly runtime = "cursor";
   readonly profile: CursorExecutionProfile;
+  readonly installationIdentity: RuntimeInstallationIdentity;
 
   readonly #adapterVersion: AdapterVersion;
   readonly #probeCapabilities: RuntimeCapabilitySnapshot;
   readonly #now: () => Date;
   readonly #installations = new Map<string, AdapterInstallation>();
+  readonly #installationRequestDigests = new Map<string, string>();
 
   constructor(input: CursorAdapterOptions = {}) {
     this.profile = CursorExecutionProfileSchema.parse(input.profile ?? "local");
     this.#adapterVersion = createAdapterVersion(
       VersionSchema.parse(input.adapterVersion ?? "0.1.0"),
     );
+    const runtimeProfile = this.profile === "cloud" ? "cloud-agent" : "local";
+    this.installationIdentity =
+      input.installationIdentity ??
+      defaultRuntimeInstallationIdentity({
+        runtime: this.runtime,
+        adapterVersion: this.#adapterVersion,
+        profile: runtimeProfile,
+      });
+    if (this.installationIdentity.profile !== runtimeProfile) {
+      throw new Error("Cursor installation profile does not match the adapter profile.");
+    }
     this.#probeCapabilities = cursorCapabilities(
       this.profile,
       input.runtimeVersion ?? "unknown",
@@ -129,21 +144,23 @@ export class CursorRuntimeAdapter implements AgentRuntimeAdapter {
 
   async install(input: AdapterInstallRequest): Promise<AdapterInstallation> {
     const request = AdapterInstallRequestSchema.parse(input);
-    const installationId = createAdapterInstallationId(
-      `cursor:${stableCursorDigest({
-        profile: this.profile,
-        deviceId: request.deviceId,
-        adapterVersion: request.adapterVersion,
-        workerEndpoint: request.workerEndpoint,
-        scope: request.scope,
-      })}`,
-    );
+    if (request.adapterVersion !== this.#adapterVersion) {
+      throw new Error("Cursor install request does not match the adapter version.");
+    }
+    const installationId = this.installationIdentity.adapterInstallationId;
+    const requestDigest = stableCursorDigest(request);
     const existing = this.#installations.get(installationId);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      if (this.#installationRequestDigests.get(installationId) !== requestDigest) {
+        throw new Error("Cursor installation identity belongs to another install request.");
+      }
+      return existing;
+    }
     const installedAt = this.#now();
     if (Number.isNaN(installedAt.getTime())) throw new Error("now() returned an invalid date");
     const installation: AdapterInstallation = {
       installationId,
+      profile: this.installationIdentity.profile,
       runtime: this.runtime,
       adapterVersion: request.adapterVersion,
       installedAt: createTimestamp(installedAt.toISOString()),
@@ -151,12 +168,14 @@ export class CursorRuntimeAdapter implements AgentRuntimeAdapter {
       capabilities: this.#probeCapabilities,
     };
     this.#installations.set(installationId, installation);
+    this.#installationRequestDigests.set(installationId, requestDigest);
     return installation;
   }
 
   async uninstall(input: AdapterUninstallRequest): Promise<void> {
     const request = AdapterUninstallRequestSchema.parse(input);
     this.#installations.delete(request.installationId);
+    this.#installationRequestDigests.delete(request.installationId);
   }
 
   parseEvent(input: UnknownRuntimeEvent): HookObservation {
@@ -164,6 +183,7 @@ export class CursorRuntimeAdapter implements AgentRuntimeAdapter {
       adapterVersion: this.#adapterVersion,
       capabilitiesForVersion: (runtimeVersion) =>
         cursorCapabilities(this.profile, runtimeVersion),
+      runtimeInstallation: this.installationIdentity,
       now: this.#now,
     });
   }

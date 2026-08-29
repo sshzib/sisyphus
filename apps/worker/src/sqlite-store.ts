@@ -2,6 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import {
   RuntimeEventIdSchema,
+  RetryBudgetIdSchema,
   SkillCompletionRecordSchema,
   SkillVersionIdSchema,
   SupervisionDecisionSchema,
@@ -27,18 +28,18 @@ const PersistedEventDecisionSchema = z.object({
     "subagent-stop",
   ]),
   workItemId: WorkItemIdSchema,
+  retryBudgetId: RetryBudgetIdSchema,
   observationDigest: z.string().regex(/^[a-f0-9]{64}$/u),
   decision: SupervisionDecisionSchema,
 });
 
 const RetryDirectiveCountSchema = z.union([z.literal(0), z.literal(1), z.literal(2)]);
-const WorkItemStateSchema = z.union([
-  z.object({ retryDirectives: RetryDirectiveCountSchema }),
-  z.object({
-    retryDirectives: RetryDirectiveCountSchema,
-    finalEventId: RuntimeEventIdSchema,
-  }),
-]);
+const WorkItemStateSchema = z.object({
+  finalEventId: RuntimeEventIdSchema.optional(),
+});
+const RetryBudgetStateSchema = z.object({
+  retryDirectives: RetryDirectiveCountSchema,
+});
 
 const SkillStandingSchema = z.discriminatedUnion("disposition", [
   z.object({ disposition: z.literal("active") }),
@@ -85,6 +86,10 @@ export class SQLiteSupervisionStore implements SupervisionStore {
       ) STRICT;
       CREATE TABLE IF NOT EXISTS kernel_work_items (
         work_item_id TEXT PRIMARY KEY,
+        state_json TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS kernel_retry_budgets (
+        retry_budget_id TEXT PRIMARY KEY,
         state_json TEXT NOT NULL
       ) STRICT;
       CREATE TABLE IF NOT EXISTS kernel_skill_standings (
@@ -144,7 +149,7 @@ export class SQLiteSupervisionStore implements SupervisionStore {
           .prepare("SELECT state_json FROM kernel_work_items WHERE work_item_id = ?")
           .get(workItemId);
         return row === undefined
-          ? { retryDirectives: 0 }
+          ? {}
           : parseStoredJson(requiredString(row, "state_json"), WorkItemStateSchema);
       },
       putWorkItem: (workItemId, state) => {
@@ -153,6 +158,29 @@ export class SQLiteSupervisionStore implements SupervisionStore {
             "INSERT INTO kernel_work_items(work_item_id, state_json) VALUES (?, ?) ON CONFLICT(work_item_id) DO UPDATE SET state_json = excluded.state_json",
           )
           .run(workItemId, encoded(state, WorkItemStateSchema));
+      },
+      getRetryBudget: (retryBudgetId) => {
+        const row = this.#database
+          .prepare(
+            "SELECT state_json FROM kernel_retry_budgets WHERE retry_budget_id = ?",
+          )
+          .get(retryBudgetId);
+        return row === undefined
+          ? { retryDirectives: 0 }
+          : parseStoredJson(
+              requiredString(row, "state_json"),
+              RetryBudgetStateSchema,
+            );
+      },
+      putRetryBudget: (retryBudgetId, state) => {
+        this.#database
+          .prepare(
+            "INSERT INTO kernel_retry_budgets(retry_budget_id, state_json) VALUES (?, ?) ON CONFLICT(retry_budget_id) DO UPDATE SET state_json = excluded.state_json",
+          )
+          .run(
+            RetryBudgetIdSchema.parse(retryBudgetId),
+            encoded(state, RetryBudgetStateSchema),
+          );
       },
       getSkillStanding: (skillVersionId) => {
         const row = this.#database

@@ -27,6 +27,7 @@ import {
 } from "./auth.js";
 import {
   createInMemoryRepository,
+  InactiveDeviceError,
   IngestCollisionError,
   InvalidStateTransitionError,
   type ControlPlaneRepository,
@@ -74,6 +75,7 @@ export interface CreateAppOptions {
   judgeProvider?: JudgeProvider;
   judgeDeadlineMs?: number;
   policyBundleSigner?: PolicyBundleSigner;
+  clock?: () => Date;
 }
 
 function requireAuthentication(
@@ -153,6 +155,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   );
   const policyBundleSigner =
     options.policyBundleSigner ?? Ed25519PolicyBundleSigner.generate();
+  const clock = options.clock ?? (() => new Date());
   const app = Fastify({ logger: options.logger ?? false });
 
   await app.register(cors, {
@@ -286,6 +289,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       tenantId: auth.tenantId,
       deviceId: auth.subjectId,
       adapterInstallationId: auth.adapterInstallationId,
+      signingKeyId: policyBundleSigner.keyId,
+      now: clock(),
     });
     if (issuance === undefined) {
       sendApiError({
@@ -300,6 +305,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     const bundle = createSignedPolicyBundle({
       signer: policyBundleSigner,
       ...issuance,
+      now: new Date(issuance.issuedAt),
     });
     await repository.recordSignedPolicyBundle({
       tenantId: auth.tenantId,
@@ -497,6 +503,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
           reply,
           status: 409,
           error: "idempotency_collision",
+          message: error.message,
+        });
+        return;
+      }
+      if (error instanceof InactiveDeviceError) {
+        sendApiError({
+          request,
+          reply,
+          status: 403,
+          error: "device_inactive",
           message: error.message,
         });
         return;

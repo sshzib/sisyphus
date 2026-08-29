@@ -17,7 +17,15 @@ import {
   createLocalChallengeNonce,
   verifyLocalChallenge,
 } from "@sisyphus/local-protocol";
-import { HostContextSchema, type HostContext } from "@sisyphus/ui/contracts";
+import {
+  ApiErrorSchema,
+  DashboardQuerySchema,
+  DashboardSnapshotSchema,
+  HostContextSchema,
+  RestoreSkillRequestSchema,
+  RestoreSkillResponseSchema,
+  type HostContext,
+} from "@sisyphus/ui/contracts";
 import { DeviceSecretStore, type DeviceSecretCipher } from "./device-secrets.js";
 import { LocalEvidenceResponseSchema, desktopChannels } from "./ipc.js";
 
@@ -40,6 +48,20 @@ const EnvironmentSchema = z
     SISYPHUS_HOOK_TOKEN: WorkerCredentialSchema.optional(),
     SISYPHUS_MCP_TOKEN: WorkerCredentialSchema.optional(),
     SISYPHUS_DESKTOP_TOKEN: WorkerCredentialSchema.optional(),
+    SISYPHUS_API_URL: z.string().url().optional(),
+    SISYPHUS_DESKTOP_API_TOKEN: z.string().trim().min(1).optional(),
+  })
+  .superRefine((environment, context) => {
+    if (
+      (environment.SISYPHUS_API_URL === undefined) !==
+      (environment.SISYPHUS_DESKTOP_API_TOKEN === undefined)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "SISYPHUS_API_URL and SISYPHUS_DESKTOP_API_TOKEN must be configured together.",
+      });
+    }
   })
   .parse(process.env);
 
@@ -246,10 +268,71 @@ function safeStorageCipher(): DeviceSecretCipher {
 function childEnvironment(overrides: Readonly<Record<string, string>>): Record<string, string> {
   const inherited = Object.fromEntries(
     Object.entries(process.env).filter(
-      (entry): entry is [string, string] => entry[1] !== undefined,
+      (entry): entry is [string, string] =>
+        !entry[0].startsWith("SISYPHUS_") && entry[1] !== undefined,
     ),
   );
   return { ...inherited, ...overrides };
+}
+
+function assertDesktopSender(event: IpcMainInvokeEvent): void {
+  if (
+    mainWindow === undefined ||
+    event.sender !== mainWindow.webContents ||
+    event.senderFrame !== mainWindow.webContents.mainFrame
+  ) {
+    throw new Error("Desktop IPC is limited to the Sisyphus renderer.");
+  }
+}
+
+function desktopApiOrigin(): string | undefined {
+  const configured = EnvironmentSchema.SISYPHUS_API_URL;
+  if (configured === undefined) return undefined;
+  const endpoint = new URL(configured);
+  const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname);
+  if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
+    throw new Error("The desktop control plane must use HTTPS or loopback HTTP.");
+  }
+  if (
+    endpoint.username !== "" ||
+    endpoint.password !== "" ||
+    endpoint.search !== "" ||
+    endpoint.hash !== ""
+  ) {
+    throw new Error(
+      "The desktop control-plane URL must not contain credentials, a query, or a fragment.",
+    );
+  }
+  return endpoint.toString().replace(/\/$/u, "");
+}
+
+async function desktopApiRequest(input: {
+  readonly path: string;
+  readonly method?: "GET" | "POST";
+  readonly body?: unknown;
+}): Promise<unknown> {
+  const origin = desktopApiOrigin();
+  const token = EnvironmentSchema.SISYPHUS_DESKTOP_API_TOKEN;
+  if (origin === undefined || token === undefined) {
+    throw new Error("The desktop control-plane connection is not configured.");
+  }
+  const response = await fetch(`${origin}${input.path}`, {
+    method: input.method ?? "GET",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
+    ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
+    signal: AbortSignal.timeout(10_000),
+  });
+  const payload: unknown = await response.json();
+  if (!response.ok) {
+    const parsed = ApiErrorSchema.safeParse(payload);
+    throw new Error(
+      parsed.success ? parsed.data.message : `Control plane returned HTTP ${response.status}.`,
+    );
+  }
+  return payload;
 }
 
 async function workerIsOnline(): Promise<boolean> {
@@ -371,7 +454,10 @@ function createWindow(): BrowserWindow {
   browserWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   browserWindow.webContents.on("will-navigate", (event, targetUrl) => {
     const allowedUrl = EnvironmentSchema.SISYPHUS_DESKTOP_DEV_URL;
-    if (allowedUrl === undefined || !targetUrl.startsWith(allowedUrl)) {
+    if (
+      allowedUrl === undefined ||
+      new URL(targetUrl).origin !== new URL(allowedUrl).origin
+    ) {
       event.preventDefault();
     }
   });
@@ -385,13 +471,49 @@ function createWindow(): BrowserWindow {
   return browserWindow;
 }
 
-ipcMain.handle(desktopChannels.hostContext, async () => workerHostContext());
+ipcMain.handle(desktopChannels.hostContext, async (event: IpcMainInvokeEvent) => {
+  assertDesktopSender(event);
+  return workerHostContext();
+});
+ipcMain.handle(desktopChannels.dataSource, (event: IpcMainInvokeEvent) => {
+  assertDesktopSender(event);
+  return EnvironmentSchema.SISYPHUS_API_URL === undefined ? "demo" : "remote-api";
+});
+ipcMain.handle(
+  desktopChannels.dashboard,
+  async (event: IpcMainInvokeEvent, input: unknown) => {
+    assertDesktopSender(event);
+    const query = DashboardQuerySchema.parse(input);
+    const suffix =
+      query.runtime === undefined ? "" : `?runtime=${encodeURIComponent(query.runtime)}`;
+    return DashboardSnapshotSchema.parse(
+      await desktopApiRequest({ path: `/v1/dashboard${suffix}` }),
+    );
+  },
+);
+ipcMain.handle(
+  desktopChannels.restoreSkill,
+  async (
+    event: IpcMainInvokeEvent,
+    skillVersionId: unknown,
+    input: unknown,
+  ) => {
+    assertDesktopSender(event);
+    const skill = z.string().trim().min(1).max(512).parse(skillVersionId);
+    const restore = RestoreSkillRequestSchema.parse(input);
+    return RestoreSkillResponseSchema.parse(
+      await desktopApiRequest({
+        path: `/v1/skills/${encodeURIComponent(skill)}/restore`,
+        method: "POST",
+        body: restore,
+      }),
+    );
+  },
+);
 ipcMain.handle(
   desktopChannels.localEvidence,
   async (event: IpcMainInvokeEvent, eventId: unknown) => {
-    if (mainWindow === undefined || event.sender !== mainWindow.webContents) {
-      throw new Error("Local evidence IPC is limited to the Sisyphus renderer.");
-    }
+    assertDesktopSender(event);
     return localEvidence(z.string().trim().min(1).max(512).parse(eventId));
   },
 );

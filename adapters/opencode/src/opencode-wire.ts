@@ -6,6 +6,7 @@ import {
   createActivationLeaseId,
   createAgentId,
   createEventId,
+  createRetryBudgetId,
   createRunId,
   createSessionId,
   createSkillVersionId,
@@ -16,6 +17,7 @@ import {
   type HookObservation,
   type RuntimeCapabilitySnapshot,
   type RuntimeIdentity,
+  type RuntimeInstallationIdentity,
   type SkillActivationEvidence,
 } from "@sisyphus/domain";
 
@@ -83,6 +85,7 @@ export type OpenCodeHookEvent = z.infer<typeof OpenCodeHookEventSchema>;
 export type OpenCodeNormalizationOptions = {
   readonly adapterVersion: AdapterVersion;
   readonly capabilities: RuntimeCapabilitySnapshot;
+  readonly runtimeInstallation: RuntimeInstallationIdentity;
   readonly now: () => Date;
   readonly turnScope: string;
 };
@@ -263,14 +266,22 @@ function observationBase(event: OpenCodeHookEvent, options: OpenCodeNormalizatio
   if (Number.isNaN(occurredAt.getTime())) throw new Error("now() returned an invalid date");
   const sessionId = sessionIdOf(event);
   const scope = z.string().trim().min(1).parse(options.turnScope);
+  const retryBudgetId = createRetryBudgetId(`opencode:${sessionId}:${scope}`);
+  const identity = deriveOpenCodeIdentity(event);
+  const completionScope =
+    identity.agent.kind === "subagent"
+      ? `subagent:${identity.agent.agentId}`
+      : "root";
   return {
     eventId: eventIdFor(event, scope),
-    workItemId: createWorkItemId(`opencode:${sessionId}:${scope}`),
+    workItemId: createWorkItemId(`${retryBudgetId}:${completionScope}`),
+    retryBudgetId,
     runId: createRunId(`opencode:${sessionId}:${scope}`),
     occurredAt: createTimestamp(occurredAt.toISOString()),
     adapterVersion: options.adapterVersion,
+    runtimeInstallation: options.runtimeInstallation,
     capabilities: options.capabilities,
-    identity: deriveOpenCodeIdentity(event),
+    identity,
   };
 }
 

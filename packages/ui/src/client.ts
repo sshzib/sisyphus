@@ -3,37 +3,12 @@ import {
   ApiErrorSchema,
   DashboardSnapshotSchema,
   RestoreSkillResponseSchema,
-  type DashboardQuery,
-  type DashboardSnapshot,
-  type RestoreSkillRequest,
-  type RestoreSkillResponse,
 } from "./contracts.js";
 import {
-  createDemoSnapshot,
-  createRestoredAuditEvent,
-  filterDashboardSnapshot,
-} from "./demo-data.js";
-
-export interface SisyphusDataClient {
-  getDashboard(query: DashboardQuery): Promise<DashboardSnapshot>;
-  restoreSkill(
-    skillVersionId: string,
-    input: RestoreSkillRequest,
-  ): Promise<RestoreSkillResponse>;
-}
-
-export class SisyphusApiError extends Error {
-  public constructor(
-    message: string,
-    public readonly status: number,
-    public readonly requestId: string | undefined,
-  ) {
-    super(message);
-    this.name = "SisyphusApiError";
-  }
-}
-
-type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  SisyphusApiError,
+  type Fetcher,
+  type SisyphusDataClient,
+} from "./data-client.js";
 
 export function createHttpDataClient(input: {
   baseUrl: string;
@@ -73,6 +48,7 @@ export function createHttpDataClient(input: {
   }
 
   return {
+    dataSource: { kind: "remote-api" },
     async getDashboard(query) {
       const queryString =
         query.runtime === undefined
@@ -94,39 +70,6 @@ export function createHttpDataClient(input: {
   };
 }
 
-export function createDemoDataClient(): SisyphusDataClient {
-  let snapshot = createDemoSnapshot();
-
-  return {
-    async getDashboard(query) {
-      return filterDashboardSnapshot(snapshot, query);
-    },
-    async restoreSkill(skillVersionId, input) {
-      const skill = snapshot.skills.find(
-        (candidate) => candidate.skillVersionId === skillVersionId,
-      );
-      if (skill === undefined) {
-        throw new SisyphusApiError("Skill version not found", 404, undefined);
-      }
-
-      const restoredSkill: DashboardSnapshot["skills"][number] = {
-        ...skill,
-        disposition: "probation",
-        lastChangedAt: "2026-08-29T09:55:00.000Z",
-      };
-      const auditEvent = createRestoredAuditEvent({
-        skillName: skill.name,
-        runtime: skill.runtime,
-        reason: input.reason,
-      });
-      snapshot = {
-        ...snapshot,
-        skills: snapshot.skills.map((candidate) =>
-          candidate.skillVersionId === skillVersionId ? restoredSkill : candidate,
-        ),
-        audit: [auditEvent, ...snapshot.audit],
-      };
-      return RestoreSkillResponseSchema.parse({ skill: restoredSkill, auditEvent });
-    },
-  };
-}
+export { createDemoDataClient } from "./demo-client.js";
+export { createSessionDataClient } from "./session-client.js";
+export { SisyphusApiError, type SisyphusDataClient } from "./data-client.js";

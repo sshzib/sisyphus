@@ -27,7 +27,12 @@ describe("Cursor capability profiles", () => {
 
     expect(localEvent.capabilities.runtimeVersion).toBe("1.7.2");
     expect(localEvent.capabilities.promptInterception.kind).toBe("supported");
+    expect(localEvent.runtimeInstallation.profile).toBe("local");
     expect(cloudEvent.capabilities.promptInterception.kind).toBe("partial");
+    expect(cloudEvent.runtimeInstallation.profile).toBe("cloud-agent");
+    expect(cloudEvent.runtimeInstallation.adapterInstallationId).not.toBe(
+      localEvent.runtimeInstallation.adapterInstallationId,
+    );
   });
 
   it("derives a stable subagent identity without a vendor subagent ID", () => {
@@ -36,6 +41,15 @@ describe("Cursor capability profiles", () => {
     const second = adapter.deriveIdentity(loadFixture("subagent-stop.json"));
     expect(first).toEqual(second);
     expect(first.agent.kind).toBe("subagent");
+  });
+
+  it("separates root and subagent completions under one generation retry budget", () => {
+    const adapter = createCursorAdapter({ runtimeVersion: "1.7.2" });
+    const root = adapter.parseEvent(loadFixture("stop.json"));
+    const subagent = adapter.parseEvent(loadFixture("subagent-stop.json"));
+
+    expect(root.workItemId).not.toBe(subagent.workItemId);
+    expect(root.retryBudgetId).toBe(subagent.retryBudgetId);
   });
 
   it("accepts only matching activation marker results", () => {

@@ -8,6 +8,7 @@ import {
   HookObservationSchema,
   RuntimeEventIdSchema,
   RuntimeIdentitySchema,
+  RuntimeInstallationIdentitySchema,
   SkillActivationEvidenceSchema,
   SkillMatchCandidateSchema,
   SkillVersionIdSchema,
@@ -139,6 +140,7 @@ const StopDecisionSchema = z.discriminatedUnion("action", [
 export const CodexSupervisionEnvelopeSchema = z.object({
   runtime: z.literal("codex"),
   adapterVersion: AdapterVersionSchema,
+  runtimeInstallation: RuntimeInstallationIdentitySchema,
   eventId: RuntimeEventIdSchema,
   event: HookObservationSchema,
   identity: RuntimeIdentitySchema,

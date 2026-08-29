@@ -136,6 +136,26 @@ export const SignedPolicyBundlePayloadSchema = z
           path: ["policies", index, "requiredCapabilities"],
         });
       }
+      if (
+        policy.constraint.passThreshold !== undefined &&
+        policy.constraint.passThreshold !== policy.passThreshold
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Constraint pass threshold must match the runtime policy entry.",
+          path: ["policies", index, "constraint", "passThreshold"],
+        });
+      }
+      if (
+        policy.constraint.retryLimit !== undefined &&
+        policy.constraint.retryLimit !== policy.retryLimit
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "Constraint retry limit must match the runtime policy entry.",
+          path: ["policies", index, "constraint", "retryLimit"],
+        });
+      }
     }
   });
 export type SignedPolicyBundlePayload = z.infer<

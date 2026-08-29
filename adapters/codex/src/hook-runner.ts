@@ -3,10 +3,12 @@ import {
   createLocalChallengeNonce,
   verifyLocalChallenge,
 } from "@sisyphus/local-protocol";
+import type { RuntimeInstallationIdentity } from "@sisyphus/domain";
 
 import { createCodexAdapter, type CodexRuntimeAdapter } from "./adapter.js";
 import { inspectCodexEvent } from "./codex-wire.js";
 import { parseAndRenderWorkerResponse, CodexSupervisionEnvelopeSchema } from "./worker-protocol.js";
+import { probeCodexRuntimeVersion } from "./runtime-probe.js";
 import type { CodexHookResponse } from "./responses.js";
 
 const WorkerEndpointSchema = z.string().url();
@@ -60,15 +62,25 @@ export type RunCodexHookInput = {
   readonly workerToken: string;
   readonly workerEndpoint?: string;
   readonly adapter?: CodexRuntimeAdapter;
+  readonly installationIdentity?: RuntimeInstallationIdentity;
+  readonly runtimeVersionProbe?: (() => Promise<string>) | undefined;
   readonly request?: typeof fetch;
 };
 
 export async function runCodexHook(input: RunCodexHookInput): Promise<CodexHookResponse> {
-  const adapter = input.adapter ?? createCodexAdapter();
+  const adapter =
+    input.adapter ??
+    createCodexAdapter({
+      runtimeVersion: await (input.runtimeVersionProbe ?? probeCodexRuntimeVersion)(),
+      ...(input.installationIdentity === undefined
+        ? {}
+        : { installationIdentity: input.installationIdentity }),
+    });
   const inspected = inspectCodexEvent(input.rawEvent, adapter.normalizationOptions());
   const envelope = CodexSupervisionEnvelopeSchema.parse({
     runtime: "codex",
     adapterVersion: inspected.observation.adapterVersion,
+    runtimeInstallation: inspected.observation.runtimeInstallation,
     eventId: inspected.observation.eventId,
     event: inspected.observation,
     identity: inspected.identity,

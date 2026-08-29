@@ -48,7 +48,7 @@ const secretPatterns: readonly {
   },
   {
     pattern:
-      /("(?:api[_-]?key|access[_-]?token|secret|password|credential)"\s*:\s*")[^"\\]*(")/giu,
+      /(\\?"[A-Za-z0-9_.-]*(?:api[_-]?key|token|secret|password|credential)\\?"\s*:\s*\\?")[^"\\]*(\\?")/giu,
     replacement: "$1[redacted]$2",
   },
 ];
@@ -59,6 +59,7 @@ const unsafeCredentialPatterns: readonly RegExp[] = [
   /\bAKIA[A-Z0-9]{16}\b/u,
   /Authorization\s*:\s*Bearer\s+(?!\[redacted\])\S+/iu,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----\s*(?!\[redacted\])/u,
+  /\\?"[A-Za-z0-9_.-]*(?:api[_-]?key|token|secret|password|credential)\\?"\s*:\s*\\?"(?!\[redacted\])[^"\\]+/iu,
 ];
 
 export class RedactionFailureError extends Error {

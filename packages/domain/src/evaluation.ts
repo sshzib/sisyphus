@@ -65,6 +65,8 @@ export type JudgeResult = z.infer<typeof JudgeResultSchema>;
 export const EvaluationConstraintSchema = z.object({
   policyId: PolicyIdSchema,
   policyVersionId: PolicyVersionIdSchema,
+  passThreshold: z.number().min(0).max(1).optional(),
+  retryLimit: z.number().int().min(0).max(2).optional(),
   requiredCapabilities: z.array(CapabilityNameSchema),
   skillCandidates: z.array(SkillMatchCandidateSchema),
   toolPolicy: z.discriminatedUnion("kind", [

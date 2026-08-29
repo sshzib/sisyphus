@@ -4,7 +4,12 @@ import {
 } from "@sisyphus/domain";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { OpenAiResponsesJudgeProvider } from "./judge.js";
+import {
+  JudgeBroker,
+  type JudgeProvider,
+  OpenAiResponsesJudgeProvider,
+} from "./judge.js";
+import { createInMemoryRepository } from "./repository.js";
 
 describe("OpenAiResponsesJudgeProvider", () => {
   it("uses stateless strict structured output", async () => {
@@ -54,5 +59,47 @@ describe("OpenAiResponsesJudgeProvider", () => {
     expect(parsedRequest.store).toBe(false);
     expect(parsedRequest.text.format.strict).toBe(true);
     expect(result).toEqual({ kind: "pass", score: 0.88 });
+  });
+});
+
+describe("JudgeBroker persistence boundary", () => {
+  it("deduplicates across broker instances and detects changed input", async () => {
+    const repository = createInMemoryRepository();
+    await repository.configureJudgeProvider({
+      tenantId: "tenant-acme",
+      apiKey: "sk-test-persisted-provider-key-abcdefghijklmnopqrstuvwxyz",
+      model: "gpt-5-mini",
+    });
+    let calls = 0;
+    const provider: JudgeProvider = {
+      async judge() {
+        calls += 1;
+        return { kind: "pass", score: 0.91 };
+      },
+    };
+    const firstBroker = new JudgeBroker(repository, provider, 100);
+    const secondBroker = new JudgeBroker(repository, provider, 100);
+    const request = {
+      tenantId: "tenant-acme",
+      eventId: createEventId("judge-persisted-event"),
+      policyVersionId: createPolicyVersionId("policy-persisted-v1"),
+      redactedInput: "Typecheck and the integration fixture passed.",
+    };
+
+    await expect(firstBroker.judge(request)).resolves.toEqual({
+      kind: "pass",
+      score: 0.91,
+    });
+    await expect(secondBroker.judge(request)).resolves.toEqual({
+      kind: "pass",
+      score: 0.91,
+    });
+    await expect(
+      secondBroker.judge({
+        ...request,
+        redactedInput: "A different redacted input was replayed.",
+      }),
+    ).rejects.toThrow(/replayed with different input/u);
+    expect(calls).toBe(1);
   });
 });

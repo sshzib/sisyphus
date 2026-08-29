@@ -11,9 +11,14 @@ const input = {
     kind: "root-stop",
     eventId: "event-1",
     workItemId: "work-1",
+    retryBudgetId: "budget-1",
     runId: "run-1",
     occurredAt: "2026-08-29T10:00:00.000Z",
     adapterVersion: "adapter-1",
+    runtimeInstallation: {
+      adapterInstallationId: "installation-1",
+      profile: "local",
+    },
     capabilities: {
       runtime: "codex",
       runtimeVersion: "0.1.0",
@@ -87,6 +92,37 @@ describe("HostedJudge", () => {
 
     expect(result).toMatchObject({ kind: "fail", score: 0.2 });
     expect(received).not.toContain("sk-proj-1234567890abcdefghijkl");
+    expect(received).toContain("[redacted]");
+  });
+
+  it("never sends JSON-encoded worker channel credentials to the judge", async () => {
+    let received = "";
+    const channelCredential = "hook-secret-0123456789abcdef0123456789abcdef";
+    const server = createServer(async (request, response) => {
+      for await (const chunk of request) received += chunk.toString();
+      response.writeHead(200, { "content-type": "application/json" });
+      response.end(JSON.stringify({ kind: "pass", score: 1, findings: [] }));
+    });
+    server.listen(0, "127.0.0.1");
+    servers.push(server);
+    await once(server, "listening");
+    const address = server.address();
+    if (address === null || typeof address === "string") throw new Error("Missing port.");
+    const judge = new HostedJudge({
+      endpoint: `http://127.0.0.1:${address.port}`,
+      deviceToken: "device-token",
+      timeoutMilliseconds: 2_000,
+    });
+
+    await judge.evaluate({
+      ...input,
+      observation: RootStopObservationSchema.parse({
+        ...input.observation,
+        output: JSON.stringify({ SISYPHUS_HOOK_TOKEN: channelCredential }),
+      }),
+    });
+
+    expect(received).not.toContain(channelCredential);
     expect(received).toContain("[redacted]");
   });
 });

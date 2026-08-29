@@ -36,6 +36,12 @@ export async function main(
     evidenceKey,
     onError: (error) => console.error(`Sisyphus supervision error: ${errorSummary(error)}`),
   });
+  const preparation = await application.prepare();
+  if (preparation.kind === "restored") {
+    console.error(
+      `Sisyphus policy refresh deferred; using the verified stored bundle: ${preparation.reason}`,
+    );
+  }
   application.server.listen(configuration.port, configuration.host);
   await once(application.server, "listening");
   console.error(

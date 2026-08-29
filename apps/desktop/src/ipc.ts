@@ -3,6 +3,9 @@ import { z } from "zod";
 export const desktopChannels = {
   hostContext: "sisyphus:host-context",
   localEvidence: "sisyphus:local-evidence",
+  dataSource: "sisyphus:data-source",
+  dashboard: "sisyphus:dashboard",
+  restoreSkill: "sisyphus:restore-skill",
 } satisfies Record<string, string>;
 
 export const LocalEvidenceResponseSchema = z

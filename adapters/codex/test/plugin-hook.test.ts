@@ -29,7 +29,11 @@ function runHook(input: string) {
   return spawnSync(process.execPath, [hookScript], {
     input,
     encoding: "utf8",
-    env: { ...process.env, SISYPHUS_WORKER_URL: "http://127.0.0.1:1" },
+    env: {
+      ...process.env,
+      SISYPHUS_CODEX_RUNTIME_VERSION: "0.99.0",
+      SISYPHUS_WORKER_URL: "http://127.0.0.1:1",
+    },
     timeout: 10_000,
   });
 }
@@ -125,6 +129,7 @@ describe("bundled Codex hook", () => {
       env: {
         ...process.env,
         SISYPHUS_HOOK_TOKEN: hookToken,
+        SISYPHUS_CODEX_RUNTIME_VERSION: "0.99.0",
         SISYPHUS_WORKER_URL: `http://127.0.0.1:${address.port}`,
       },
       stdio: ["pipe", "pipe", "pipe"],

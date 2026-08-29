@@ -1,14 +1,17 @@
 import {
   AdapterVersionSchema,
   RuntimeCapabilitySnapshotSchema,
+  RuntimeInstallationIdentitySchema,
   type AdapterVersion,
   type AgentRuntime,
   type RuntimeCapabilitySnapshot,
+  type RuntimeInstallationIdentity,
 } from "@sisyphus/domain";
 import { z } from "zod";
 
 const RegisteredRuntimeInstallationSchema = z
   .object({
+    installationIdentity: RuntimeInstallationIdentitySchema,
     adapterVersion: AdapterVersionSchema,
     capabilities: RuntimeCapabilitySnapshotSchema,
   })
@@ -18,20 +21,23 @@ export type RegisteredRuntimeInstallation = z.infer<
   typeof RegisteredRuntimeInstallationSchema
 >;
 
-export interface RuntimeInstallationIdentity {
+export interface RuntimeInstallationLookup {
   readonly runtime: AgentRuntime;
   readonly runtimeVersion: string;
   readonly adapterVersion: AdapterVersion;
+  readonly installationIdentity: RuntimeInstallationIdentity;
 }
 
 export interface RuntimeInstallationRegistry {
   capabilitiesFor(
-    identity: RuntimeInstallationIdentity,
+    identity: RuntimeInstallationLookup,
   ): RuntimeCapabilitySnapshot | undefined;
 }
 
-function installationKey(identity: RuntimeInstallationIdentity): string {
+function installationKey(identity: RuntimeInstallationLookup): string {
   return JSON.stringify([
+    identity.installationIdentity.adapterInstallationId,
+    identity.installationIdentity.profile,
     identity.runtime,
     identity.runtimeVersion,
     identity.adapterVersion,
@@ -45,6 +51,7 @@ export class StaticRuntimeInstallationRegistry implements RuntimeInstallationReg
     for (const candidate of input) {
       const installation = RegisteredRuntimeInstallationSchema.parse(candidate);
       const key = installationKey({
+        installationIdentity: installation.installationIdentity,
         runtime: installation.capabilities.runtime,
         runtimeVersion: installation.capabilities.runtimeVersion,
         adapterVersion: installation.adapterVersion,
@@ -57,33 +64,8 @@ export class StaticRuntimeInstallationRegistry implements RuntimeInstallationReg
   }
 
   capabilitiesFor(
-    identity: RuntimeInstallationIdentity,
+    identity: RuntimeInstallationLookup,
   ): RuntimeCapabilitySnapshot | undefined {
     return this.#installations.get(installationKey(identity));
   }
-}
-
-export function builtInCodexV1Installation(): RegisteredRuntimeInstallation {
-  const supported = { kind: "supported" as const };
-  return RegisteredRuntimeInstallationSchema.parse({
-    adapterVersion: "0.1.0",
-    capabilities: {
-      runtime: "codex",
-      runtimeVersion: "unknown",
-      promptInterception: supported,
-      skillSelectionControl: supported,
-      rootStopContinuation: supported,
-      subagentStopContinuation: supported,
-      toolPrevention: supported,
-      toolObservation: supported,
-      stableTokenUsage: {
-        kind: "unsupported",
-        reason: "Codex lifecycle hooks do not report stable token counts.",
-      },
-      localEvidenceAccess: {
-        kind: "partial",
-        limitation: "Hook payloads are stable, but the optional transcript format is not.",
-      },
-    },
-  });
 }

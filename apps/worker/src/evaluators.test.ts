@@ -12,9 +12,14 @@ const evaluationInput = {
     kind: "root-stop",
     eventId: "event-1",
     workItemId: "work-1",
+    retryBudgetId: "budget-1",
     runId: "run-1",
     occurredAt: "2026-08-29T10:00:00.000Z",
     adapterVersion: "adapter-1",
+    runtimeInstallation: {
+      adapterInstallationId: "installation-1",
+      profile: "local",
+    },
     capabilities: {
       runtime: "codex",
       runtimeVersion: "0.1.0",
