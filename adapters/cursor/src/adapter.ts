@@ -15,6 +15,8 @@ import {
 import {
   AdapterInstallRequestSchema,
   AdapterUninstallRequestSchema,
+  managedActivationForDecision,
+  type AdapterDecisionContext,
   type AdapterInstallation,
   type AdapterInstallRequest,
   type AdapterUninstallRequest,
@@ -191,7 +193,9 @@ export class CursorRuntimeAdapter implements AgentRuntimeAdapter {
   renderDecision<E extends HookObservation>(
     _event: E,
     decision: DecisionFor<E>,
+    context?: AdapterDecisionContext,
   ): RuntimeResponse {
+    managedActivationForDecision(decision, context);
     return renderCursorDecision(decision);
   }
 

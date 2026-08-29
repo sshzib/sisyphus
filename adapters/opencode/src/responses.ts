@@ -1,10 +1,8 @@
 import {
-  createActivationLeaseId,
   type PromptDecision,
   type SupervisionDecision,
 } from "@sisyphus/domain";
-
-import { stableOpenCodeDigest } from "./opencode-wire.js";
+import type { ManagedSkillActivation } from "@sisyphus/adapter-kit";
 
 export type OpenCodePluginResponse =
   | { readonly action: "observe"; readonly reason?: string }
@@ -13,18 +11,18 @@ export type OpenCodePluginResponse =
   | { readonly action: "deny"; readonly error: string }
   | { readonly action: "recorded" };
 
-function renderPrompt(decision: PromptDecision): OpenCodePluginResponse {
+function renderPrompt(
+  decision: PromptDecision,
+  activation: ManagedSkillActivation | undefined,
+): OpenCodePluginResponse {
   if (decision.resolution.kind === "none") return { action: "observe" };
+  if (activation === undefined) {
+    throw new Error("A selected prompt decision requires a worker-issued activation lease.");
+  }
   const selected = decision.resolution.selected;
-  const activationLeaseId = createActivationLeaseId(
-    `opencode:${stableOpenCodeDigest({
-      eventId: decision.eventId,
-      skillVersionId: selected.skillVersionId,
-    })}`,
-  );
   const marker = JSON.stringify({
     skillVersionId: selected.skillVersionId,
-    activationLeaseId,
+    activationLeaseId: activation.activationLeaseId,
   });
   return {
     action: "append-context",
@@ -38,10 +36,11 @@ function renderPrompt(decision: PromptDecision): OpenCodePluginResponse {
 
 export function renderOpenCodeDecision(
   decision: SupervisionDecision,
+  activation?: ManagedSkillActivation,
 ): OpenCodePluginResponse {
   switch (decision.kind) {
     case "prompt-decision":
-      return renderPrompt(decision);
+      return renderPrompt(decision, activation);
     case "tool-request-decision":
       switch (decision.action) {
         case "allow":

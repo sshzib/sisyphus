@@ -45,6 +45,7 @@ export class OutboxSynchronizer {
 
       const response = await this.#fetch(this.#endpoint, {
         method: "POST",
+        redirect: "error",
         headers: {
           authorization: `Bearer ${this.#deviceToken}`,
           "content-type": "application/json",

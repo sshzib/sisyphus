@@ -53,6 +53,10 @@ function cloudRecord() {
     runtime: "codex",
     runtimeVersion: "1.0.0",
     adapterVersion: "adapter-1",
+    runtimeInstallation: {
+      adapterInstallationId: "installation-1",
+      profile: "local",
+    },
     capabilities,
     identity: {
       sessionId: "session-cloud-1",
@@ -159,8 +163,17 @@ describe("cloud supervision records", () => {
     expect(CloudSupervisionRecordSchema.parse(cloudRecord())).toMatchObject({
       schemaVersion: 1,
       runtime: "codex",
+      runtimeInstallation: {
+        adapterInstallationId: "installation-1",
+        profile: "local",
+      },
       evaluation: { kind: "pass", score: 0.98 },
     });
+    const { runtimeInstallation: _runtimeInstallation, ...withoutInstallation } =
+      cloudRecord();
+    expect(() =>
+      CloudSupervisionRecordSchema.parse(withoutInstallation),
+    ).toThrow();
     expect(() =>
       CloudSupervisionRecordSchema.parse({
         ...cloudRecord(),
@@ -230,6 +243,7 @@ describe("cloud supervision records", () => {
             policyVersionId: "policy-1@1",
             requiredCapabilities: ["toolObservation"],
             skillCandidates: [],
+            cloudEvidence: { kind: "disabled" },
             toolPolicy: { kind: "allow" },
           },
         },
@@ -241,6 +255,25 @@ describe("cloud supervision records", () => {
         dispositionTransitions: [],
       }),
     ).toMatchObject({ revision: 4 });
+    expect(() =>
+      SignedPolicyBundlePayloadSchema.parse({
+        ...base,
+        policies: [
+          {
+            ...base.policies[0],
+            constraint: {
+              ...base.policies[0]?.constraint,
+              cloudEvidence: {
+                kind: "redacted-excerpts",
+                sources: ["output", "output"],
+                maximumCharacters: 500,
+              },
+            },
+          },
+        ],
+        dispositionTransitions: [],
+      }),
+    ).toThrow("Cloud evidence sources must be unique");
     expect(() =>
       SignedPolicyBundlePayloadSchema.parse({
         ...base,

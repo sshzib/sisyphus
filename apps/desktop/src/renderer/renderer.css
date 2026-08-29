@@ -11,3 +11,20 @@ textarea,
 select {
   user-select: text;
 }
+
+.desktop-bootstrap {
+  align-items: center;
+  background: #090d12;
+  color: #aab6c2;
+  display: flex;
+  font: 500 14px/1.5 system-ui, sans-serif;
+  inset: 0;
+  justify-content: center;
+  position: fixed;
+}
+
+.desktop-bootstrap--error {
+  color: #ff9c9c;
+  padding: 32px;
+  text-align: center;
+}

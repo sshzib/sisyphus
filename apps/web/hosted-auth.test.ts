@@ -110,6 +110,23 @@ describe("hosted web authentication", () => {
     ).toBeUndefined();
   });
 
+  it("keeps the largest accepted credential inside common cookie limits", () => {
+    const configuration = parseHostedConfiguration({
+      apiUrl: "https://control.example.test/",
+      publicOrigin: "https://sisyphus.example.test/",
+      sessionKey,
+      nodeEnv: "production",
+    });
+    if (configuration.kind !== "configured") throw new Error("Expected configured mode.");
+
+    const created = createHostedSession({
+      bearerToken: "a".repeat(2048),
+      configuration,
+      now: 1_000,
+    });
+    expect(Buffer.byteLength(created.cookieValue, "utf8")).toBeLessThan(4_096);
+  });
+
   it("requires the configured origin, same-origin fetch metadata, and CSRF token", () => {
     const csrfToken = "a".repeat(64);
     const headers = new Headers({

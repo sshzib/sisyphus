@@ -36,6 +36,13 @@
       "when": 1788005000000,
       "tag": "0005_idempotent_policy_issuance",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1788010000000,
+      "tag": "0006_runtime_installation_profiles",
+      "breakpoints": true
     }
   ]
 }

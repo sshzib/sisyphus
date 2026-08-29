@@ -62,6 +62,24 @@ export const JudgeResultSchema = z.discriminatedUnion("kind", [
 ]);
 export type JudgeResult = z.infer<typeof JudgeResultSchema>;
 
+export const CloudEvidencePolicySchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("disabled") }).strict(),
+  z
+    .object({
+      kind: z.literal("redacted-excerpts"),
+      sources: z
+        .array(z.enum(["prompt", "output", "tool", "code", "test"]))
+        .min(1)
+        .max(5)
+        .refine((sources) => new Set(sources).size === sources.length, {
+          message: "Cloud evidence sources must be unique.",
+        }),
+      maximumCharacters: z.number().int().positive().max(4_000),
+    })
+    .strict(),
+]);
+export type CloudEvidencePolicy = z.infer<typeof CloudEvidencePolicySchema>;
+
 export const EvaluationConstraintSchema = z.object({
   policyId: PolicyIdSchema,
   policyVersionId: PolicyVersionIdSchema,
@@ -69,6 +87,7 @@ export const EvaluationConstraintSchema = z.object({
   retryLimit: z.number().int().min(0).max(2).optional(),
   requiredCapabilities: z.array(CapabilityNameSchema),
   skillCandidates: z.array(SkillMatchCandidateSchema),
+  cloudEvidence: CloudEvidencePolicySchema.optional(),
   toolPolicy: z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("allow") }),
     z.object({ kind: z.literal("deny"), reason: z.string().trim().min(1) }),

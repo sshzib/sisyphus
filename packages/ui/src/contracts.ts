@@ -8,6 +8,12 @@ export const AgentRuntimeSchema = z.enum([
 ]);
 export type AgentRuntime = z.infer<typeof AgentRuntimeSchema>;
 
+export const RuntimeProfileSchema = z.enum(["local", "cloud-agent"]);
+export type RuntimeProfile = z.infer<typeof RuntimeProfileSchema>;
+
+export const ComparisonCohortIdSchema = z.string().regex(/^[a-f0-9]{64}$/u);
+export type ComparisonCohortId = z.infer<typeof ComparisonCohortIdSchema>;
+
 export const CapabilitySchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("supported") }).strict(),
   z.object({ kind: z.literal("partial"), limitation: z.string().min(1) }).strict(),
@@ -79,7 +85,11 @@ export const RunSummarySchema = z
     eventId: z.string().min(1),
     occurredAt: z.string().datetime(),
     runtime: AgentRuntimeSchema,
+    profile: RuntimeProfileSchema,
     runtimeVersion: z.string().min(1),
+    adapterVersion: z.string().min(1),
+    adapterInstallationId: z.string().trim().min(1),
+    comparisonCohortId: ComparisonCohortIdSchema,
     agentName: z.string().min(1),
     project: z.string().min(1),
     skillVersionId: z.string().min(1).nullable(),
@@ -101,16 +111,35 @@ export const AgentSummarySchema = z
     id: z.string().min(1),
     name: z.string().min(1),
     runtime: AgentRuntimeSchema,
+    profile: RuntimeProfileSchema,
+    runtimeVersion: z.string().min(1),
+    adapterVersion: z.string().min(1),
+    adapterInstallationId: z.string().trim().min(1),
+    comparisonCohortId: ComparisonCohortIdSchema,
     attributionCohort: AttributionSchema,
     enforcementCohort: EnforcementCoverageSchema,
     runs: z.number().int().nonnegative(),
+    conclusiveRuns: z.number().int().nonnegative(),
+    scoredRuns: z.number().int().nonnegative(),
+    retryRuns: z.number().int().nonnegative(),
     passRate: z.number().min(0).max(100),
     retryRecoveryRate: z.number().min(0).max(100),
     terminalFailures: z.number().int().nonnegative(),
     averageScore: z.number().min(0).max(100),
     tokens: z.number().int().nonnegative(),
   })
-  .strict();
+  .strict()
+  .superRefine((agent, context) => {
+    for (const field of ["conclusiveRuns", "scoredRuns", "retryRuns"] as const) {
+      if (agent[field] > agent.runs) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: `${field} cannot exceed total runs.`,
+        });
+      }
+    }
+  });
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 
 export const SkillSummarySchema = z
@@ -122,11 +151,24 @@ export const SkillSummarySchema = z
     disposition: SkillDispositionSchema,
     verifiedAttributionRate: z.number().min(0).max(100),
     runs: z.number().int().nonnegative(),
+    verifiedRuns: z.number().int().nonnegative(),
+    conclusiveRuns: z.number().int().nonnegative(),
     passRate: z.number().min(0).max(100),
     terminalFailures: z.number().int().nonnegative(),
     lastChangedAt: z.string().datetime(),
   })
-  .strict();
+  .strict()
+  .superRefine((skill, context) => {
+    for (const field of ["verifiedRuns", "conclusiveRuns"] as const) {
+      if (skill[field] > skill.runs) {
+        context.addIssue({
+          code: "custom",
+          path: [field],
+          message: `${field} cannot exceed total runs.`,
+        });
+      }
+    }
+  });
 export type SkillSummary = z.infer<typeof SkillSummarySchema>;
 
 export const ConflictCandidateSchema = z
@@ -156,6 +198,8 @@ export const IntegrationSummarySchema = z
   .object({
     id: z.string().min(1),
     runtime: AgentRuntimeSchema,
+    adapterInstallationId: z.string().trim().min(1),
+    profile: RuntimeProfileSchema,
     scope: z.enum(["local", "cloud"]),
     status: z.enum(["healthy", "degraded", "offline"]),
     adapterVersion: z.string().min(1),
@@ -198,8 +242,10 @@ export const AuditEventSchema = z
     actor: z.string().min(1),
     action: z.enum([
       "evaluation.completed",
+      "retry.issued",
       "skill.quarantined",
       "skill.restored",
+      "adapter.changed",
       "policy.updated",
       "integration.degraded",
       "device.enrolled",
@@ -284,6 +330,14 @@ export const RuntimeAdapterAccessSchema = z.discriminatedUnion("kind", [
 ]);
 export type RuntimeAdapterAccess = z.infer<typeof RuntimeAdapterAccessSchema>;
 
+export const WorkerPolicyModeSchema = z.enum([
+  "offline-default",
+  "local-policy",
+  "cloud-managed",
+  "external",
+]);
+export type WorkerPolicyMode = z.infer<typeof WorkerPolicyModeSchema>;
+
 export const HostContextSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("web") }).strict(),
   z
@@ -295,6 +349,7 @@ export const HostContextSchema = z.discriminatedUnion("kind", [
             kind: z.literal("online"),
             version: z.string().min(1),
             pendingUploads: z.number().int().nonnegative(),
+            policyMode: WorkerPolicyModeSchema,
           })
           .strict(),
         z.object({ kind: z.literal("offline"), reason: z.string().min(1) }).strict(),
@@ -310,7 +365,7 @@ export const HostedCsrfTokenSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 
 export const HostedBearerCredentialSchema = z
   .object({
-    token: z.string().trim().min(1).max(4096).regex(/^[A-Za-z0-9._~-]+$/u),
+    token: z.string().trim().min(1).max(2048).regex(/^[A-Za-z0-9._~-]+$/u),
   })
   .strict();
 

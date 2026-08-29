@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createActivationLeaseId,
   createEventId,
   createSkillVersionId,
   createSkillVersionKey,
   createTriggerId,
+  createTimestamp,
   type PromptDecision,
   type PromptObservation,
   type RootStopObservation,
@@ -170,7 +172,20 @@ describe("Claude Code adapter", () => {
 
     const prompt = adapter.parseEvent(loadFixture("user-prompt-submit.json"));
     if (prompt.kind !== "prompt") throw new Error("invalid prompt fixture");
-    expect(adapter.renderDecision<PromptObservation>(prompt, decision))
-      .toMatchObject({ hookSpecificOutput: { hookEventName: "UserPromptSubmit" } });
+    const activationLeaseId = createActivationLeaseId(
+      "sisyphus-v1.claude-adapter-test",
+    );
+    const response = adapter.renderDecision<PromptObservation>(prompt, decision, {
+      kind: "managed-skill-activation",
+      activation: {
+        activationLeaseId,
+        skillVersionId: createSkillVersionId("skill-version-1"),
+        expiresAt: createTimestamp("2026-08-29T10:05:00.000Z"),
+      },
+    });
+    expect(response).toMatchObject({
+      hookSpecificOutput: { hookEventName: "UserPromptSubmit" },
+    });
+    expect(JSON.stringify(response)).toContain(activationLeaseId);
   });
 });

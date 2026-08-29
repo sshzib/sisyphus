@@ -29,6 +29,7 @@ import {
   formatTimestamp,
   resultLabel,
   runtimeLabel,
+  runtimeProfileLabel,
 } from "./format.js";
 
 type Section =
@@ -266,7 +267,11 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
           {isDemo ? (
             <div className="demo-notice" role="note">
               <strong>Demo data</strong>
-              <span>No runtime or cloud service is connected.</span>
+              <span>
+                {hostContext?.kind === "desktop"
+                  ? "Dashboard uses sample records. Worker status is shown above."
+                  : "No runtime or cloud service is connected."}
+              </span>
             </div>
           ) : null}
           {error === undefined ? null : (
@@ -414,10 +419,31 @@ function HostStatus({
       </span>
     );
   }
+  if (context.worker.policyMode === "offline-default") {
+    return (
+      <span className="host-pill host-pill--warning">
+        <span className="status-dot status-dot--warning" />Worker online · offline defaults
+      </span>
+    );
+  }
+  if (context.worker.policyMode === "local-policy") {
+    return (
+      <span className="host-pill">
+        <span className="status-dot status-dot--good" />Worker online · local policy
+      </span>
+    );
+  }
+  if (context.worker.policyMode === "external") {
+    return (
+      <span className="host-pill host-pill--warning">
+        <span className="status-dot status-dot--warning" />Worker online · external policy unverified
+      </span>
+    );
+  }
   return (
     <span className="host-pill">
       <span className="status-dot status-dot--good" />
-      Worker {context.worker.version} · {context.worker.pendingUploads} pending
+      Worker {context.worker.version} · cloud managed · {context.worker.pendingUploads} pending
     </span>
   );
 }
@@ -648,7 +674,7 @@ function RunsView({
           <tbody>
             {runs.map((run) => (
               <tr key={run.id}>
-                <td><div className="primary-cell"><strong>{run.id}</strong><span>{runtimeLabel(run.runtime)} · {run.runtimeVersion}</span></div></td>
+                <td><div className="primary-cell"><strong>{run.id}</strong><span>{runtimeLabel(run.runtime)} · {runtimeProfileLabel(run.profile)} · runtime {run.runtimeVersion} · adapter {run.adapterVersion}</span></div></td>
                 <td><div className="primary-cell"><strong>{run.agentName}</strong><span>{run.project}</span></div></td>
                 <td><div className="primary-cell"><strong>{run.skillName ?? "Unmanaged"}</strong><span>{attributionLabel(run.attribution)} attribution</span></div></td>
                 <td><CoverageBadge coverage={run.enforcement} /></td>
@@ -681,7 +707,10 @@ function AgentsView({ snapshot }: { snapshot: DashboardSnapshot }) {
           <header>
             <div>
               <p className="eyebrow">Comparable cohort</p>
-              <h2>{attributionLabel(cohort.attribution)} attribution · {enforcementLabel(cohort.enforcement)}</h2>
+              <h2>{runtimeLabel(cohort.runtime)} · {runtimeProfileLabel(cohort.profile)} · runtime {cohort.runtimeVersion} · adapter {cohort.adapterVersion} · {attributionLabel(cohort.attribution)} attribution · {enforcementLabel(cohort.enforcement)}</h2>
+              <p className="agent-cohort__identity" title={cohort.comparisonCohortId}>
+                Installation {cohort.adapterInstallationId} · cohort {cohort.comparisonCohortId.slice(0, 8)}
+              </p>
             </div>
             <span>{cohort.agents.length} agent{cohort.agents.length === 1 ? "" : "s"}</span>
           </header>
@@ -691,7 +720,7 @@ function AgentsView({ snapshot }: { snapshot: DashboardSnapshot }) {
                 <div className="agent-card__rank">#{index + 1}</div>
                 <div className="agent-card__heading">
                   <RuntimeMark runtime={agent.runtime} />
-                  <div><h2>{agent.name}</h2><span>{runtimeLabel(agent.runtime)} · {formatNumber(agent.runs)} runs</span></div>
+                  <div><h2>{agent.name}</h2><span>{runtimeLabel(agent.runtime)} · {runtimeProfileLabel(agent.profile)} · {formatNumber(agent.runs)} runs · {formatNumber(agent.scoredRuns)} scored</span></div>
                   <strong>{agent.averageScore.toFixed(1)}</strong>
                 </div>
                 <div className="performance-bar"><span style={{ width: `${agent.averageScore}%` }} /></div>
@@ -706,7 +735,7 @@ function AgentsView({ snapshot }: { snapshot: DashboardSnapshot }) {
           </div>
         </section>
       ))}
-      <p className="cohort-note">Ranks restart for each attribution and enforcement cohort. Sisyphus never places observation-only results in an enforced ranking.</p>
+      <p className="cohort-note">Ranks restart for each installation, runtime and adapter version, capability snapshot, attribution, and enforcement cohort. Sisyphus never places observation-only results in an enforced ranking.</p>
     </div>
   );
 }
@@ -719,7 +748,7 @@ function SkillsView(input: { skills: SkillSummary[]; onRestore: (skill: SkillSum
           <thead><tr><th>Skill version</th><th>Runtime</th><th>Standing</th><th>Verified attribution</th><th>Pass rate</th><th>Failures</th><th>Changed</th><th><span className="sr-only">Actions</span></th></tr></thead>
           <tbody>
             {input.skills.map((skill) => (
-              <tr key={skill.skillVersionId}>
+              <tr key={`${skill.runtime}:${skill.skillVersionId}`}>
                 <td><div className="primary-cell"><strong>{skill.name}</strong><span>v{skill.version} · {formatNumber(skill.runs)} runs</span></div></td>
                 <td><div className="runtime-cell"><RuntimeMark runtime={skill.runtime} /><span>{runtimeLabel(skill.runtime)}</span></div></td>
                 <td><DispositionBadge disposition={skill.disposition} /></td>
@@ -727,7 +756,7 @@ function SkillsView(input: { skills: SkillSummary[]; onRestore: (skill: SkillSum
                 <td><InlineMeter value={skill.passRate} /></td>
                 <td><span className={skill.terminalFailures >= 10 ? "failure-count failure-count--high" : "failure-count"}>{skill.terminalFailures}</span></td>
                 <td>{formatTimestamp(skill.lastChangedAt)}</td>
-                <td>{skill.disposition === "quarantined" || skill.disposition === "revoked" ? <button className="button button--compact" type="button" onClick={() => input.onRestore(skill)}>Restore</button> : null}</td>
+                <td>{skill.disposition === "quarantined" ? <button className="button button--compact" type="button" onClick={() => input.onRestore(skill)}>Restore</button> : null}</td>
               </tr>
             ))}
           </tbody>
@@ -918,6 +947,8 @@ function auditTone(event: AuditEvent): "good" | "bad" | "warning" | "neutral" {
     case "integration.degraded":
       return "warning";
     case "evaluation.completed":
+    case "retry.issued":
+    case "adapter.changed":
     case "policy.updated":
     case "event.ingested":
       return "neutral";
@@ -950,13 +981,27 @@ function workspaceInitials(name: string): string {
 
 function agentCohorts(agents: DashboardSnapshot["agents"]): {
   key: string;
+  runtime: DashboardSnapshot["agents"][number]["runtime"];
+  profile: DashboardSnapshot["agents"][number]["profile"];
+  runtimeVersion: string;
+  adapterVersion: string;
+  adapterInstallationId: string;
+  comparisonCohortId: string;
   attribution: DashboardSnapshot["agents"][number]["attributionCohort"];
   enforcement: DashboardSnapshot["agents"][number]["enforcementCohort"];
   agents: DashboardSnapshot["agents"];
 }[] {
   const cohorts = new Map<string, DashboardSnapshot["agents"]>();
   for (const agent of agents) {
-    const key = `${agent.attributionCohort}:${agent.enforcementCohort}`;
+    const key = JSON.stringify([
+      agent.comparisonCohortId,
+      agent.runtime,
+      agent.profile,
+      agent.runtimeVersion,
+      agent.adapterVersion,
+      agent.attributionCohort,
+      agent.enforcementCohort,
+    ]);
     const cohort = cohorts.get(key) ?? [];
     cohort.push(agent);
     cohorts.set(key, cohort);
@@ -968,6 +1013,12 @@ function agentCohorts(agents: DashboardSnapshot["agents"]): {
     }
     return {
       key,
+      runtime: first.runtime,
+      profile: first.profile,
+      runtimeVersion: first.runtimeVersion,
+      adapterVersion: first.adapterVersion,
+      adapterInstallationId: first.adapterInstallationId,
+      comparisonCohortId: first.comparisonCohortId,
       attribution: first.attributionCohort,
       enforcement: first.enforcementCohort,
       agents: [...cohortAgents].sort((left, right) => right.averageScore - left.averageScore),

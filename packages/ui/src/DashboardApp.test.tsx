@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DashboardApp } from "./DashboardApp.js";
 import { createDemoDataClient } from "./client.js";
+import type { SisyphusDataClient } from "./data-client.js";
 
 afterEach(() => cleanup());
 
@@ -12,6 +13,7 @@ describe("DashboardApp", () => {
 
     expect(await screen.findByText("Demo data")).toBeInTheDocument();
     expect(screen.getByText("No runtime or cloud service is connected.")).toBeInTheDocument();
+    expect(screen.getByText("Demo workspace")).toBeInTheDocument();
     expect(screen.queryByText("Production workspace")).not.toBeInTheDocument();
     expect(screen.queryByText("Cloud synced")).not.toBeInTheDocument();
   });
@@ -59,7 +61,12 @@ describe("DashboardApp", () => {
         client={createDemoDataClient()}
         hostContext={{
           kind: "desktop",
-          worker: { kind: "online", version: "0.1.0", pendingUploads: 0 },
+          worker: {
+            kind: "online",
+            version: "0.1.0",
+            pendingUploads: 0,
+            policyMode: "local-policy",
+          },
           localEvidence: { kind: "supported" },
           adapterAccess: [{ kind: "paired", runtime: "codex" }],
         }}
@@ -86,7 +93,12 @@ describe("DashboardApp", () => {
         client={createDemoDataClient()}
         hostContext={{
           kind: "desktop",
-          worker: { kind: "online", version: "0.1.0", pendingUploads: 0 },
+          worker: {
+            kind: "online",
+            version: "0.1.0",
+            pendingUploads: 0,
+            policyMode: "local-policy",
+          },
           localEvidence: { kind: "supported" },
           adapterAccess: [{ kind: "setup-required", runtime: "codex", reason }],
         }}
@@ -97,6 +109,110 @@ describe("DashboardApp", () => {
     await user.click(screen.getByRole("button", { name: /^Integrations/u }));
     expect(await screen.findByText(reason)).toBeInTheDocument();
     expect(screen.getAllByText("Degraded").length).toBeGreaterThan(0);
+  });
+
+  it("labels an online worker that is intentionally using offline defaults", async () => {
+    render(
+      <DashboardApp
+        client={createDemoDataClient()}
+        hostContext={{
+          kind: "desktop",
+          worker: {
+            kind: "online",
+            version: "0.1.0",
+            pendingUploads: 0,
+            policyMode: "offline-default",
+          },
+          localEvidence: { kind: "supported" },
+          adapterAccess: [{ kind: "paired", runtime: "codex" }],
+        }}
+      />,
+    );
+
+    expect(await screen.findByText(/offline defaults/u)).toBeInTheDocument();
+    expect(
+      screen.getByText("Dashboard uses sample records. Worker status is shown above."),
+    ).toBeInTheDocument();
+  });
+
+  it("ranks agents only inside matching runtime and profile cohorts", async () => {
+    const user = userEvent.setup();
+    const demoClient = createDemoDataClient();
+    const snapshot = await demoClient.getDashboard({});
+    const cursorAgent = snapshot.agents.find((agent) => agent.runtime === "cursor");
+    if (cursorAgent === undefined) throw new Error("Missing Cursor demo agent.");
+    const client: SisyphusDataClient = {
+      dataSource: { kind: "demo" },
+      async getDashboard() {
+        return {
+          ...snapshot,
+          agents: [
+            { ...cursorAgent, id: "cursor-local", profile: "local" },
+            { ...cursorAgent, id: "cursor-cloud", profile: "cloud-agent" },
+          ],
+        };
+      },
+      restoreSkill: (skillVersionId, input) =>
+        demoClient.restoreSkill(skillVersionId, input),
+    };
+    render(<DashboardApp client={client} />);
+
+    await screen.findByText("Comparable runtime cohorts");
+    await user.click(screen.getByRole("button", { name: /^Agents/u }));
+
+    expect(
+      await screen.findByRole("heading", {
+        name: /Cursor · Local · runtime 1\.6\.27 · adapter 0\.1\.0-preview\.1 · Verified attribution · Partial/u,
+      }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", {
+        name: /Cursor · Cloud agent · runtime 1\.6\.27 · adapter 0\.1\.0-preview\.1 · Verified attribution · Partial/u,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("identifies cohorts split by installation or capability snapshot", async () => {
+    const user = userEvent.setup();
+    const demoClient = createDemoDataClient();
+    const snapshot = await demoClient.getDashboard({});
+    const cursorAgent = snapshot.agents.find((agent) => agent.runtime === "cursor");
+    if (cursorAgent === undefined) throw new Error("Missing Cursor demo agent.");
+    const client: SisyphusDataClient = {
+      dataSource: { kind: "demo" },
+      async getDashboard() {
+        return {
+          ...snapshot,
+          agents: [
+            {
+              ...cursorAgent,
+              id: "cursor-installation-a",
+              adapterInstallationId: "installation-cursor-a",
+              comparisonCohortId: "1".repeat(64),
+            },
+            {
+              ...cursorAgent,
+              id: "cursor-installation-b",
+              adapterInstallationId: "installation-cursor-b",
+              comparisonCohortId: "2".repeat(64),
+            },
+          ],
+        };
+      },
+      restoreSkill: (skillVersionId, input) =>
+        demoClient.restoreSkill(skillVersionId, input),
+    };
+    render(<DashboardApp client={client} />);
+
+    await screen.findByText("Comparable runtime cohorts");
+    await user.click(screen.getByRole("button", { name: /^Agents/u }));
+
+    expect(
+      await screen.findByText("Installation installation-cursor-a · cohort 11111111"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Installation installation-cursor-b · cohort 22222222"),
+    ).toBeInTheDocument();
   });
 
   it("counts partial policy capabilities as gaps", async () => {

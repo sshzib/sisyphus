@@ -2,6 +2,8 @@ import { execFile } from "node:child_process";
 
 import { z } from "zod";
 
+import { CODEX_RUNTIME_VERSION_PROBE_TIMEOUT_MILLISECONDS } from "./timeouts.js";
+
 const ConcreteCodexVersionSchema = z
   .string()
   .trim()
@@ -28,7 +30,11 @@ function executeVersionCommand(
     execFile(
       command,
       [...arguments_],
-      { encoding: "utf8", timeout: 2_000, windowsHide: true },
+      {
+        encoding: "utf8",
+        timeout: CODEX_RUNTIME_VERSION_PROBE_TIMEOUT_MILLISECONDS,
+        windowsHide: true,
+      },
       (error, stdout) => {
         if (error !== null) {
           reject(new Error("Codex runtime version probe failed.", { cause: error }));

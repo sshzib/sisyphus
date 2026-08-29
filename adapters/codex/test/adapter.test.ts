@@ -114,7 +114,7 @@ describe("managed skill activation", () => {
 });
 
 describe("Codex decision rendering", () => {
-  it("does not mint an activation lease while rendering an untrusted decision", () => {
+  it("rejects a selected prompt without a worker-issued activation lease", () => {
     const event = adapter().parseEvent(loadFixture("user-prompt-submit.json"));
     if (event.kind !== "prompt") throw new Error("expected prompt fixture");
     const decision: DecisionFor<PromptObservation> = {
@@ -141,10 +141,9 @@ describe("Codex decision rendering", () => {
       },
     };
 
-    const response = adapter().renderDecision(event, decision);
-
-    expect(response).toEqual({ continue: true });
-    expect(JSON.stringify(response)).not.toContain("activationLeaseId");
+    expect(() =>
+      adapter().renderDecision(event, decision),
+    ).toThrow(/worker-issued activation lease/u);
   });
 
   it("renders an enforced tool denial using the current Codex shape", () => {

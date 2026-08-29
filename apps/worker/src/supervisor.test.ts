@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ActivationLeaseAuthority } from "./activation-lease.js";
 import type { EvidenceRecord } from "./evidence-vault.js";
+import { EvaluationEvidenceCollector } from "./evaluation-evidence.js";
 import { LocalJournal } from "./journal.js";
 import { StaticRuntimeInstallationRegistry } from "./runtime-installation-registry.js";
 import { WorkerSupervisor } from "./supervisor.js";
@@ -97,7 +98,11 @@ function decisionFor(event: HookObservation): SupervisionDecision {
   throw new Error(`Unexpected fixture event ${event.kind}.`);
 }
 
-async function fixture() {
+async function fixture(cloudEvidence?: {
+  readonly kind: "redacted-excerpts";
+  readonly sources: readonly ["prompt" | "output" | "tool", ...("prompt" | "output" | "tool")[]];
+  readonly maximumCharacters: number;
+}) {
   const directory = await mkdtemp(join(tmpdir(), "sisyphus-supervisor-"));
   const journal = new LocalJournal({ path: join(directory, "worker.db") });
   const leaseAuthority = new ActivationLeaseAuthority({
@@ -118,6 +123,7 @@ async function fixture() {
     journal,
     kernel: { supervise },
     evidenceVault: { store },
+    evaluationEvidence: new EvaluationEvidenceCollector(),
     leaseAuthority,
     runtimeInstallations: new StaticRuntimeInstallationRegistry([
       {
@@ -135,6 +141,7 @@ async function fixture() {
           requiredCapabilities: [],
           skillCandidates: [],
           toolPolicy: { kind: "allow" },
+          ...(cloudEvidence === undefined ? {} : { cloudEvidence }),
         }),
     },
   });
@@ -312,13 +319,76 @@ describe("WorkerSupervisor", () => {
     if (outbox === undefined) throw new Error("Expected a cloud outbox record.");
     const projected = CloudSupervisionRecordSchema.parse(outbox.payload);
     expect(projected.kind).toBe("completion");
+    expect(projected.runtimeInstallation).toEqual(runtimeInstallation);
     expect(JSON.stringify(projected)).not.toContain("captured-worker-secret-token");
     expect(JSON.stringify(projected)).not.toContain("ghp_abcdefghijklmnopqrstuvwxyz123456");
     expect(JSON.stringify(projected)).not.toContain("sk-proj-1234567890abcdefghijkl");
     expect(JSON.stringify(projected)).not.toContain(hookCredential);
     expect(JSON.stringify(projected)).not.toContain(mcpCredential);
     expect(JSON.stringify(projected)).toContain("[redacted]");
+    expect(projected.redactedExcerpts).toEqual([]);
     expect(projected).not.toHaveProperty("decision");
+    journal.close();
+  });
+
+  it("uploads a bounded redacted excerpt only when signed policy enables its source", async () => {
+    const { journal, supervisor } = await fixture({
+      kind: "redacted-excerpts",
+      sources: ["output"],
+      maximumCharacters: 64,
+    });
+
+    await supervisor.supervise(stopEnvelope());
+
+    const [outbox] = journal.pendingOutbox();
+    if (outbox === undefined) throw new Error("Expected a cloud outbox record.");
+    const projected = CloudSupervisionRecordSchema.parse(outbox.payload);
+    expect(projected.redactedExcerpts).toHaveLength(1);
+    expect(projected.redactedExcerpts[0]).toMatchObject({
+      source: "output",
+      redaction: { kind: "applied" },
+    });
+    expect(projected.redactedExcerpts[0]?.text.length).toBeLessThanOrEqual(64);
+    journal.close();
+  });
+
+  it("preserves an unavailable managed wrapper in the cloud resolution proof", async () => {
+    const { journal, supervise, supervisor } = await fixture();
+    const unavailable = {
+      ...selectedSkill,
+      activationAvailability: {
+        kind: "unavailable" as const,
+        reason: "The configured wrapper is unavailable.",
+      },
+    };
+    supervise.mockResolvedValueOnce({
+      kind: "prompt-decision",
+      action: "continue",
+      eventId: createEventId("prompt-event"),
+      enforcement: {
+        kind: "observation",
+        reason: "A matching managed skill could not be delivered to the runtime.",
+        missingCapabilities: [],
+      },
+      resolution: {
+        kind: "none",
+        candidates: [
+          {
+            candidate: unavailable,
+            outcome: { kind: "rejected", reason: "wrapper-unavailable" },
+          },
+        ],
+      },
+    });
+
+    await supervisor.supervise(promptEnvelope());
+
+    const [outbox] = journal.pendingOutbox();
+    if (outbox === undefined) throw new Error("Expected a cloud outbox record.");
+    expect(CloudSupervisionRecordSchema.parse(outbox.payload)).toMatchObject({
+      kind: "prompt-resolution",
+      resolution: { kind: "no-available-wrapper" },
+    });
     journal.close();
   });
 

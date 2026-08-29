@@ -90,12 +90,17 @@ export function redactEvidence(input: RedactEvidenceInput): RedactedEvidence {
     return { text, redactions, clipped: false };
   }
 
+  const suffix = " …";
+  const suffixLength = Array.from(suffix).length;
   const prefix = characters
-    .slice(0, Math.max(0, input.maximumCharacters - 1))
+    .slice(0, Math.max(0, input.maximumCharacters - suffixLength))
     .join("")
     .trimEnd();
   return {
-    text: `${prefix} …`,
+    text:
+      prefix.length === 0
+        ? Array.from("…").slice(0, input.maximumCharacters).join("")
+        : `${prefix}${suffix}`,
     redactions,
     clipped: true,
   };

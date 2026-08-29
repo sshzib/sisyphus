@@ -7,6 +7,9 @@ import type {
   EvaluationFinding,
 } from "@sisyphus/domain";
 import type { DeterministicEvaluator, EvaluationInput } from "@sisyphus/kernel";
+import type { EvaluationEvidenceCollector } from "./evaluation-evidence.js";
+
+const DEFAULT_MAXIMUM_EVIDENCE_CHARACTERS = 128_000;
 
 export const CommandEvaluatorInputSchema = z.object({
   id: z.string().trim().min(1),
@@ -14,7 +17,12 @@ export const CommandEvaluatorInputSchema = z.object({
   arguments: z.array(z.string()),
   workingDirectory: z.string().trim().min(1),
   timeoutMilliseconds: z.number().int().positive().max(10 * 60_000),
-  maximumEvidenceCharacters: z.number().int().positive().max(64_000).optional(),
+  maximumEvidenceCharacters: z
+    .number()
+    .int()
+    .positive()
+    .max(1_000_000)
+    .optional(),
 });
 
 export type CommandEvaluatorInput = z.input<typeof CommandEvaluatorInputSchema>;
@@ -23,6 +31,7 @@ interface CommandOutcome {
   readonly exitCode: number | null;
   readonly signal: NodeJS.Signals | null;
   readonly output: string;
+  readonly outputTruncated: boolean;
   readonly timedOut: boolean;
   readonly startError?: string;
 }
@@ -52,12 +61,6 @@ function subprocessEnvironment(): NodeJS.ProcessEnv {
   return environment;
 }
 
-function clipped(input: string, maximumCharacters: number): string {
-  const characters = Array.from(input.trim());
-  if (characters.length <= maximumCharacters) return characters.join("");
-  return `${characters.slice(0, maximumCharacters - 2).join("")} …`;
-}
-
 async function runCommand(
   input: z.output<typeof CommandEvaluatorInputSchema>,
 ): Promise<CommandOutcome> {
@@ -70,10 +73,21 @@ async function runCommand(
       stdio: ["ignore", "pipe", "pipe"],
     });
     let output = "";
+    let outputTruncated = false;
     let timedOut = false;
     let startError: string | undefined;
     const append = (chunk: Buffer): void => {
-      if (output.length < 128_000) output += chunk.toString("utf8");
+      const text = chunk.toString("utf8");
+      const maximumCharacters =
+        input.maximumEvidenceCharacters ??
+        DEFAULT_MAXIMUM_EVIDENCE_CHARACTERS;
+      const remaining = maximumCharacters - output.length;
+      if (remaining <= 0) {
+        outputTruncated = true;
+        return;
+      }
+      output += text.slice(0, remaining);
+      if (text.length > remaining) outputTruncated = true;
     };
     child.stdout.on("data", append);
     child.stderr.on("data", append);
@@ -91,6 +105,7 @@ async function runCommand(
         exitCode,
         signal,
         output,
+        outputTruncated,
         timedOut,
         ...(startError === undefined ? {} : { startError }),
       });
@@ -101,25 +116,41 @@ async function runCommand(
 export class CommandEvaluator implements DeterministicEvaluator {
   readonly id: string;
   readonly #input: z.output<typeof CommandEvaluatorInputSchema>;
+  readonly #evidenceCollector: EvaluationEvidenceCollector;
 
-  constructor(input: CommandEvaluatorInput) {
-    this.#input = CommandEvaluatorInputSchema.parse(input);
+  constructor(input: {
+    readonly configuration: CommandEvaluatorInput;
+    readonly evidenceCollector: EvaluationEvidenceCollector;
+  }) {
+    this.#input = CommandEvaluatorInputSchema.parse(input.configuration);
+    this.#evidenceCollector = input.evidenceCollector;
     this.id = this.#input.id;
   }
 
-  async evaluate(_input: EvaluationInput): Promise<DeterministicCheckResult> {
+  async evaluate(input: EvaluationInput): Promise<DeterministicCheckResult> {
     const outcome = await runCommand(this.#input);
+    this.#evidenceCollector.capture({
+      kind: "deterministic-command",
+      eventId: input.observation.eventId,
+      checkId: this.id,
+      executable: this.#input.executable,
+      arguments: this.#input.arguments,
+      workingDirectory: this.#input.workingDirectory,
+      timeoutMilliseconds: this.#input.timeoutMilliseconds,
+      outcome,
+    });
     if (outcome.exitCode === 0 && !outcome.timedOut && outcome.startError === undefined) {
       return { kind: "pass", checkId: this.id };
     }
     const reason = outcome.timedOut
       ? `timed out after ${this.#input.timeoutMilliseconds} ms`
-      : outcome.startError ??
-        `exited with ${outcome.exitCode ?? outcome.signal ?? "an unknown failure"}`;
-    const evidence = clipped(
-      outcome.output === "" ? reason : `${reason}\n${outcome.output}`,
-      this.#input.maximumEvidenceCharacters ?? 8_000,
-    );
+      : outcome.startError !== undefined
+        ? "failed to start"
+        : outcome.exitCode !== null
+          ? `exited with code ${outcome.exitCode}`
+          : outcome.signal !== null
+            ? `terminated by signal ${outcome.signal}`
+            : "failed with an unknown process status";
     return {
       kind: "fail",
       checkId: this.id,
@@ -127,8 +158,14 @@ export class CommandEvaluator implements DeterministicEvaluator {
         {
           criterion: this.id,
           message: `Configured ${this.id} check ${reason}.`,
-          correction: `Fix the reported ${this.id} failures and rerun the check.`,
-          evidence: [evidence],
+          correction: `Inspect encrypted local evidence for event ${input.observation.eventId}, fix the reported ${this.id} failures, and rerun the check.`,
+          evidence: [
+            `encryptedLocalEvidenceEvent=${input.observation.eventId}`,
+            `exitCode=${outcome.exitCode ?? "unavailable"}`,
+            `signal=${outcome.signal ?? "unavailable"}`,
+            `capturedOutputCharacters=${outcome.output.length}`,
+            `outputTruncated=${outcome.outputTruncated}`,
+          ],
         },
       ],
     };

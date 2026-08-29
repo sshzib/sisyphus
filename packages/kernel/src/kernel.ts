@@ -409,14 +409,28 @@ export class DefaultSupervisionKernel implements SupervisionKernel {
       const resolution = resolveSkill(candidates);
       const actionCapabilities: CapabilityName[] = ["promptInterception"];
       if (resolution.kind === "selected") actionCapabilities.push("skillSelectionControl");
+      const wrapperUnavailable =
+        resolution.kind === "none" &&
+        resolution.candidates.some(
+          (candidate) =>
+            candidate.outcome.kind === "rejected" &&
+            candidate.outcome.reason === "wrapper-unavailable",
+        );
       const decision: PromptDecision = {
         kind: "prompt-decision",
         action: "continue",
         eventId: event.eventId,
-        enforcement: enforcementFor(
-          event.capabilities,
-          requiredCapabilities(constraint, actionCapabilities),
-        ),
+        enforcement: wrapperUnavailable
+          ? {
+              kind: "observation",
+              reason:
+                "A matching managed skill could not be delivered to the runtime.",
+              missingCapabilities: [],
+            }
+          : enforcementFor(
+              event.capabilities,
+              requiredCapabilities(constraint, actionCapabilities),
+            ),
         resolution,
       };
       storeDecision(transaction, event, decision);

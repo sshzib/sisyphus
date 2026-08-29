@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
 
   const encodedForm = await readBoundedRequestBody({
     request,
-    maximumBytes: 8_192,
+    maximumBytes: 4_096,
   });
   if (encodedForm === undefined) {
     return apiFailure({

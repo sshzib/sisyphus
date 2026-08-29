@@ -20,6 +20,8 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "unknown evaluator error";
 }
 
+export const DEFAULT_JUDGE_TIMEOUT_MILLISECONDS = 8_000;
+
 export class EvaluationEngine {
   readonly #deterministicEvaluators: readonly DeterministicEvaluator[];
   readonly #judge: EvaluationJudge | undefined;
@@ -36,7 +38,8 @@ export class EvaluationEngine {
   }) {
     this.#deterministicEvaluators = input.deterministicEvaluators ?? [];
     this.#judge = input.judge;
-    this.#judgeTimeoutMs = input.judgeTimeoutMs ?? 8_000;
+    this.#judgeTimeoutMs =
+      input.judgeTimeoutMs ?? DEFAULT_JUDGE_TIMEOUT_MILLISECONDS;
     this.#advisoryResults = input.advisoryResults;
     this.#now = input.now ?? (() => new Date());
     if (!Number.isFinite(this.#judgeTimeoutMs) || this.#judgeTimeoutMs <= 0) {

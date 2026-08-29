@@ -30,6 +30,7 @@ import {
   InactiveDeviceError,
   IngestCollisionError,
   InvalidStateTransitionError,
+  RuntimeInstallationMismatchError,
   type ControlPlaneRepository,
 } from "./repository.js";
 import {
@@ -513,6 +514,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
           reply,
           status: 403,
           error: "device_inactive",
+          message: error.message,
+        });
+        return;
+      }
+      if (error instanceof RuntimeInstallationMismatchError) {
+        sendApiError({
+          request,
+          reply,
+          status: 403,
+          error: "runtime_installation_mismatch",
           message: error.message,
         });
         return;

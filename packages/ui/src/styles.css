@@ -911,6 +911,12 @@ tbody tr:hover {
   font-weight: 620;
 }
 
+.agent-cohort > header .agent-cohort__identity {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 9px;
+}
+
 .agent-cohort > header > span {
   color: var(--muted);
   font-size: 9px;

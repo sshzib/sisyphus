@@ -40,7 +40,9 @@ pnpm verify
 production builds, an unpacked Electron release, and the authenticated worker bundled
 inside that release. The live PostgreSQL isolation suite runs when
 `SISYPHUS_TEST_DATABASE_URL` points to a disposable test database; otherwise that one
-test is reported as skipped.
+test is reported as skipped. A skipped live suite does not verify a deployment's
+migration head, grants, role separation, or row-level security policies. Run the live
+suite against each deployment environment before release.
 
 ## Run the local stack
 
@@ -68,12 +70,38 @@ The Next.js server validates the token and keeps it in an encrypted, `HttpOnly`
 session; no bearer credential is compiled into browser JavaScript. Partial hosted
 configuration fails closed. See [the hosted dashboard guide](apps/web/README.md).
 
-The Electron renderer follows the same rule. Set `SISYPHUS_API_URL` and
-`SISYPHUS_DESKTOP_API_TOKEN` together to use a real control plane. The token remains
-in the Electron main process and reaches the renderer only through validated IPC
-responses. With both settings absent, Electron labels the dashboard as demo data.
+Electron provisions its bundled worker in one of three strict modes:
 
-The sample [worker policy](examples/worker-policy.json) imports an immutable canonical skill and matches it by prompt trigger. Runtime wrapper files are optional. When present, the worker verifies their declared SHA-256 hash before startup and returns the matching wrapper from the activation tool; otherwise it returns the canonical snapshot.
+- `offline-default` applies when no policy file or cloud identity is present. The
+  worker uses its built-in policy and does not connect to the control plane.
+- `local-policy` applies when only `SISYPHUS_POLICY_FILE` is present. The worker loads
+  that file and stays offline.
+- `cloud-managed` requires the policy file, control-plane origin, tenant and device
+  identity, adapter installation, local runtime profile, configuration digest, and at
+  least one trusted policy key. Partial cloud configuration fails closed.
+
+For the first `cloud-managed` launch, `SISYPHUS_DEVICE_TOKEN` can supply the enrolled
+device credential. Electron encrypts it with `safeStorage`; later launches can load it
+from the device secret store. Electron also stores the evidence key and the hook, MCP,
+and desktop credentials through the same operating-system boundary. If secure storage
+is unavailable, managed-worker startup fails. None of these secrets enters the
+renderer process.
+
+Set `SISYPHUS_API_URL` and `SISYPHUS_DESKTOP_API_TOKEN` together to connect the
+renderer dashboard to a real control plane. The dashboard token remains in the
+Electron main process and reaches the renderer only through validated IPC responses.
+With both settings absent, Electron labels the dashboard as demo data.
+
+The sample [worker policy](examples/worker-policy.json) imports an immutable canonical
+skill and matches it by prompt trigger. It disables cloud evidence excerpts. A local
+or signed policy can instead enable `redacted-excerpts`, choose the permitted sources,
+and set a maximum of 4,000 characters.
+
+Runtime wrapper files are optional. When present, the worker verifies their declared
+SHA-256 hash before startup and returns the matching wrapper from the activation tool.
+Without a wrapper, it returns the canonical snapshot. `plugin-resource` references
+fail closed until the worker has a trusted resource loader; the worker never falls
+back to canonical content for a configured but unreadable wrapper.
 
 To prepare PostgreSQL, start `compose.yaml` and run the API migration with the schema
 owner URL. Serve requests with the separate restricted application URL shown in
@@ -94,6 +122,11 @@ The v1 plugin bundle is in `plugins/sisyphus-codex`. Its lifecycle hooks send ve
 
 Both local transports authenticate the worker before releasing private data. Hooks perform an HMAC challenge before posting a vendor event. Codex talks to a bundled stdio MCP proxy, which performs the same challenge before reading tool arguments or sending its bearer token to the loopback port.
 
+The Codex hook uses nested deadlines. The plugin command has a 15-second budget, the
+supervision request has 10 seconds, and the judge decision has 8 seconds. Runtime
+version probing and each worker challenge have a 1-second budget. A timeout returns a
+valid fail-open or `inconclusive` result at the boundary that owns that deadline.
+
 Validate the bundle before installing or publishing it:
 
 ```sh
@@ -102,7 +135,11 @@ python ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins
 
 ## Security and enforcement guarantees
 
-- Full prompts, outputs, transcripts, and tool evidence remain in the encrypted local vault. Cloud records may contain bounded, locally redacted excerpts as configured by policy.
+- Full prompts, outputs, transcripts, tool evidence, and deterministic evaluator
+  stdout and stderr remain in the encrypted local vault.
+- Cloud evidence excerpts are disabled when `cloudEvidence` is absent or set to
+  `disabled`. Only a local or signed policy can enable bounded, locally redacted
+  excerpts for named sources.
 - The worker projection structurally excludes native vendor payloads and screens credential-shaped values. The hosted service cannot independently prove that a generic excerpt came from the current device redactor; redaction lineage remains a deployment limitation until device attestation is added.
 - Failed local redaction blocks upload and judge requests.
 - Authenticated user or device credentials determine tenant scope; request bodies cannot select a tenant.
@@ -111,6 +148,16 @@ python ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins
   capability changes affect only later runs.
 - Unsupported policy actions degrade to visibly labeled observation.
 - Only verified skill activation contributes to quarantine.
+- Before the hosted service checks quarantine eligibility, it keeps only the latest
+  completion for each run and logical work item. The latest record must also have
+  verified attribution, enforced coverage, and supported managed routing or tool
+  prevention.
+- A skill version is the team-wide sanction cohort across all eligible runtimes. This
+  catches failures in a canonical skill even when different runtimes produced them.
+  Dashboard rankings remain separate comparison cohorts.
+- A comparison cohort includes the runtime, runtime profile, adapter installation,
+  runtime version, adapter version, full capability snapshot, attribution class, and
+  enforcement class.
 - Duplicate vendor events replay the stored decision without consuming another retry or failure sample.
 - Signed policy bundles are restored and reverified before the worker listens. Repeated
   unchanged policy reads return the same signed revision, while changed policy state

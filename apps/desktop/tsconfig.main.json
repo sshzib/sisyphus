@@ -9,6 +9,8 @@
     "src/main.ts",
     "src/preload.ts",
     "src/ipc.ts",
-    "src/device-secrets.ts"
+    "src/device-secrets.ts",
+    "src/desktop-boundaries.ts",
+    "src/managed-worker-provisioning.ts"
   ]
 }

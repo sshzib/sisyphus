@@ -97,6 +97,7 @@ export async function grantPostgresApplicationRole(input: {
       await transaction`
         grant usage on type
           agent_runtime,
+          runtime_profile,
           evaluation_result,
           skill_disposition,
           credential_kind,

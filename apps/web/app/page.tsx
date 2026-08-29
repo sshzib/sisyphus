@@ -52,7 +52,7 @@ function LoginPanel({ authenticationFailed }: { authenticationFailed: boolean })
           <span>Tenant access token</span>
           <input
             autoComplete="off"
-            maxLength={4096}
+            maxLength={2048}
             minLength={1}
             name="token"
             pattern="[A-Za-z0-9._~-]+"

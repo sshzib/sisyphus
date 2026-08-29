@@ -1,10 +1,5 @@
-import {
-  createActivationLeaseId,
-  type PromptDecision,
-  type SupervisionDecision,
-} from "@sisyphus/domain";
-
-import { stableClaudeDigest } from "./claude-wire.js";
+import type { PromptDecision, SupervisionDecision } from "@sisyphus/domain";
+import type { ManagedSkillActivation } from "@sisyphus/adapter-kit";
 
 export type ClaudeHookResponse =
   | Record<string, never>
@@ -26,24 +21,18 @@ export type ClaudeHookResponse =
     }
   | { readonly decision: "block"; readonly reason: string };
 
-function activationLeaseFor(decision: PromptDecision) {
-  if (decision.resolution.kind !== "selected") return undefined;
-  return createActivationLeaseId(
-    `claude-code:${stableClaudeDigest({
-      eventId: decision.eventId,
-      skillVersionId: decision.resolution.selected.skillVersionId,
-    })}`,
-  );
-}
-
-function renderPrompt(decision: PromptDecision): ClaudeHookResponse {
+function renderPrompt(
+  decision: PromptDecision,
+  activation: ManagedSkillActivation | undefined,
+): ClaudeHookResponse {
   if (decision.resolution.kind === "none") return { continue: true };
-  const lease = activationLeaseFor(decision);
-  if (lease === undefined) return { continue: true };
+  if (activation === undefined) {
+    throw new Error("A selected prompt decision requires a worker-issued activation lease.");
+  }
   const selected = decision.resolution.selected;
   const marker = JSON.stringify({
     skillVersionId: selected.skillVersionId,
-    activationLeaseId: lease,
+    activationLeaseId: activation.activationLeaseId,
   });
   return {
     continue: true,
@@ -76,10 +65,13 @@ function feedbackText(
   return full.length <= 8_000 ? full : `${full.slice(0, 8_000)}\n[feedback truncated]`;
 }
 
-export function renderClaudeDecision(decision: SupervisionDecision): ClaudeHookResponse {
+export function renderClaudeDecision(
+  decision: SupervisionDecision,
+  activation?: ManagedSkillActivation,
+): ClaudeHookResponse {
   switch (decision.kind) {
     case "prompt-decision":
-      return renderPrompt(decision);
+      return renderPrompt(decision, activation);
     case "tool-request-decision":
       switch (decision.action) {
         case "allow":

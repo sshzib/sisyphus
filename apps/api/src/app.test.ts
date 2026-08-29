@@ -4,7 +4,10 @@ import {
   JudgeResultSchema,
   type CloudSupervisionRecord,
   type CompletionCloudRecord,
+  type AgentRuntime,
+  type Capability,
   type JudgeResult,
+  type RuntimeProfile,
 } from "@sisyphus/domain";
 import {
   AuditEventSchema,
@@ -53,25 +56,40 @@ function bearer(token: string) {
   return { authorization: `Bearer ${token}` };
 }
 
-function cloudRecordBase(input: { runId: string; agentId?: string }) {
-  const supported = { kind: "supported" };
+function cloudRecordBase(input: {
+  runId: string;
+  agentId?: string;
+  runtime?: AgentRuntime;
+  runtimeVersion?: string;
+  adapterInstallationId?: string;
+  profile?: RuntimeProfile;
+  toolPrevention?: Capability;
+}) {
+  const supported: Capability = { kind: "supported" };
+  const runtime = input.runtime ?? "codex";
+  const runtimeVersion = input.runtimeVersion ?? "0.42.0";
   return {
     schemaVersion: 1,
     occurredAt: "2026-08-29T10:30:00.000Z",
     runId: input.runId,
     workItemId: `work-${input.runId}`,
     project: "release-audit",
-    runtime: "codex",
-    runtimeVersion: "0.42.0",
+    runtime,
+    runtimeVersion,
     adapterVersion: "0.1.0",
+    runtimeInstallation: {
+      adapterInstallationId:
+        input.adapterInstallationId ?? "installation-codex-local",
+      profile: input.profile ?? "local",
+    },
     capabilities: {
-      runtime: "codex",
-      runtimeVersion: "0.42.0",
+      runtime,
+      runtimeVersion,
       promptInterception: supported,
       skillSelectionControl: supported,
       rootStopContinuation: supported,
       subagentStopContinuation: supported,
-      toolPrevention: supported,
+      toolPrevention: input.toolPrevention ?? supported,
       toolObservation: supported,
       stableTokenUsage: supported,
       localEvidenceAccess: supported,
@@ -96,17 +114,34 @@ function cloudPayload(input: {
   runId: string;
   score?: number;
   agentId?: string;
+  skillVersionId?: string;
+  runtime?: AgentRuntime;
+  runtimeVersion?: string;
+  adapterInstallationId?: string;
+  profile?: RuntimeProfile;
+  toolPrevention?: Capability;
 }): CompletionCloudRecord {
   const record = CloudSupervisionRecordSchema.parse({
     ...cloudRecordBase({
       runId: input.runId,
       ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
+      ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
+      ...(input.runtimeVersion === undefined
+        ? {}
+        : { runtimeVersion: input.runtimeVersion }),
+      ...(input.adapterInstallationId === undefined
+        ? {}
+        : { adapterInstallationId: input.adapterInstallationId }),
+      ...(input.profile === undefined ? {} : { profile: input.profile }),
+      ...(input.toolPrevention === undefined
+        ? {}
+        : { toolPrevention: input.toolPrevention }),
     }),
     kind: "completion",
     completionKind: "root",
     attribution: {
       kind: "verified",
-      skillVersionId: "skill-ts-review@4.2.1",
+      skillVersionId: input.skillVersionId ?? "skill-ts-review@4.2.1",
       activationLeaseId: `lease-${input.runId}`,
       method: "activation-marker",
     },
@@ -171,6 +206,12 @@ function cloudEnvelope(input: {
   eventId: string;
   score?: number;
   agentId?: string;
+  skillVersionId?: string;
+  runtime?: AgentRuntime;
+  runtimeVersion?: string;
+  adapterInstallationId?: string;
+  profile?: RuntimeProfile;
+  toolPrevention?: Capability;
 }) {
   return {
     id: input.id,
@@ -179,6 +220,20 @@ function cloudEnvelope(input: {
       runId: `run-${input.eventId}`,
       ...(input.score === undefined ? {} : { score: input.score }),
       ...(input.agentId === undefined ? {} : { agentId: input.agentId }),
+      ...(input.skillVersionId === undefined
+        ? {}
+        : { skillVersionId: input.skillVersionId }),
+      ...(input.runtime === undefined ? {} : { runtime: input.runtime }),
+      ...(input.runtimeVersion === undefined
+        ? {}
+        : { runtimeVersion: input.runtimeVersion }),
+      ...(input.adapterInstallationId === undefined
+        ? {}
+        : { adapterInstallationId: input.adapterInstallationId }),
+      ...(input.profile === undefined ? {} : { profile: input.profile }),
+      ...(input.toolPrevention === undefined
+        ? {}
+        : { toolPrevention: input.toolPrevention }),
     }),
   };
 }
@@ -302,12 +357,43 @@ describe("worker batch ingest", () => {
       url: "/v1/events/batch",
       headers: bearer(demoCredentials.betaDevice),
       payload: {
-        records: [cloudEnvelope({ id: "beta-1", eventId: "shared-event" })],
+        records: [
+          cloudEnvelope({
+            id: "beta-1",
+            eventId: "shared-event",
+            runtime: "claude-code",
+            runtimeVersion: "1.0.86",
+            adapterInstallationId: "installation-claude-local",
+          }),
+        ],
       },
     });
 
     expect(acme.statusCode).toBe(202);
     expect(beta.statusCode).toBe(202);
+  });
+
+  it("rejects records for a different runtime installation", async () => {
+    const app = await testApp();
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/events/batch",
+      headers: bearer(demoCredentials.acmeDevice),
+      payload: {
+        records: [
+          cloudEnvelope({
+            id: "mismatched-installation-record",
+            eventId: "mismatched-installation-event",
+            adapterInstallationId: "installation-forged",
+          }),
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      error: "runtime_installation_mismatch",
+    });
   });
 
   it("rejects payload collisions and tenant fields", async () => {
@@ -634,6 +720,126 @@ describe("worker batch ingest", () => {
     ).toBe("2026-08-29T10:30:00.000Z");
   });
 
+  it("projects Cursor local and cloud-agent profiles as distinct integrations", async () => {
+    const app = await testApp();
+    const ingest = await app.inject({
+      method: "POST",
+      url: "/v1/events/batch",
+      headers: bearer(demoCredentials.acmeDevice),
+      payload: {
+        records: [
+          cloudEnvelope({
+            id: "cursor-local-record",
+            eventId: "cursor-local-event",
+            runtime: "cursor",
+            runtimeVersion: "1.6.27",
+            profile: "local",
+          }),
+          cloudEnvelope({
+            id: "cursor-cloud-record",
+            eventId: "cursor-cloud-event",
+            runtime: "cursor",
+            runtimeVersion: "1.6.27",
+            profile: "cloud-agent",
+            toolPrevention: {
+              kind: "unsupported",
+              reason: "Cursor cloud agents cannot block this tool hook.",
+            },
+          }),
+        ],
+      },
+    });
+    expect(ingest.statusCode).toBe(202);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/dashboard?runtime=cursor",
+      headers: bearer(demoCredentials.acmeAdmin),
+    });
+    const dashboard = DashboardSnapshotSchema.parse(response.json());
+    const projected = dashboard.integrations.filter(
+      (integration) =>
+        integration.adapterInstallationId === "installation-codex-local",
+    );
+    expect(projected).toHaveLength(2);
+    expect(projected).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          runtime: "cursor",
+          profile: "local",
+          scope: "local",
+          capabilities: expect.objectContaining({
+            toolPrevention: { kind: "supported" },
+          }),
+        }),
+        expect.objectContaining({
+          runtime: "cursor",
+          profile: "cloud-agent",
+          scope: "cloud",
+          capabilities: expect.objectContaining({
+            toolPrevention: {
+              kind: "unsupported",
+              reason: "Cursor cloud agents cannot block this tool hook.",
+            },
+          }),
+        }),
+      ]),
+    );
+  });
+
+  it("keeps identical agent and skill identifiers separate across runtimes", async () => {
+    const app = await testApp();
+    const sharedAgent = "agent-cross-runtime";
+    const sharedSkill = "skill-cross-runtime@1.0.0";
+    const ingest = await app.inject({
+      method: "POST",
+      url: "/v1/events/batch",
+      headers: bearer(demoCredentials.acmeDevice),
+      payload: {
+        records: [
+          cloudEnvelope({
+            id: "cross-runtime-codex-record",
+            eventId: "cross-runtime-codex-event",
+            runtime: "codex",
+            agentId: sharedAgent,
+            skillVersionId: sharedSkill,
+          }),
+          cloudEnvelope({
+            id: "cross-runtime-cursor-record",
+            eventId: "cross-runtime-cursor-event",
+            runtime: "cursor",
+            runtimeVersion: "1.6.27",
+            agentId: sharedAgent,
+            skillVersionId: sharedSkill,
+          }),
+        ],
+      },
+    });
+    expect(ingest.statusCode).toBe(202);
+
+    const runtimes: AgentRuntime[] = ["codex", "cursor"];
+    for (const runtime of runtimes) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/dashboard?runtime=${runtime}`,
+        headers: bearer(demoCredentials.acmeAdmin),
+      });
+      const dashboard = DashboardSnapshotSchema.parse(response.json());
+      expect(
+        dashboard.agents.filter((agent) => agent.name === sharedAgent),
+      ).toEqual([
+        expect.objectContaining({ runtime, runs: 1 }),
+      ]);
+      expect(
+        dashboard.skills.filter(
+          (skill) => skill.skillVersionId === sharedSkill,
+        ),
+      ).toEqual([
+        expect.objectContaining({ runtime, runs: 1 }),
+      ]);
+    }
+  });
+
   it("requires a device credential", async () => {
     const app = await testApp();
     const response = await app.inject({
@@ -946,88 +1152,194 @@ describe("signed policy bundles", () => {
     ).toBe(true);
   });
 
-  it("promotes provisional quarantine and converges restoration in later bundles", async () => {
+  it("derives quarantine from the verified server window and resets it on restoration", async () => {
     const app = await testApp();
-    const initialBundleResponse = await app.inject({
-      method: "GET",
-      url: "/v1/policy-bundle",
-      headers: bearer(demoCredentials.acmeDevice),
+    const thresholdSkill = "skill-server-threshold@1.0.0";
+    const terminalCompletion = (
+      label: string,
+      occurredAt: string,
+    ): CompletionCloudRecord => {
+      const completion = cloudPayload({
+        runId: `run-${label}`,
+        skillVersionId: thresholdSkill,
+      });
+      const terminal = CloudSupervisionRecordSchema.parse({
+        ...completion,
+        occurredAt,
+        evaluation: {
+          kind: "terminal-failure",
+          evaluationId: `evaluation-${label}`,
+          policyId: "policy-default",
+          policyVersionId: "policy-default@1",
+          evaluatorVersion: "deterministic-1",
+          attempts: 3,
+          latencyMs: 48,
+          cost: { kind: "unavailable" },
+          score: 0.2,
+          reason: "retries-exhausted",
+          findings: [
+            {
+              criterion: "correctness",
+              message: "The verified checks still fail.",
+              correction: "Repair the implementation and rerun the checks.",
+            },
+          ],
+        },
+        provisionalDisposition: { kind: "none" },
+      });
+      if (terminal.kind !== "completion") {
+        throw new Error("The threshold fixture must be a completion.");
+      }
+      return terminal;
+    };
+    const ingest = async (
+      records: Array<{
+        id: string;
+        eventId: string;
+        payload: CompletionCloudRecord;
+      }>,
+    ) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/events/batch",
+        headers: bearer(demoCredentials.acmeDevice),
+        payload: { records },
+      });
+    const disposition = async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/dashboard",
+        headers: bearer(demoCredentials.acmeAdmin),
+      });
+      const dashboard = DashboardSnapshotSchema.parse(response.json());
+      return dashboard.skills.find(
+        (skill) => skill.skillVersionId === thresholdSkill,
+      )?.disposition;
+    };
+    const transitions = async () => {
+      const response = await app.inject({
+        method: "GET",
+        url: "/v1/policy-bundle",
+        headers: bearer(demoCredentials.acmeDevice),
+      });
+      return SignedPolicyBundleSchema.parse(response.json()).payload
+        .dispositionTransitions;
+    };
+
+    const completion = cloudPayload({
+      runId: "run-provisional-hold",
+      skillVersionId: thresholdSkill,
     });
-    const initialBundle = SignedPolicyBundleSchema.parse(
-      initialBundleResponse.json(),
-    );
-    const completion = cloudPayload({ runId: "run-provisional-hold" });
-    const quarantinedCompletion = CloudSupervisionRecordSchema.parse({
+    const provisionalOnly = CloudSupervisionRecordSchema.parse({
       ...completion,
       provisionalDisposition: {
         kind: "quarantine",
-        skillVersionId: "skill-ts-review@4.2.1",
+        skillVersionId: thresholdSkill,
         reason: "Five terminal failures reached the verified rolling threshold.",
         localRevision: 1,
       },
     });
-    const ingest = await app.inject({
-      method: "POST",
-      url: "/v1/events/batch",
-      headers: bearer(demoCredentials.acmeDevice),
-      payload: {
-        records: [
+    if (provisionalOnly.kind !== "completion") {
+      throw new Error("The provisional fixture must be a completion.");
+    }
+    expect(
+      (
+        await ingest([
           {
             id: "provisional-hold-record",
             eventId: "provisional-hold-event",
-            payload: quarantinedCompletion,
+            payload: provisionalOnly,
           },
-        ],
-      },
-    });
-    expect(ingest.statusCode).toBe(202);
+        ])
+      ).statusCode,
+    ).toBe(202);
+    expect(await disposition()).toBe("active");
+    expect(
+      (await transitions()).filter(
+        (transition) => transition.skillVersionId === thresholdSkill,
+      ),
+    ).toEqual([]);
 
-    const heldBundleResponse = await app.inject({
-      method: "GET",
-      url: "/v1/policy-bundle",
-      headers: bearer(demoCredentials.acmeDevice),
-    });
-    const heldBundle = SignedPolicyBundleSchema.parse(heldBundleResponse.json());
-    expect(heldBundle.payload.revision).toBe(
-      initialBundle.payload.revision + 1,
-    );
-    expect(heldBundle.payload.dispositionTransitions).toMatchObject([
+    const firstFour = Array.from({ length: 4 }, (_, index) => ({
+      id: `threshold-record-${index}`,
+      eventId: `threshold-event-${index}`,
+      payload: terminalCompletion(
+        `threshold-${index}`,
+        `2026-08-29T${(index + 1).toString().padStart(2, "0")}:00:00.000Z`,
+      ),
+    }));
+    expect((await ingest(firstFour)).statusCode).toBe(202);
+    expect(await disposition()).toBe("active");
+
+    const fifth = {
+      id: "threshold-record-4",
+      eventId: "threshold-event-4",
+      payload: terminalCompletion(
+        "threshold-4",
+        "2026-08-29T05:00:00.000Z",
+      ),
+    };
+    expect((await ingest([fifth])).statusCode).toBe(202);
+    expect(await disposition()).toBe("quarantined");
+    expect(
+      (await transitions()).filter(
+        (transition) => transition.skillVersionId === thresholdSkill,
+      ),
+    ).toMatchObject([
       {
         kind: "quarantine",
-        skillVersionId: "skill-ts-review@4.2.1",
+        skillVersionId: thresholdSkill,
         actor: "device:device-delta",
         revision: 1,
       },
     ]);
 
+    expect((await ingest([fifth])).statusCode).toBe(202);
+    expect(
+      (await transitions()).filter(
+        (transition) => transition.skillVersionId === thresholdSkill,
+      ),
+    ).toHaveLength(1);
+
     const restore = await app.inject({
       method: "POST",
-      url: "/v1/skills/skill-ts-review%404.2.1/restore",
+      url: `/v1/skills/${encodeURIComponent(thresholdSkill)}/restore`,
       headers: bearer(demoCredentials.acmeAdmin),
       payload: {
         reason: "Administrator verified the repaired skill version and evidence.",
       },
     });
     expect(restore.statusCode).toBe(200);
-    const restoredBundleResponse = await app.inject({
-      method: "GET",
-      url: "/v1/policy-bundle",
-      headers: bearer(demoCredentials.acmeDevice),
-    });
-    const restoredBundle = SignedPolicyBundleSchema.parse(
-      restoredBundleResponse.json(),
-    );
-    expect(restoredBundle.payload.revision).toBe(
-      heldBundle.payload.revision + 1,
-    );
+    expect(await disposition()).toBe("probation");
+
+    const restoredAt = Date.now();
+    const afterRestoration = Array.from({ length: 5 }, (_, index) => ({
+      id: `post-restoration-record-${index}`,
+      eventId: `post-restoration-event-${index}`,
+      payload: terminalCompletion(
+        `post-restoration-${index}`,
+        new Date(restoredAt + (index + 1) * 1_000).toISOString(),
+      ),
+    }));
+    expect((await ingest(afterRestoration.slice(0, 4))).statusCode).toBe(202);
+    expect(await disposition()).toBe("probation");
+    const fifthAfterRestoration = afterRestoration.at(4);
+    if (fifthAfterRestoration === undefined) {
+      throw new Error("The post-restoration threshold fixture is incomplete.");
+    }
+    expect((await ingest([fifthAfterRestoration])).statusCode).toBe(202);
+    expect(await disposition()).toBe("quarantined");
     expect(
-      restoredBundle.payload.dispositionTransitions.map((transition) => ({
-        kind: transition.kind,
-        revision: transition.revision,
-      })),
+      (await transitions())
+        .filter((transition) => transition.skillVersionId === thresholdSkill)
+        .map((transition) => ({
+          kind: transition.kind,
+          revision: transition.revision,
+        })),
     ).toEqual([
       { kind: "quarantine", revision: 1 },
       { kind: "restoration", revision: 2 },
+      { kind: "quarantine", revision: 3 },
     ]);
   });
 });

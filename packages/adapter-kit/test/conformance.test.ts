@@ -12,9 +12,11 @@ import {
   createRetryBudgetId,
   createRuntimeInstallationIdentity,
   createSessionId,
+  createSkillVersionKey,
   createSkillVersionId,
   createTimestamp,
   createToolCallId,
+  createTriggerId,
   createWorkItemId,
   type Capability,
   type DecisionFor,
@@ -29,7 +31,9 @@ import {
 
 import {
   assertAdapterConformance,
+  managedActivationForDecision,
   runAdapterConformance,
+  type AdapterDecisionContext,
   type AdapterConformanceFixture,
   type AdapterInstallRequest,
   type AdapterInstallation,
@@ -68,6 +72,25 @@ const verified: SkillActivationEvidence = {
   skillVersionId: createSkillVersionId("skill-1"),
   activationLeaseId: createActivationLeaseId("lease-1"),
   method: "activation-marker",
+};
+const selectedSkill = {
+  skillVersionId: createSkillVersionId("skill-1"),
+  stableVersionKey: createSkillVersionKey("skill-1@1.0.0"),
+  displayName: "Managed fixture skill",
+  administratorPriority: 100,
+  specificity: 100,
+  disposition: "active" as const,
+  activationAvailability: { kind: "available" as const },
+  trigger: {
+    triggerId: createTriggerId("trigger-1"),
+    kind: "exact" as const,
+    pattern: "build it",
+  },
+};
+const workerIssuedActivation = {
+  activationLeaseId: createActivationLeaseId("sisyphus-v1.worker-issued-fixture"),
+  skillVersionId: selectedSkill.skillVersionId,
+  expiresAt: createTimestamp("2026-08-29T10:05:00.000Z"),
 };
 
 function common(kind: string) {
@@ -156,7 +179,15 @@ class FixtureAdapter implements AgentRuntimeAdapter {
   renderDecision<E extends HookObservation>(
     _event: E,
     decision: DecisionFor<E>,
+    context?: AdapterDecisionContext,
   ): unknown {
+    const activation = managedActivationForDecision(decision, context);
+    if (activation !== undefined) {
+      return {
+        activationLeaseId: activation.activationLeaseId,
+        skillVersionId: activation.skillVersionId,
+      };
+    }
     return {
       retry: decision.kind === "stop-decision" && decision.action === "retry",
     };
@@ -224,7 +255,26 @@ function fixture(): AdapterConformanceFixture {
           action: "continue",
           eventId: createEventId("event-prompt"),
           enforcement,
-          resolution: { kind: "none", candidates: [] },
+          resolution: {
+            kind: "selected",
+            selected: selectedSkill,
+            candidates: [
+              { candidate: selectedSkill, outcome: { kind: "selected" } },
+            ],
+          },
+        },
+        managedActivation: {
+          kind: "required",
+          workerIssued: workerIssuedActivation,
+          activationResponseAccepted(response, activation) {
+            return z
+              .object({
+                activationLeaseId: z.literal(activation.activationLeaseId),
+                skillVersionId: z.literal(activation.skillVersionId),
+              })
+              .strict()
+              .safeParse(response).success;
+          },
         },
       },
       {
@@ -295,5 +345,70 @@ describe("adapter conformance", () => {
     });
 
     expect(() => assertAdapterConformance(report)).toThrow(/vendor key vendorSecret leaked/);
+  });
+
+  it("rejects an adapter-fabricated managed activation lease", async () => {
+    class FabricatingAdapter extends FixtureAdapter {
+      override renderDecision<E extends HookObservation>(
+        event: E,
+        decision: DecisionFor<E>,
+        context?: AdapterDecisionContext,
+      ): unknown {
+        if (event.kind === "prompt") {
+          const activation = managedActivationForDecision(decision, context);
+          return {
+            activationLeaseId: "adapter-fabricated-lease",
+            skillVersionId: activation?.skillVersionId,
+            expectedLeaseDecoy: activation?.activationLeaseId,
+          };
+        }
+        return super.renderDecision(event, decision);
+      }
+    }
+    const report = await runAdapterConformance({
+      adapter: new FabricatingAdapter(),
+      fixture: fixture(),
+    });
+
+    expect(() => assertAdapterConformance(report)).toThrow(
+      /worker-issued activation lease/u,
+    );
+  });
+
+  it("rejects enforced selection when the runtime has only partial control", async () => {
+    const partialCapabilities: RuntimeCapabilitySnapshot = {
+      ...capabilities,
+      skillSelectionControl: {
+        kind: "partial",
+        limitation: "The runtime cannot enforce exclusive skill routing.",
+      },
+    };
+    class PartialSelectionAdapter extends FixtureAdapter {
+      override async probe(): Promise<RuntimeCapabilitySnapshot> {
+        return partialCapabilities;
+      }
+
+      override async install(input: AdapterInstallRequest): Promise<AdapterInstallation> {
+        return {
+          ...(await super.install(input)),
+          capabilities: partialCapabilities,
+        };
+      }
+
+      override parseEvent(input: unknown): HookObservation {
+        return {
+          ...super.parseEvent(input),
+          capabilities: partialCapabilities,
+        };
+      }
+    }
+    const report = await runAdapterConformance({
+      adapter: new PartialSelectionAdapter(),
+      fixture: fixture(),
+    });
+
+    expect(() => assertAdapterConformance(report)).toThrow(
+      /claimed enforcement without supported skill selection control/u,
+    );
   });
 });

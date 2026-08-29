@@ -12,6 +12,18 @@ export const DeviceSecretKindSchema = z.enum([
 ]);
 export type DeviceSecretKind = z.infer<typeof DeviceSecretKindSchema>;
 
+export const ProvisionedDeviceSecretKindSchema = z.literal("device-token");
+export type ProvisionedDeviceSecretKind = z.infer<
+  typeof ProvisionedDeviceSecretKindSchema
+>;
+
+export const ProvisionedDeviceTokenSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(4_096)
+  .regex(/^[\x21-\x7e]+$/u);
+
 export interface DeviceSecretCipher {
   isEncryptionAvailable(): boolean;
   encryptString(value: string): Buffer;
@@ -82,5 +94,42 @@ export class DeviceSecretStore {
       }
       return validateSecret(kind, this.#cipher.decryptString(await readFile(path)));
     }
+  }
+
+  public async loadProvisioned(
+    input: ProvisionedDeviceSecretKind,
+  ): Promise<string | undefined> {
+    const kind = ProvisionedDeviceSecretKindSchema.parse(input);
+    if (!this.#cipher.isEncryptionAvailable()) {
+      throw new Error("Operating-system secret encryption is unavailable.");
+    }
+    await mkdir(this.#directory, { recursive: true, mode: 0o700 });
+    try {
+      const encrypted = await readFile(join(this.#directory, `${kind}.bin`));
+      return ProvisionedDeviceTokenSchema.parse(
+        this.#cipher.decryptString(encrypted),
+      );
+    } catch (error: unknown) {
+      if (isMissingFile(error)) return undefined;
+      throw error;
+    }
+  }
+
+  public async persistProvisioned(
+    input: ProvisionedDeviceSecretKind,
+    value: string,
+  ): Promise<string> {
+    const kind = ProvisionedDeviceSecretKindSchema.parse(input);
+    const secret = ProvisionedDeviceTokenSchema.parse(value);
+    if (!this.#cipher.isEncryptionAvailable()) {
+      throw new Error("Operating-system secret encryption is unavailable.");
+    }
+    await mkdir(this.#directory, { recursive: true, mode: 0o700 });
+    await writeFile(
+      join(this.#directory, `${kind}.bin`),
+      this.#cipher.encryptString(secret),
+      { mode: 0o600 },
+    );
+    return secret;
   }
 }

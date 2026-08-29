@@ -5,7 +5,7 @@ description: Verify the Sisyphus web dashboard by launching an isolated local in
 
 # Verify Sisyphus
 
-Sisyphus has web, Electron, API, worker, and runtime-adapter entry points. Drive the web dashboard first. It is the primary user-facing view and uses deterministic demo data when `NEXT_PUBLIC_SISYPHUS_API_URL` and `NEXT_PUBLIC_SISYPHUS_DEMO_TOKEN` are unset. The desktop shell embeds the same shared dashboard but also depends on Electron and the local worker. API and worker verification belong in their package tests unless the task changes those boundaries.
+Sisyphus has web, Electron, API, worker, and runtime-adapter entry points. Drive the web dashboard first. It is the primary user-facing view and uses clearly labeled deterministic demo data when `SISYPHUS_WEB_API_URL`, `SISYPHUS_WEB_ORIGIN`, and `SISYPHUS_WEB_SESSION_KEY` are all unset. The controller clears those three server-only settings in its child process. The desktop shell embeds the same shared dashboard but also depends on Electron and the local worker. API and worker verification belong in their package tests unless the task changes those boundaries.
 
 ## Launch
 
@@ -56,9 +56,9 @@ Read [features/README.md](features/README.md), then drive every entry point list
 
 Keep proof under `artifacts/verify-sisyphus/<run-id>`. Start `preview_recording_start` before the first user action and stop it only after the result is visible. Copy the path returned by `preview_recording_stop` into that directory with a feature-specific name such as `runtime-filter.webm`. Keep `doctor.json`, `server.stdout.log`, and `server.stderr.log` beside it. Take `preview_snapshot` before the action and after the resulting state appears. The snapshots remain in the run transcript, while the recording and logs remain on disk.
 
-A valid proof exercises the real browser path. It records the action and resulting state, not only a final screen. For a mutation such as skill restoration, confirm the new standing from the Skills table and confirm the new event from Audit log. The demo client is acceptable because it is the production web app's built-in fallback at the data-client boundary. Do not replace it with test-only setters or endpoints.
+A valid proof exercises the real browser path. It records the action and resulting state, not only a final screen. For a mutation such as skill restoration, confirm the new standing from the Skills table and confirm the new event from Audit log. The demo client is acceptable because it is the production web app's explicit all-settings-absent mode at the data-client boundary. Confirm that the page says `Demo data` and `Demo workspace`; do not replace it with test-only setters or endpoints.
 
-When a safe mode claims to skip a side effect, inspect the side effect itself. Sisyphus has no dashboard dry-run mode. The demo client keeps mutations in the current browser session and sends no API request because the two `NEXT_PUBLIC_SISYPHUS_*` variables are unset. Confirm the server log has no configured API URL before treating a demo run as isolated.
+When a safe mode claims to skip a side effect, inspect the side effect itself. Sisyphus has no dashboard dry-run mode. The demo client keeps mutations in the current browser session and sends no API request because the three server-only hosted settings are absent from the isolated child. Confirm the demo labels and the absence of control-plane proxy errors in the server log before treating a demo run as isolated.
 
 ## Cleanup
 

@@ -691,6 +691,41 @@ describe("prompt and tool capability downgrade", () => {
     expect(decision.enforcement.kind).toBe("observation");
   });
 
+  it("labels a managed-wrapper failure as observation-only", async () => {
+    const kernel = createInMemoryKernel();
+    const base = stop({ event: "wrapper-unavailable-base" });
+    const event: PromptObservation = {
+      ...base,
+      kind: "prompt",
+      eventId: createEventId("wrapper-unavailable-prompt"),
+      prompt: "use the managed skill",
+    };
+    const unavailable = {
+      ...skillCandidate("wrapper-unavailable-skill"),
+      activationAvailability: {
+        kind: "unavailable" as const,
+        reason: "The runtime wrapper could not be loaded.",
+      },
+    };
+
+    const decision = await kernel.supervise(event, {
+      ...constraint(),
+      skillCandidates: [unavailable],
+    });
+
+    expect(decision.resolution).toMatchObject({
+      kind: "none",
+      candidates: [
+        { outcome: { kind: "rejected", reason: "wrapper-unavailable" } },
+      ],
+    });
+    expect(decision.enforcement).toEqual({
+      kind: "observation",
+      reason: "A matching managed skill could not be delivered to the runtime.",
+      missingCapabilities: [],
+    });
+  });
+
   it("observes a requested tool denial when prevention is unsupported", async () => {
     const kernel = createInMemoryKernel();
     const base = stop({

@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
+  createActivationLeaseId,
   createAdapterVersion,
   createDeviceId,
+  createSkillVersionId,
+  createSkillVersionKey,
+  createTimestamp,
+  createTriggerId,
   type DecisionFor,
   type PromptObservation,
   type RootStopObservation,
@@ -40,12 +46,36 @@ describe("OpenCode adapter conformance", () => {
       throw new Error("invalid fixtures");
     }
 
+    const selectedSkill = {
+      skillVersionId: createSkillVersionId("skill-opencode-conformance@1.0.0"),
+      stableVersionKey: createSkillVersionKey("skill-opencode-conformance@1.0.0"),
+      displayName: "OpenCode conformance skill",
+      administratorPriority: 100,
+      specificity: 100,
+      disposition: "active" as const,
+      activationAvailability: { kind: "available" as const },
+      trigger: {
+        triggerId: createTriggerId("trigger-opencode-conformance"),
+        kind: "contains" as const,
+        pattern: "parser",
+      },
+    };
     const promptDecision: DecisionFor<PromptObservation> = {
       kind: "prompt-decision",
       eventId: prompt.eventId,
-      enforcement: { kind: "enforced" },
+      enforcement: {
+        kind: "observation",
+        reason: "OpenCode cannot enforce exclusive native skill routing.",
+        missingCapabilities: ["skillSelectionControl"],
+      },
       action: "continue",
-      resolution: { kind: "none", candidates: [] },
+      resolution: {
+        kind: "selected",
+        selected: selectedSkill,
+        candidates: [
+          { candidate: selectedSkill, outcome: { kind: "selected" } },
+        ],
+      },
     };
     const requestDecision: DecisionFor<ToolRequestObservation> = {
       kind: "tool-request-decision",
@@ -93,7 +123,46 @@ describe("OpenCode adapter conformance", () => {
         "metadata",
       ],
       cases: [
-        { kind: "prompt", rawEvent: loadFixture("chat-message.json"), decision: promptDecision },
+        {
+          kind: "prompt",
+          rawEvent: loadFixture("chat-message.json"),
+          decision: promptDecision,
+          managedActivation: {
+            kind: "required",
+            workerIssued: {
+              activationLeaseId: createActivationLeaseId(
+                "sisyphus-v1.opencode-conformance",
+              ),
+              skillVersionId: selectedSkill.skillVersionId,
+              expiresAt: createTimestamp("2026-08-29T10:05:00.000Z"),
+            },
+            activationResponseAccepted(response, activation) {
+              const parsed = z
+                .object({
+                  action: z.literal("append-context"),
+                  context: z.string(),
+                })
+                .strict()
+                .safeParse(response);
+              if (!parsed.success) return false;
+              const markerText = /with (\{[^\r\n]+\})\./u.exec(
+                parsed.data.context,
+              )?.[1];
+              if (markerText === undefined) return false;
+              try {
+                return z
+                  .object({
+                    skillVersionId: z.literal(activation.skillVersionId),
+                    activationLeaseId: z.literal(activation.activationLeaseId),
+                  })
+                  .strict()
+                  .safeParse(JSON.parse(markerText)).success;
+              } catch {
+                return false;
+              }
+            },
+          },
+        },
         { kind: "tool-request", rawEvent: loadFixture("tool-before.json"), decision: requestDecision },
         { kind: "tool-result", rawEvent: loadFixture("tool-after.json"), decision: resultDecision },
         {

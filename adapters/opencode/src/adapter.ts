@@ -15,6 +15,8 @@ import {
 import {
   AdapterInstallRequestSchema,
   AdapterUninstallRequestSchema,
+  managedActivationForDecision,
+  type AdapterDecisionContext,
   type AdapterInstallation,
   type AdapterInstallRequest,
   type AdapterUninstallRequest,
@@ -204,6 +206,7 @@ export class OpenCodeRuntimeAdapter implements AgentRuntimeAdapter {
   renderDecision<E extends HookObservation>(
     event: E,
     decision: DecisionFor<E>,
+    context?: AdapterDecisionContext,
   ): RuntimeResponse {
     if (
       event.kind === "root-stop" &&
@@ -215,7 +218,10 @@ export class OpenCodeRuntimeAdapter implements AgentRuntimeAdapter {
         retryBudgetId: event.retryBudgetId,
       });
     }
-    return renderOpenCodeDecision(decision);
+    return renderOpenCodeDecision(
+      decision,
+      managedActivationForDecision(decision, context),
+    );
   }
 
   deriveIdentity(event: UnknownRuntimeEvent): RuntimeIdentity {

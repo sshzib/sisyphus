@@ -7,12 +7,17 @@ import {
   probeCodexRuntimeVersion,
 } from "@sisyphus/adapter-codex";
 import { createAdapterVersion } from "@sisyphus/domain";
-import { createSupervisionKernel, type DeterministicEvaluator } from "@sisyphus/kernel";
+import {
+  DEFAULT_JUDGE_TIMEOUT_MILLISECONDS,
+  createSupervisionKernel,
+  type DeterministicEvaluator,
+} from "@sisyphus/kernel";
 
 import type { WorkerConfiguration } from "./config.js";
 import { ActivationLeaseAuthority } from "./activation-lease.js";
 import { EncryptedEvidenceVault } from "./evidence-vault.js";
 import { LocalEvidenceBroker } from "./evidence-broker.js";
+import { EvaluationEvidenceCollector } from "./evaluation-evidence.js";
 import { CommandEvaluator, CompletionGuardEvaluator } from "./evaluators.js";
 import { HostedJudge } from "./hosted-judge.js";
 import { LocalJournal } from "./journal.js";
@@ -80,16 +85,18 @@ export async function createWorkerApplication(
     directory: join(input.configuration.dataDirectory, "evidence"),
     key: input.evidenceKey,
   });
+  const evaluationEvidence = new EvaluationEvidenceCollector();
   const mutablePolicyProvider = new MutablePolicyProvider(
     input.configuration.policy.constraint,
-    {
-      profile: input.configuration.controlPlane?.policyIdentity?.profile ?? "local",
-    },
   );
   const deterministicEvaluators: DeterministicEvaluator[] = [
     new CompletionGuardEvaluator(input.configuration.policy.completionGuards),
     ...input.configuration.policy.deterministicChecks.map(
-      (check) => new CommandEvaluator(check),
+      (check) =>
+        new CommandEvaluator({
+          configuration: check,
+          evidenceCollector: evaluationEvidence,
+        }),
     ),
   ];
   const controlPlane = input.configuration.controlPlane;
@@ -105,6 +112,7 @@ export async function createWorkerApplication(
     store: kernelStore,
     deterministicEvaluators,
     judge,
+    judgeTimeoutMs: DEFAULT_JUDGE_TIMEOUT_MILLISECONDS,
     advisoryResults: {
       async record(advisory) {
         journal.recordLateAdvisory(advisory);
@@ -138,6 +146,7 @@ export async function createWorkerApplication(
     journal,
     kernel,
     evidenceVault,
+    evaluationEvidence,
     policyProvider,
     leaseAuthority,
     runtimeInstallations: new StaticRuntimeInstallationRegistry(runtimeInstallations),

@@ -10,6 +10,10 @@ import { inspectCodexEvent } from "./codex-wire.js";
 import { parseAndRenderWorkerResponse, CodexSupervisionEnvelopeSchema } from "./worker-protocol.js";
 import { probeCodexRuntimeVersion } from "./runtime-probe.js";
 import type { CodexHookResponse } from "./responses.js";
+import {
+  CODEX_SUPERVISION_FETCH_TIMEOUT_MILLISECONDS,
+  CODEX_WORKER_CHALLENGE_TIMEOUT_MILLISECONDS,
+} from "./timeouts.js";
 
 const WorkerEndpointSchema = z.string().url();
 const WorkerHookTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43,128}$/u);
@@ -22,6 +26,15 @@ function supervisionUrl(input: string): URL {
   }
   if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
     throw new Error("the Sisyphus worker endpoint must use HTTP or HTTPS");
+  }
+  if (
+    endpoint.username !== "" ||
+    endpoint.password !== "" ||
+    endpoint.pathname !== "/" ||
+    endpoint.search !== "" ||
+    endpoint.hash !== ""
+  ) {
+    throw new Error("the Sisyphus worker endpoint must contain an origin only");
   }
   endpoint.pathname = "/v1/supervise";
   endpoint.search = "";
@@ -41,7 +54,8 @@ async function authenticateWorker(input: {
   url.searchParams.set("nonce", nonce);
   const response = await input.request(url, {
     method: "GET",
-    signal: AbortSignal.timeout(2_000),
+    redirect: "error",
+    signal: AbortSignal.timeout(CODEX_WORKER_CHALLENGE_TIMEOUT_MILLISECONDS),
   });
   if (!response.ok) throw new Error("Sisyphus worker authentication failed.");
   const body: unknown = await response.json();
@@ -68,6 +82,10 @@ export type RunCodexHookInput = {
 };
 
 export async function runCodexHook(input: RunCodexHookInput): Promise<CodexHookResponse> {
+  const request = input.request ?? fetch;
+  const workerToken = WorkerHookTokenSchema.parse(input.workerToken);
+  const workerEndpoint = input.workerEndpoint ?? "http://127.0.0.1:7331";
+  await authenticateWorker({ endpoint: workerEndpoint, token: workerToken, request });
   const adapter =
     input.adapter ??
     createCodexAdapter({
@@ -87,10 +105,6 @@ export async function runCodexHook(input: RunCodexHookInput): Promise<CodexHookR
     activation: inspected.activation,
     nativeEvent: inspected.raw,
   });
-  const request = input.request ?? fetch;
-  const workerToken = WorkerHookTokenSchema.parse(input.workerToken);
-  const workerEndpoint = input.workerEndpoint ?? "http://127.0.0.1:7331";
-  await authenticateWorker({ endpoint: workerEndpoint, token: workerToken, request });
   const response = await request(
     supervisionUrl(workerEndpoint),
     {
@@ -100,7 +114,8 @@ export async function runCodexHook(input: RunCodexHookInput): Promise<CodexHookR
         "content-type": "application/json",
       },
       body: JSON.stringify(envelope),
-      signal: AbortSignal.timeout(8_000),
+      redirect: "error",
+      signal: AbortSignal.timeout(CODEX_SUPERVISION_FETCH_TIMEOUT_MILLISECONDS),
     },
   );
   if (!response.ok) throw new Error(`Sisyphus worker returned HTTP ${response.status}`);

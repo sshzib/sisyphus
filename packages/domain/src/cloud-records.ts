@@ -5,6 +5,7 @@ import {
   AgentRuntimeSchema,
   EnforcementSchema,
   RuntimeCapabilitySnapshotSchema,
+  RuntimeInstallationIdentitySchema,
 } from "./capabilities.js";
 import {
   AdapterVersionSchema,
@@ -132,6 +133,7 @@ const cloudRecordBase = {
   runtime: AgentRuntimeSchema,
   runtimeVersion: z.string().trim().min(1).max(160),
   adapterVersion: AdapterVersionSchema,
+  runtimeInstallation: RuntimeInstallationIdentitySchema,
   capabilities: RuntimeCapabilitySnapshotSchema,
   identity: RuntimeIdentitySchema,
   enforcement: EnforcementSchema,

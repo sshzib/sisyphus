@@ -131,6 +131,7 @@ function cloudRecord(input: {
   workItemId: string;
   evaluationId: string;
   score: number;
+  adapterInstallationId: string;
 }): CloudSupervisionRecord {
   const supported = { kind: "supported" } as const;
   return CloudSupervisionRecordSchema.parse({
@@ -143,6 +144,10 @@ function cloudRecord(input: {
     runtime: "codex",
     runtimeVersion: "0.42.0",
     adapterVersion: "0.1.0",
+    runtimeInstallation: {
+      adapterInstallationId: input.adapterInstallationId,
+      profile: "local",
+    },
     capabilities: {
       runtime: "codex",
       runtimeVersion: "0.42.0",
@@ -197,6 +202,7 @@ function envelope(input: {
   runId: string;
   workItemId: string;
   score?: number;
+  adapterInstallationId: string;
 }) {
   return {
     id: input.id,
@@ -206,6 +212,7 @@ function envelope(input: {
       workItemId: input.workItemId,
       evaluationId: `evaluation-${input.id}`,
       score: input.score ?? 0.92,
+      adapterInstallationId: input.adapterInstallationId,
     }),
   };
 }
@@ -298,6 +305,8 @@ describe.skipIf(liveDatabaseUrl === undefined)(
           const tenantB = randomUUID();
           const deviceA = randomUUID();
           const deviceB = randomUUID();
+          const installationA = `installation-a-${suffix}`;
+          const installationB = `installation-b-${suffix}`;
           const tokenA = `deviceA-${suffix}`;
           const tokenB = `deviceB-${suffix}`;
           await seedTenant({
@@ -306,7 +315,7 @@ describe.skipIf(liveDatabaseUrl === undefined)(
             tenantSlug: `tenant-a-${suffix}`,
             tenantName: "Tenant A",
             deviceId: deviceA,
-            installationId: `installation-a-${suffix}`,
+            installationId: installationA,
             deviceToken: tokenA,
           });
           await seedTenant({
@@ -315,7 +324,7 @@ describe.skipIf(liveDatabaseUrl === undefined)(
             tenantSlug: `tenant-b-${suffix}`,
             tenantName: "Tenant B",
             deviceId: deviceB,
-            installationId: `installation-b-${suffix}`,
+            installationId: installationB,
             deviceToken: tokenB,
           });
 
@@ -453,12 +462,14 @@ describe.skipIf(liveDatabaseUrl === undefined)(
             eventId: "shared-event",
             runId: "run-shared",
             workItemId: "work-shared",
+            adapterInstallationId: installationA,
           });
           const sharedB = envelope({
             id: "shared-b",
             eventId: "shared-event",
             runId: "run-shared",
             workItemId: "work-shared",
+            adapterInstallationId: installationB,
           });
           const acceptedA = await app.inject({
             method: "POST",
@@ -474,6 +485,24 @@ describe.skipIf(liveDatabaseUrl === undefined)(
           });
           expect(acceptedA.statusCode).toBe(202);
           expect(acceptedB.statusCode).toBe(202);
+
+          const mismatchedInstallation = await app.inject({
+            method: "POST",
+            url: "/v1/events/batch",
+            headers: auth(tokenA),
+            payload: {
+              records: [
+                envelope({
+                  id: "mismatched-installation",
+                  eventId: "mismatched-installation-event",
+                  runId: "run-mismatched-installation",
+                  workItemId: "work-mismatched-installation",
+                  adapterInstallationId: installationB,
+                }),
+              ],
+            },
+          });
+          expect(mismatchedInstallation.statusCode).toBe(403);
 
           const replay = await app.inject({
             method: "POST",
@@ -498,6 +527,7 @@ describe.skipIf(liveDatabaseUrl === undefined)(
                     workItemId: "work-shared",
                     evaluationId: "evaluation-collision",
                     score: 0.11,
+                    adapterInstallationId: installationA,
                   }),
                 },
               ],
@@ -511,12 +541,14 @@ describe.skipIf(liveDatabaseUrl === undefined)(
               eventId: "concurrent-event-1",
               runId: "run-concurrent-1",
               workItemId: "work-concurrent-1",
+              adapterInstallationId: installationA,
             }),
             envelope({
               id: "concurrent-2",
               eventId: "concurrent-event-2",
               runId: "run-concurrent-2",
               workItemId: "work-concurrent-2",
+              adapterInstallationId: installationA,
             }),
           ];
           const concurrentResponses = await Promise.all(
@@ -539,12 +571,14 @@ describe.skipIf(liveDatabaseUrl === undefined)(
             runId: "run-shared",
             workItemId: "work-shared",
             score: 0.99,
+            adapterInstallationId: installationA,
           });
           const otherRun = envelope({
             id: "same-work-other-run",
             eventId: "same-work-other-run-event",
             runId: "run-other",
             workItemId: "work-shared",
+            adapterInstallationId: installationA,
           });
           await app.inject({
             method: "POST",
@@ -560,6 +594,23 @@ describe.skipIf(liveDatabaseUrl === undefined)(
           const dashboard = DashboardSnapshotSchema.parse(
             dashboardResponse.json(),
           );
+          const persistedRuntimeInstallations = await migrationClient<
+            { adapterInstallationId: string; runtimeProfile: string }[]
+          >`
+            select
+              adapter_installation_id as "adapterInstallationId",
+              runtime_profile::text as "runtimeProfile"
+            from runs
+            where tenant_id = ${tenantA}
+              and runtime_run_id = 'run-shared'
+              and work_item_id = 'work-shared'
+          `;
+          expect(persistedRuntimeInstallations).toEqual([
+            {
+              adapterInstallationId: installationA,
+              runtimeProfile: "local",
+            },
+          ]);
           expect(
             dashboard.runs.filter(
               (run) => run.id === "run-shared:work-shared",
@@ -583,39 +634,98 @@ describe.skipIf(liveDatabaseUrl === undefined)(
             url: "/v1/policy-bundle",
             headers: auth(tokenA),
           });
-          expect(
-            SignedPolicyBundleSchema.parse(beforeContentChange.json()),
-          ).toEqual(firstPolicy);
-          const quarantineBase = cloudRecord({
-            runId: "run-policy-change",
-            workItemId: "work-policy-change",
-            evaluationId: "evaluation-policy-change",
-            score: 0.1,
+          const beforeThresholdPolicy = SignedPolicyBundleSchema.parse(
+            beforeContentChange.json(),
+          );
+          const thresholdSkill = "skill-postgres-threshold@1.0.0";
+          const quarantineRecords = Array.from({ length: 5 }, (_, index) => {
+            const label = `policy-change-${index}`;
+            const quarantineBase = cloudRecord({
+              runId: `run-${label}`,
+              workItemId: `work-${label}`,
+              evaluationId: `evaluation-${label}`,
+              score: 0.1,
+              adapterInstallationId: installationA,
+            });
+            if (quarantineBase.kind !== "completion") {
+              throw new Error("The policy-change fixture must be a completion.");
+            }
+            return {
+              id: `${label}-record`,
+              eventId: `${label}-event`,
+              payload: CloudSupervisionRecordSchema.parse({
+                ...quarantineBase,
+                occurredAt: `2026-08-29T${(index + 1)
+                  .toString()
+                  .padStart(2, "0")}:00:00.000Z`,
+                attribution: {
+                  kind: "verified",
+                  skillVersionId: thresholdSkill,
+                  activationLeaseId: `lease-${label}`,
+                  method: "activation-marker",
+                },
+                evaluation: {
+                  kind: "terminal-failure",
+                  evaluationId: `evaluation-${label}`,
+                  policyId: "policy-live",
+                  policyVersionId: "policy-live@1",
+                  evaluatorVersion: "live-test-1",
+                  attempts: 3,
+                  latencyMs: 12,
+                  cost: { kind: "reported", usdMicros: 17 },
+                  score: 0.1,
+                  reason: "retries-exhausted",
+                  findings: [
+                    {
+                      criterion: "correctness",
+                      message: "The verified checks still fail.",
+                      correction:
+                        "Repair the implementation and rerun the checks.",
+                    },
+                  ],
+                },
+                provisionalDisposition: { kind: "none" },
+              }),
+            };
           });
-          if (quarantineBase.kind !== "completion") {
-            throw new Error("The policy-change fixture must be a completion.");
+          const belowThresholdIngest = await app.inject({
+            method: "POST",
+            url: "/v1/events/batch",
+            headers: auth(tokenA),
+            payload: { records: quarantineRecords.slice(0, 4) },
+          });
+          expect(belowThresholdIngest.statusCode).toBe(202);
+          const belowThresholdDashboardResponse = await app.inject({
+            method: "GET",
+            url: "/v1/dashboard",
+            headers: auth(tokenA),
+          });
+          const belowThresholdDashboard = DashboardSnapshotSchema.parse(
+            belowThresholdDashboardResponse.json(),
+          );
+          expect(
+            belowThresholdDashboard.skills.find(
+              (skill) => skill.skillVersionId === thresholdSkill,
+            )?.disposition,
+          ).toBe("active");
+          const replayRecord = quarantineRecords.at(4);
+          if (replayRecord === undefined) {
+            throw new Error("The PostgreSQL threshold fixture is incomplete.");
           }
-          const quarantineRecord = {
-            id: "policy-change-record",
-            eventId: "policy-change-event",
-            payload: CloudSupervisionRecordSchema.parse({
-              ...quarantineBase,
-              provisionalDisposition: {
-                kind: "quarantine",
-                skillVersionId: "skill-ts-review@4.2.1",
-                reason:
-                  "Five terminal failures reached the verified rolling threshold.",
-                localRevision: 1,
-              },
-            }),
-          };
           const changedIngest = await app.inject({
             method: "POST",
             url: "/v1/events/batch",
             headers: auth(tokenA),
-            payload: { records: [quarantineRecord] },
+            payload: { records: [replayRecord] },
           });
           expect(changedIngest.statusCode).toBe(202);
+          const replayedThreshold = await app.inject({
+            method: "POST",
+            url: "/v1/events/batch",
+            headers: auth(tokenA),
+            payload: { records: [replayRecord] },
+          });
+          expect(replayedThreshold.statusCode).toBe(202);
           const changedPolicyResponse = await app.inject({
             method: "GET",
             url: "/v1/policy-bundle",
@@ -630,8 +740,19 @@ describe.skipIf(liveDatabaseUrl === undefined)(
             changedPolicyResponse.json(),
           );
           expect(changedPolicy.payload.revision).toBe(
-            firstPolicy.payload.revision + 1,
+            beforeThresholdPolicy.payload.revision + 1,
           );
+          expect(
+            changedPolicy.payload.dispositionTransitions.filter(
+              (transition) => transition.skillVersionId === thresholdSkill,
+            ),
+          ).toMatchObject([
+            {
+              kind: "quarantine",
+              revision: 1,
+              actor: `device:${deviceA}`,
+            },
+          ]);
           expect(
             SignedPolicyBundleSchema.parse(
               repeatedChangedPolicyResponse.json(),

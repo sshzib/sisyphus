@@ -20,6 +20,10 @@ export const runtimeEnum = pgEnum("agent_runtime", [
   "cursor",
   "opencode",
 ]);
+export const runtimeProfileEnum = pgEnum("runtime_profile", [
+  "local",
+  "cloud-agent",
+]);
 export const evaluationResultEnum = pgEnum("evaluation_result", [
   "pass",
   "retryable-failure",
@@ -107,6 +111,8 @@ export const runs = pgTable(
     runtime: runtimeEnum("runtime").notNull(),
     runtimeVersion: text("runtime_version").notNull(),
     adapterVersion: text("adapter_version").notNull(),
+    adapterInstallationId: text("adapter_installation_id").notNull(),
+    runtimeProfile: runtimeProfileEnum("runtime_profile").notNull(),
     capabilitySnapshot: jsonb("capability_snapshot").notNull(),
     agentId: text("agent_id").notNull(),
     project: text("project").notNull(),
@@ -125,6 +131,12 @@ export const runs = pgTable(
       table.workItemId,
     ),
     index("runs_tenant_completed_idx").on(table.tenantId, table.completedAt),
+    index("runs_tenant_installation_profile_idx").on(
+      table.tenantId,
+      table.adapterInstallationId,
+      table.runtimeProfile,
+      table.completedAt,
+    ),
     foreignKey({
       columns: [table.tenantId, table.deviceId],
       foreignColumns: [devices.tenantId, devices.id],

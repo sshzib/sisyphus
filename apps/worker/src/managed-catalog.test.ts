@@ -128,6 +128,20 @@ describe("managed skill catalog integration", () => {
         (candidate) => candidate.skillVersionId === priorityVersion.skillVersionId,
       )?.disposition,
     ).toBe("quarantined");
+    expect(
+      constraint.skillCandidates.every(
+        (candidate) => candidate.activationAvailability?.kind === "available",
+      ),
+    ).toBe(true);
+    expect(resolveSkill(constraint.skillCandidates)).toMatchObject({
+      kind: "selected",
+    });
+    expect(
+      service.instructionFor("codex", priorityVersion.skillVersionId),
+    ).toMatchObject({
+      content: "Follow the administrator workflow.",
+      provenance: { kind: "canonical" },
+    });
   });
 
   it("records a policy candidate without a managed instruction as unavailable", async () => {
@@ -283,5 +297,54 @@ describe("managed skill catalog integration", () => {
         ],
       }),
     ).rejects.toThrow(/hash/i);
+  });
+
+  it("fails closed when a plugin-resource wrapper has no trusted loader", async () => {
+    const initial = await createManagedSkillCatalog({
+      skills: [
+        {
+          skillId: createSkillId("plugin-wrapped-skill"),
+          displayName: "Plugin wrapped skill",
+          description: "Requires a plugin-provided runtime wrapper.",
+          canonicalContent: "Use the canonical workflow.",
+          source: { kind: "file", path: "C:/skills/plugin-wrapped/SKILL.md" },
+          triggers: [{ kind: "contains", pattern: "plugin wrapped" }],
+        },
+      ],
+      administratorPriorities: [],
+      wrappers: [],
+    });
+    const version = initial.catalog.getCurrentVersion(
+      createSkillId("plugin-wrapped-skill"),
+    );
+    if (version === undefined) throw new Error("missing imported version");
+
+    await expect(
+      createManagedSkillCatalog({
+        skills: [
+          {
+            skillId: createSkillId("plugin-wrapped-skill"),
+            displayName: "Plugin wrapped skill",
+            description: "Requires a plugin-provided runtime wrapper.",
+            canonicalContent: "Use the canonical workflow.",
+            source: { kind: "file", path: "C:/skills/plugin-wrapped/SKILL.md" },
+            triggers: [{ kind: "contains", pattern: "plugin wrapped" }],
+          },
+        ],
+        administratorPriorities: [],
+        wrappers: [
+          {
+            runtime: "codex",
+            skillVersionId: version.skillVersionId,
+            reference: {
+              kind: "plugin-resource",
+              locator: "plugin://managed-skills/plugin-wrapped",
+              contentHash: sha256("Use the Codex plugin workflow."),
+            },
+            registeredAt: createTimestamp("2026-08-29T10:00:00.000Z"),
+          },
+        ],
+      }),
+    ).rejects.toThrow("plugin-resource wrapper loader");
   });
 });

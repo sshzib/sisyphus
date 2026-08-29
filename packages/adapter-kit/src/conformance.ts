@@ -4,10 +4,13 @@ import {
   RuntimeIdentitySchema,
   RuntimeInstallationIdentitySchema,
   SkillActivationEvidenceSchema,
+  type RuntimeCapabilitySnapshot,
 } from "@sisyphus/domain";
 
 import {
+  AdapterDecisionContextSchema,
   AdapterInstallationSchema,
+  ManagedSkillActivationSchema,
   type AdapterConformanceCase,
   type AdapterConformanceCheck,
   type AdapterConformanceFixture,
@@ -33,10 +36,44 @@ function containsKey(input: unknown, forbiddenKey: string, visited: WeakSet<obje
   return false;
 }
 
+function collectStringClaims(input: string, key: string, claims: Set<string>): void {
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  const pattern = new RegExp(`"${escapedKey}"\\s*:\\s*"([^"\\\\]*)"`, "gu");
+  for (const match of input.matchAll(pattern)) {
+    const value = match[1];
+    if (value !== undefined) claims.add(value);
+  }
+}
+
+function collectClaims(
+  input: unknown,
+  key: string,
+  claims: Set<string>,
+  visited: WeakSet<object>,
+): void {
+  if (typeof input === "string") {
+    collectStringClaims(input, key, claims);
+    return;
+  }
+  if (typeof input !== "object" || input === null || visited.has(input)) return;
+  visited.add(input);
+  for (const [entryKey, value] of Object.entries(input)) {
+    if (entryKey === key && typeof value === "string") claims.add(value);
+    collectClaims(value, key, claims, visited);
+  }
+}
+
+function responseClaims(input: unknown, key: string): ReadonlySet<string> {
+  const claims = new Set<string>();
+  collectClaims(input, key, claims, new WeakSet<object>());
+  return claims;
+}
+
 function checkCase(
   adapter: AgentRuntimeAdapter,
   fixture: AdapterConformanceCase,
   forbiddenNormalizedKeys: readonly string[],
+  capabilities: RuntimeCapabilitySnapshot,
 ): readonly AdapterConformanceCheck[] {
   const normalized = adapter.parseEvent(fixture.rawEvent);
   const leakedKey = forbiddenNormalizedKeys.find((key) =>
@@ -85,6 +122,17 @@ function checkCase(
       : failed(
           `installation:${fixture.kind}`,
           "observation installation identity does not match the adapter",
+      ),
+  );
+  checks.push(
+    JSON.stringify(parsed.data.capabilities) === JSON.stringify(capabilities)
+      ? passed(
+          `capabilities:${fixture.kind}`,
+          "observation carries the probed capability snapshot",
+        )
+      : failed(
+          `capabilities:${fixture.kind}`,
+          "observation capability snapshot differs from the adapter probe",
         ),
   );
   checks.push(
@@ -104,8 +152,147 @@ function checkCase(
   switch (fixture.kind) {
     case "prompt": {
       if (parsed.data.kind !== "prompt") return checks;
-      adapter.renderDecision(parsed.data, fixture.decision);
-      checks.push(passed("render:prompt", "decision rendered"));
+      if (fixture.decision.resolution.kind !== "selected") {
+        checks.push(
+          failed(
+            "activation:prompt",
+            "managed activation conformance requires a selected prompt decision",
+          ),
+        );
+        return checks;
+      }
+      const selectionCapability = capabilities.skillSelectionControl;
+      const selectionEnforcement = fixture.decision.enforcement;
+      const selectionDowngraded =
+        selectionEnforcement.kind === "observation" &&
+        selectionEnforcement.missingCapabilities.includes("skillSelectionControl");
+      checks.push(
+        selectionCapability.kind === "supported" || selectionDowngraded
+          ? passed(
+              "enforcement:prompt-skill-selection",
+              selectionCapability.kind === "supported"
+                ? "skill selection capability supports enforcement"
+                : "partial or unsupported skill selection is observation-only",
+            )
+          : failed(
+              "enforcement:prompt-skill-selection",
+              "selected prompt claimed enforcement without supported skill selection control",
+            ),
+      );
+      const workerIssued = ManagedSkillActivationSchema.safeParse(
+        fixture.managedActivation.workerIssued,
+      );
+      if (!workerIssued.success) {
+        checks.push(failed("activation:prompt", workerIssued.error.message));
+        return checks;
+      }
+      if (
+        workerIssued.data.skillVersionId !==
+        fixture.decision.resolution.selected.skillVersionId
+      ) {
+        checks.push(
+          failed(
+            "activation:prompt",
+            "worker-issued activation lease belongs to another selected skill",
+          ),
+        );
+        return checks;
+      }
+      const context = AdapterDecisionContextSchema.parse({
+        kind: "managed-skill-activation",
+        activation: workerIssued.data,
+      });
+      let rejectedMissingLease = false;
+      try {
+        adapter.renderDecision(parsed.data, fixture.decision);
+      } catch {
+        rejectedMissingLease = true;
+      }
+      checks.push(
+        rejectedMissingLease
+          ? passed(
+              "activation:prompt-missing-lease",
+              "selected prompt rejected the two-argument render without a worker lease",
+            )
+          : failed(
+              "activation:prompt-missing-lease",
+              "selected prompt rendered without a worker-issued activation lease",
+            ),
+      );
+      let response: unknown;
+      try {
+        response = adapter.renderDecision(parsed.data, fixture.decision, context);
+      } catch (error: unknown) {
+        checks.push(
+          failed(
+            "activation:prompt",
+            error instanceof Error ? error.message : "selected prompt rendering failed",
+          ),
+        );
+        return checks;
+      }
+      let serialized: string | undefined;
+      try {
+        serialized = JSON.stringify(response);
+      } catch {
+        checks.push(failed("render:prompt", "runtime response is not JSON serializable"));
+        return checks;
+      }
+      if (serialized === undefined) {
+        checks.push(failed("render:prompt", "runtime response is not JSON serializable"));
+        return checks;
+      }
+      const leaseClaims = responseClaims(response, "activationLeaseId");
+      const skillClaims = responseClaims(response, "skillVersionId");
+      const containsOnlyWorkerLease =
+        leaseClaims.size > 0 &&
+        [...leaseClaims].every(
+          (activationLeaseId) =>
+            activationLeaseId === workerIssued.data.activationLeaseId,
+        );
+      const containsOnlySelectedSkill =
+        skillClaims.size > 0 &&
+        [...skillClaims].every(
+          (skillVersionId) => skillVersionId === workerIssued.data.skillVersionId,
+        );
+      if (fixture.managedActivation.kind === "required") {
+        let runtimeResponseAccepted = true;
+        try {
+          runtimeResponseAccepted =
+            fixture.managedActivation.activationResponseAccepted?.(
+              response,
+              workerIssued.data,
+            ) ?? true;
+        } catch {
+          runtimeResponseAccepted = false;
+        }
+        checks.push(
+          containsOnlyWorkerLease &&
+            containsOnlySelectedSkill &&
+            runtimeResponseAccepted
+            ? passed(
+                "activation:prompt",
+                "response carries the exact worker-issued activation lease and selected skill",
+              )
+            : failed(
+                "activation:prompt",
+                "response did not carry only the exact worker-issued activation lease and selected skill",
+              ),
+        );
+      } else {
+        checks.push(
+          leaseClaims.size > 0
+            ? failed(
+                "activation:prompt",
+                "runtime without managed activation support claimed an activation lease",
+              )
+            : passed(
+                "activation:prompt",
+                `managed activation is unsupported: ${fixture.managedActivation.reason}`,
+              ),
+        );
+      }
+      checks.push(passed("render:prompt", "selected prompt decision rendered"));
       return checks;
     }
     case "tool-request": {
@@ -209,7 +396,12 @@ export async function runAdapterConformance(input: {
     ...coverageChecks,
     ...installationChecks,
     ...input.fixture.cases.flatMap((fixture) =>
-      checkCase(input.adapter, fixture, input.fixture.forbiddenNormalizedKeys),
+      checkCase(
+        input.adapter,
+        fixture,
+        input.fixture.forbiddenNormalizedKeys,
+        capabilities,
+      ),
     ),
   ];
 

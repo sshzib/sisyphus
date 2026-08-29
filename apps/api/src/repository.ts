@@ -42,6 +42,11 @@ import {
   type EncryptedSecret,
   type SecretCipher,
 } from "./secret-cipher.js";
+import {
+  cloudQuarantineReason,
+  evaluateCloudQuarantineWindow,
+  quarantineCandidateSkillVersionIds,
+} from "./quarantine-window.js";
 
 interface StoredIngestEvent {
   eventId: string;
@@ -49,6 +54,7 @@ interface StoredIngestEvent {
   sourceRecordId: string;
   deviceId: string;
   acceptedAt: string;
+  record: CloudSupervisionEnvelope;
 }
 
 interface StoredPolicyBundleIssuance {
@@ -150,6 +156,30 @@ export class InactiveDeviceError extends Error {
   }
 }
 
+export class RuntimeInstallationMismatchError extends Error {
+  public constructor() {
+    super(
+      "The uploaded runtime installation does not match the authenticated device installation.",
+    );
+    this.name = "RuntimeInstallationMismatchError";
+  }
+}
+
+export function assertRuntimeInstallationMatches(input: {
+  readonly adapterInstallationId: string;
+  readonly records: readonly CloudSupervisionEnvelope[];
+}): void {
+  if (
+    input.records.some(
+      (record) =>
+        record.payload.runtimeInstallation.adapterInstallationId !==
+        input.adapterInstallationId,
+    )
+  ) {
+    throw new RuntimeInstallationMismatchError();
+  }
+}
+
 export const demoCredentials = {
   acmeAdmin: "demo-admin",
   acmeViewer: "demo-viewer",
@@ -167,13 +197,16 @@ function betaSnapshot(): DashboardSnapshot {
     workspace: {
       id: "tenant-beta",
       name: "Beta Labs",
-      environment: "Production workspace",
+      environment: "Demo workspace",
     },
     agents: base.agents.map((agent) => ({
       ...agent,
       id: `beta-${agent.id}`,
       name: "Beta Builder",
       runs: 41,
+      conclusiveRuns: 40,
+      scoredRuns: 39,
+      retryRuns: 10,
       tokens: 288_400,
     })),
     skills: base.skills.map((skill) => ({
@@ -216,6 +249,8 @@ function adapterConfigurationDigest(
     .map((integration) => ({
       id: integration.id,
       runtime: integration.runtime,
+      adapterInstallationId: integration.adapterInstallationId,
+      profile: integration.profile,
       scope: integration.scope,
       adapterVersion: integration.adapterVersion,
       runtimeVersion: integration.runtimeVersion,
@@ -430,6 +465,10 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
       .min(1)
       .max(100)
       .parse(input.records);
+    assertRuntimeInstallationMatches({
+      adapterInstallationId: input.auth.adapterInstallationId,
+      records,
+    });
     const tenant = this.#tenants.get(input.auth.tenantId);
     if (tenant === undefined) {
       return [];
@@ -460,6 +499,7 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
           sourceRecordId: record.id,
           deviceId: input.auth.subjectId,
           acceptedAt,
+          record,
         });
         acceptedRecords.push(record);
       }
@@ -470,17 +510,14 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
         deviceId: input.auth.subjectId,
         records: acceptedRecords,
       });
-      for (const record of acceptedRecords) {
-        if (
-          record.payload.kind !== "completion" ||
-          record.payload.provisionalDisposition.kind !== "quarantine"
-        ) {
-          continue;
-        }
-        const provisional = record.payload.provisionalDisposition;
+      const history = [...tenant.ingestEvents.values()].map(
+        (event) => event.record,
+      );
+      for (const skillVersionId of quarantineCandidateSkillVersionIds(
+        acceptedRecords,
+      )) {
         const skill = tenant.snapshot.skills.find(
-          (candidate) =>
-            candidate.skillVersionId === provisional.skillVersionId,
+          (candidate) => candidate.skillVersionId === skillVersionId,
         );
         if (
           skill === undefined ||
@@ -489,16 +526,29 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
         ) {
           continue;
         }
+        const window = evaluateCloudQuarantineWindow({
+          records: history,
+          transitions: tenant.dispositionTransitions,
+          skillVersionId,
+        });
+        if (
+          !window.shouldQuarantine ||
+          window.latestOccurredAt === null ||
+          window.latestRuntime === null
+        ) {
+          continue;
+        }
         const revision =
           (tenant.dispositionTransitions.at(-1)?.revision ?? 0) + 1;
+        const reason = cloudQuarantineReason(window);
         const transition = SkillDispositionTransitionSchema.parse({
-            kind: "quarantine",
-            skillVersionId: provisional.skillVersionId,
-            reason: provisional.reason,
-            actor: `device:${input.auth.subjectId}`,
-            occurredAt: record.payload.occurredAt,
-            revision,
-          });
+          kind: "quarantine",
+          skillVersionId,
+          reason,
+          actor: `device:${input.auth.subjectId}`,
+          occurredAt: window.latestOccurredAt,
+          revision,
+        });
         tenant.dispositionTransitions.push(transition);
         tenant.snapshot = {
           ...applyDispositionTransition({
@@ -507,12 +557,12 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
           }),
           audit: [
             {
-              id: `audit-quarantine-${record.eventId}`,
-              occurredAt: record.payload.occurredAt,
+              id: `audit-quarantine-${revision}`,
+              occurredAt: window.latestOccurredAt,
               actor: `device:${input.auth.subjectId}`,
               action: "skill.quarantined",
-              summary: `Promoted the provisional quarantine for ${provisional.skillVersionId}.`,
-              runtime: record.payload.runtime,
+              summary: `${skill.name} quarantined. ${reason}`,
+              runtime: window.latestRuntime,
             },
             ...tenant.snapshot.audit,
           ],

@@ -62,6 +62,31 @@ function excerptSource(event: HookObservation): "prompt" | "output" | "tool" {
   }
 }
 
+function redactedExcerpts(input: {
+  readonly event: HookObservation;
+  readonly constraint: EvaluationConstraint;
+  readonly evidence: EvidenceRecord;
+}) {
+  const policy = input.constraint.cloudEvidence;
+  const source = excerptSource(input.event);
+  if (
+    policy?.kind !== "redacted-excerpts" ||
+    !policy.sources.includes(source)
+  ) {
+    return [];
+  }
+  return [
+    {
+      source,
+      text: redactText(input.evidence.redactedExcerpt, policy.maximumCharacters),
+      redaction: {
+        kind: "applied" as const,
+        rulesetVersion: REDACTION_RULESET_VERSION,
+      },
+    },
+  ];
+}
+
 function cloudFinding(finding: EvaluationFinding) {
   return {
     criterion: redactText(finding.criterion, 160),
@@ -157,13 +182,24 @@ function resolutionProof(
         ? { kind: "selected" as const }
         : { kind: "rejected" as const, reason: entry.outcome.reason },
   }));
-  return decision.resolution.kind === "selected"
-    ? {
+  if (decision.resolution.kind === "selected") {
+    return {
         kind: "selected" as const,
         selectedSkillVersionId: decision.resolution.selected.skillVersionId,
         candidates,
-      }
-    : { kind: "no-match" as const, candidates };
+      };
+  }
+  const wrapperUnavailable = decision.resolution.candidates.some(
+    (candidate) =>
+      candidate.outcome.kind === "rejected" &&
+      candidate.outcome.reason === "wrapper-unavailable",
+  );
+  return {
+    kind: wrapperUnavailable
+      ? ("no-available-wrapper" as const)
+      : ("no-match" as const),
+    candidates,
+  };
 }
 
 export function projectCloudSupervisionRecord(
@@ -187,20 +223,12 @@ export function projectCloudSupervisionRecord(
     runtime: input.event.capabilities.runtime,
     runtimeVersion: input.event.capabilities.runtimeVersion,
     adapterVersion: input.event.adapterVersion,
+    runtimeInstallation: input.event.runtimeInstallation,
     capabilities: input.event.capabilities,
     identity: input.event.identity,
     enforcement: input.decision.enforcement,
     evidenceDigest: input.evidence.digest,
-    redactedExcerpts: [
-      {
-        source: excerptSource(input.event),
-        text: redactText(input.evidence.redactedExcerpt, 4_000),
-        redaction: {
-          kind: "applied" as const,
-          rulesetVersion: REDACTION_RULESET_VERSION,
-        },
-      },
-    ],
+    redactedExcerpts: redactedExcerpts(input),
   };
 
   switch (input.event.kind) {

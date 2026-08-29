@@ -14,6 +14,7 @@ import {
   InactiveDeviceError,
   IngestCollisionError,
   InvalidStateTransitionError,
+  assertRuntimeInstallationMatches,
   type ControlPlaneRepository,
   type PolicyBundleIssuance,
 } from "../repository.js";
@@ -87,6 +88,10 @@ class PostgresControlPlaneRepository implements ControlPlaneRepository {
       .min(1)
       .max(100)
       .parse(input.records);
+    assertRuntimeInstallationMatches({
+      adapterInstallationId: input.auth.adapterInstallationId,
+      records,
+    });
     try {
       return await this.database.ingestBatch({
         tenantId: input.auth.tenantId,

@@ -5,10 +5,11 @@ This directory is the maintained source for checking Sisyphus web dashboard beha
 ## Baseline preconditions
 
 - Launch an isolated web dashboard with `control-sisyphus.ps1` and a unique run ID and port.
-- Leave `NEXT_PUBLIC_SISYPHUS_API_URL` and `NEXT_PUBLIC_SISYPHUS_DEMO_TOKEN` unset so the page uses deterministic demo data without auth, database, or network writes.
+- Let the controller clear `SISYPHUS_WEB_API_URL`, `SISYPHUS_WEB_ORIGIN`, and `SISYPHUS_WEB_SESSION_KEY` in its child process so the page uses labeled deterministic demo data without auth, database, or network writes.
 - Run `doctor` and require `status: healthy` before browser interaction.
 - Navigate the collaborative browser to the exact environment port reported by `launch`.
 - Wait for `Comparable runtime cohorts` before taking the first snapshot.
+- Require visible `Demo data` and `Demo workspace` labels before treating the run as isolated.
 - Never drive an instance that this verification run did not start.
 
 ## Driving conventions

@@ -2,7 +2,7 @@ import { once } from "node:events";
 import { createServer } from "node:http";
 
 import { RootStopObservationSchema, parseEvaluationConstraint } from "@sisyphus/domain";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HostedJudge } from "./hosted-judge.js";
 
@@ -124,5 +124,27 @@ describe("HostedJudge", () => {
 
     expect(received).not.toContain(channelCredential);
     expect(received).toContain("[redacted]");
+  });
+
+  it("refuses redirects while sending authenticated judge evidence", async () => {
+    const request = vi.fn<typeof fetch>(async () =>
+      new Response(JSON.stringify({ kind: "pass", score: 1 }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const judge = new HostedJudge({
+      endpoint: "https://judge.example.test",
+      deviceToken: "device-token",
+      timeoutMilliseconds: 2_000,
+      fetchImplementation: request,
+    });
+
+    await judge.evaluate(input);
+
+    expect(request).toHaveBeenCalledWith(
+      new URL("https://judge.example.test/v1/judge"),
+      expect.objectContaining({ redirect: "error" }),
+    );
   });
 });

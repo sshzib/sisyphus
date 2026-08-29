@@ -131,6 +131,7 @@ describe("OutboxSynchronizer", () => {
       deviceToken: "device-secret",
       journal,
       fetchImplementation: async (_url, init) => {
+        expect(init?.redirect).toBe("error");
         const body: unknown = JSON.parse(String(init?.body));
         if (typeof body !== "object" || body === null || !("records" in body)) {
           throw new Error("Missing records.");

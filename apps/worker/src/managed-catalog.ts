@@ -87,7 +87,11 @@ async function wrapperInstruction(
   catalog: ManagedSkillCatalog,
   wrapper: RuntimeSkillWrapper,
 ): Promise<ManagedSkillInstruction | undefined> {
-  if (wrapper.reference.kind !== "file") return undefined;
+  if (wrapper.reference.kind === "plugin-resource") {
+    throw new Error(
+      `No trusted plugin-resource wrapper loader is configured for ${wrapper.skillVersionId} on ${wrapper.runtime}.`,
+    );
+  }
   const content = await readFile(resolve(wrapper.reference.path), "utf8");
   const actualHash = hashCanonicalContent(content);
   if (actualHash !== wrapper.reference.contentHash) {
@@ -189,9 +193,19 @@ export class ManagedCatalogPolicyProvider implements PolicyProvider {
       });
     }
     for (const candidate of this.#catalog.catalog.matchPrompt({ prompt: event.prompt })) {
+      const instruction = this.#catalog.instructionFor(
+        event.capabilities.runtime,
+        candidate.skillVersionId,
+      );
       candidatesByVersion.set(candidate.skillVersionId, {
         ...candidate,
-        activationAvailability: { kind: "available" },
+        activationAvailability:
+          instruction === undefined
+            ? {
+                kind: "unavailable",
+                reason: "The selected skill version has no managed instruction snapshot.",
+              }
+            : { kind: "available" },
       });
     }
 

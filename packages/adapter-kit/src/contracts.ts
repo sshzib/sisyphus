@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import {
+  ActivationLeaseIdSchema,
   AdapterInstallationIdSchema,
   AdapterVersionSchema,
   AgentRuntimeSchema,
@@ -8,6 +9,7 @@ import {
   RuntimeCapabilitySnapshotSchema,
   RuntimeProfileSchema,
   SkillActivationEvidenceSchema,
+  SkillVersionIdSchema,
   TimestampSchema,
   type AgentRuntime,
   type DecisionFor,
@@ -18,6 +20,7 @@ import {
   type RuntimeIdentity,
   type RuntimeInstallationIdentity,
   type SkillActivationEvidence,
+  type SupervisionDecision,
   type SubagentStopObservation,
   type ToolRequestObservation,
   type ToolResultObservation,
@@ -25,6 +28,49 @@ import {
 
 export type UnknownRuntimeEvent = unknown;
 export type RuntimeResponse = unknown;
+
+export const ManagedSkillActivationSchema = z
+  .object({
+    activationLeaseId: ActivationLeaseIdSchema,
+    skillVersionId: SkillVersionIdSchema,
+    expiresAt: TimestampSchema,
+  })
+  .strict();
+export type ManagedSkillActivation = z.infer<typeof ManagedSkillActivationSchema>;
+
+export const AdapterDecisionContextSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("none") }).strict(),
+  z
+    .object({
+      kind: z.literal("managed-skill-activation"),
+      activation: ManagedSkillActivationSchema,
+    })
+    .strict(),
+]);
+export type AdapterDecisionContext = z.infer<typeof AdapterDecisionContextSchema>;
+
+export function managedActivationForDecision(
+  decision: SupervisionDecision,
+  input?: AdapterDecisionContext,
+): ManagedSkillActivation | undefined {
+  const context =
+    input === undefined
+      ? ({ kind: "none" } as const)
+      : AdapterDecisionContextSchema.parse(input);
+  if (decision.kind !== "prompt-decision" || decision.resolution.kind === "none") {
+    if (context.kind !== "none") {
+      throw new Error("Managed activation is valid only for a selected prompt decision.");
+    }
+    return undefined;
+  }
+  if (context.kind !== "managed-skill-activation") {
+    throw new Error("A selected prompt decision requires a worker-issued activation lease.");
+  }
+  if (context.activation.skillVersionId !== decision.resolution.selected.skillVersionId) {
+    throw new Error("The worker-issued activation lease belongs to another skill version.");
+  }
+  return context.activation;
+}
 
 export const AdapterInstallationScopeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("user") }),
@@ -65,7 +111,11 @@ export interface AgentRuntimeAdapter {
   uninstall(input: AdapterUninstallRequest): Promise<void>;
 
   parseEvent(input: UnknownRuntimeEvent): HookObservation;
-  renderDecision<E extends HookObservation>(event: E, decision: DecisionFor<E>): RuntimeResponse;
+  renderDecision<E extends HookObservation>(
+    event: E,
+    decision: DecisionFor<E>,
+    context?: AdapterDecisionContext,
+  ): RuntimeResponse;
   deriveIdentity(event: UnknownRuntimeEvent): RuntimeIdentity;
   verifySkillActivation(event: UnknownRuntimeEvent): SkillActivationEvidence;
 }
@@ -75,6 +125,20 @@ export type AdapterConformanceCase =
       readonly kind: "prompt";
       readonly rawEvent: unknown;
       readonly decision: DecisionFor<PromptObservation>;
+      readonly managedActivation:
+        | {
+            readonly kind: "required";
+            readonly workerIssued: ManagedSkillActivation;
+            readonly activationResponseAccepted?: (
+              response: unknown,
+              workerIssued: ManagedSkillActivation,
+            ) => boolean;
+          }
+        | {
+            readonly kind: "unsupported";
+            readonly workerIssued: ManagedSkillActivation;
+            readonly reason: string;
+          };
     }
   | {
       readonly kind: "tool-request";

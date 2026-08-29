@@ -21,6 +21,20 @@ export interface JudgeProvider {
   judge(input: JudgeProviderInput): Promise<JudgeResult>;
 }
 
+function providerEndpoint(value: string): string {
+  const endpoint = new URL(z.string().url().parse(value));
+  const loopback = new Set(["127.0.0.1", "localhost", "[::1]"]).has(
+    endpoint.hostname,
+  );
+  if (endpoint.protocol !== "https:" && !(endpoint.protocol === "http:" && loopback)) {
+    throw new Error("The judge provider endpoint must use HTTPS or loopback HTTP.");
+  }
+  if (endpoint.username !== "" || endpoint.password !== "" || endpoint.hash !== "") {
+    throw new Error("The judge provider endpoint cannot contain credentials or a fragment.");
+  }
+  return endpoint.toString();
+}
+
 export interface JudgeConfigurationStore {
   judgeProviderConfiguration(tenantId: string): Promise<
     | { apiKey: string; model: string }
@@ -117,12 +131,15 @@ export class OpenAiResponsesJudgeProvider implements JudgeProvider {
 
   public constructor(input?: { fetcher?: Fetcher; endpoint?: string }) {
     this.#fetcher = input?.fetcher ?? ((request, init) => globalThis.fetch(request, init));
-    this.#endpoint = input?.endpoint ?? "https://api.openai.com/v1/responses";
+    this.#endpoint = providerEndpoint(
+      input?.endpoint ?? "https://api.openai.com/v1/responses",
+    );
   }
 
   public async judge(input: JudgeProviderInput): Promise<JudgeResult> {
     const response = await this.#fetcher(this.#endpoint, {
       method: "POST",
+      redirect: "error",
       headers: {
         Authorization: `Bearer ${input.apiKey}`,
         "Content-Type": "application/json",

@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createActivationLeaseId,
   createAdapterVersion,
   createDeviceId,
+  createSkillVersionId,
+  createSkillVersionKey,
+  createTimestamp,
+  createTriggerId,
   type DecisionFor,
   type PromptObservation,
   type RootStopObservation,
@@ -41,12 +46,36 @@ describe("Cursor adapter conformance", () => {
       throw new Error("invalid fixtures");
     }
 
+    const selectedSkill = {
+      skillVersionId: createSkillVersionId("skill-cursor-conformance@1.0.0"),
+      stableVersionKey: createSkillVersionKey("skill-cursor-conformance@1.0.0"),
+      displayName: "Cursor conformance skill",
+      administratorPriority: 100,
+      specificity: 100,
+      disposition: "active" as const,
+      activationAvailability: { kind: "available" as const },
+      trigger: {
+        triggerId: createTriggerId("trigger-cursor-conformance"),
+        kind: "contains" as const,
+        pattern: "parser",
+      },
+    };
     const promptDecision: DecisionFor<PromptObservation> = {
       kind: "prompt-decision",
       eventId: prompt.eventId,
-      enforcement: { kind: "enforced" },
+      enforcement: {
+        kind: "observation",
+        reason: "Cursor cannot inject selected managed skill context.",
+        missingCapabilities: ["skillSelectionControl"],
+      },
       action: "continue",
-      resolution: { kind: "none", candidates: [] },
+      resolution: {
+        kind: "selected",
+        selected: selectedSkill,
+        candidates: [
+          { candidate: selectedSkill, outcome: { kind: "selected" } },
+        ],
+      },
     };
     const requestDecision: DecisionFor<ToolRequestObservation> = {
       kind: "tool-request-decision",
@@ -105,7 +134,23 @@ describe("Cursor adapter conformance", () => {
         "transcript_path",
       ],
       cases: [
-        { kind: "prompt", rawEvent: loadFixture("before-submit-prompt.json"), decision: promptDecision },
+        {
+          kind: "prompt",
+          rawEvent: loadFixture("before-submit-prompt.json"),
+          decision: promptDecision,
+          managedActivation: {
+            kind: "unsupported",
+            reason:
+              "beforeSubmitPrompt cannot inject the worker-issued managed activation marker.",
+            workerIssued: {
+              activationLeaseId: createActivationLeaseId(
+                "sisyphus-v1.cursor-conformance",
+              ),
+              skillVersionId: selectedSkill.skillVersionId,
+              expiresAt: createTimestamp("2026-08-29T10:05:00.000Z"),
+            },
+          },
+        },
         { kind: "tool-request", rawEvent: loadFixture("pre-tool-use.json"), decision: requestDecision },
         { kind: "tool-result", rawEvent: loadFixture("post-tool-use.json"), decision: resultDecision },
         {

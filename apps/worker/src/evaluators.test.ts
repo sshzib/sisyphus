@@ -6,6 +6,7 @@ import {
 } from "@sisyphus/domain";
 
 import { CommandEvaluator, CompletionGuardEvaluator } from "./evaluators.js";
+import { EvaluationEvidenceCollector } from "./evaluation-evidence.js";
 
 const evaluationInput = {
   observation: RootStopObservationSchema.parse({
@@ -51,63 +52,93 @@ const evaluationInput = {
 
 describe("CommandEvaluator", () => {
   it("passes a successful configured command", async () => {
+    const evidenceCollector = new EvaluationEvidenceCollector();
     const evaluator = new CommandEvaluator({
-      id: "tests",
-      executable: process.execPath,
-      arguments: ["-e", "process.stdout.write('ok')"],
-      workingDirectory: process.cwd(),
-      timeoutMilliseconds: 2_000,
+      configuration: {
+        id: "tests",
+        executable: process.execPath,
+        arguments: ["-e", "process.stdout.write('ok')"],
+        workingDirectory: process.cwd(),
+        timeoutMilliseconds: 2_000,
+      },
+      evidenceCollector,
     });
 
-    await expect(evaluator.evaluate(evaluationInput)).resolves.toEqual({
-      kind: "pass",
-      checkId: "tests",
+    await expect(
+      evidenceCollector.collect(() => evaluator.evaluate(evaluationInput)),
+    ).resolves.toEqual({
+      result: { kind: "pass", checkId: "tests" },
+      evidence: [
+        expect.objectContaining({
+          kind: "deterministic-command",
+          checkId: "tests",
+          outcome: expect.objectContaining({ output: "ok" }),
+        }),
+      ],
     });
   });
 
-  it("returns concrete evidence and correction for a failing command", async () => {
+  it("returns safe retry metadata and captures raw failure evidence", async () => {
+    const evidenceCollector = new EvaluationEvidenceCollector();
     const evaluator = new CommandEvaluator({
-      id: "typecheck",
-      executable: process.execPath,
-      arguments: ["-e", "process.stderr.write('bad type'); process.exit(2)"],
-      workingDirectory: process.cwd(),
-      timeoutMilliseconds: 2_000,
+      configuration: {
+        id: "typecheck",
+        executable: process.execPath,
+        arguments: ["-e", "process.stderr.write('bad type'); process.exit(2)"],
+        workingDirectory: process.cwd(),
+        timeoutMilliseconds: 2_000,
+      },
+      evidenceCollector,
     });
 
-    const result = await evaluator.evaluate(evaluationInput);
+    const evaluated = await evidenceCollector.collect(() =>
+      evaluator.evaluate(evaluationInput),
+    );
 
-    expect(result).toMatchObject({
+    expect(evaluated.result).toMatchObject({
       kind: "fail",
       checkId: "typecheck",
       findings: [
         {
           criterion: "typecheck",
-          correction: "Fix the reported typecheck failures and rerun the check.",
+          correction:
+            "Inspect encrypted local evidence for event event-1, fix the reported typecheck failures, and rerun the check.",
         },
       ],
     });
-    expect(JSON.stringify(result)).toContain("bad type");
+    expect(JSON.stringify(evaluated.result)).not.toContain("bad type");
+    expect(JSON.stringify(evaluated.result)).toContain(
+      "encryptedLocalEvidenceEvent=event-1",
+    );
+    expect(JSON.stringify(evaluated.evidence)).toContain("bad type");
   });
 
   it("does not expose worker credentials to evaluated commands", async () => {
     const previous = process.env.SISYPHUS_HOOK_TOKEN;
     process.env.SISYPHUS_HOOK_TOKEN = "worker-secret-that-must-not-cross-the-boundary";
     try {
+      const evidenceCollector = new EvaluationEvidenceCollector();
       const evaluator = new CommandEvaluator({
-        id: "secret-boundary",
-        executable: process.execPath,
-        arguments: [
-          "-e",
-          "process.stdout.write(process.env.SISYPHUS_HOOK_TOKEN ?? 'absent'); process.exit(2)",
-        ],
-        workingDirectory: process.cwd(),
-        timeoutMilliseconds: 2_000,
+        configuration: {
+          id: "secret-boundary",
+          executable: process.execPath,
+          arguments: [
+            "-e",
+            "process.stdout.write(process.env.SISYPHUS_HOOK_TOKEN ?? 'absent'); process.exit(2)",
+          ],
+          workingDirectory: process.cwd(),
+          timeoutMilliseconds: 2_000,
+        },
+        evidenceCollector,
       });
 
-      const result = await evaluator.evaluate(evaluationInput);
+      const evaluated = await evidenceCollector.collect(() =>
+        evaluator.evaluate(evaluationInput),
+      );
 
-      expect(JSON.stringify(result)).toContain("absent");
-      expect(JSON.stringify(result)).not.toContain(
+      expect(JSON.stringify(evaluated.result)).not.toContain("absent");
+      expect(JSON.stringify(evaluated.evidence)).toContain("absent");
+      expect(JSON.stringify(evaluated)).not.toContain(
         "worker-secret-that-must-not-cross-the-boundary",
       );
     } finally {

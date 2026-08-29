@@ -27,6 +27,17 @@ import {
   type HostContext,
 } from "@sisyphus/ui/contracts";
 import { DeviceSecretStore, type DeviceSecretCipher } from "./device-secrets.js";
+import {
+  localWorkerUrl,
+  parseDevelopmentRendererUrl,
+  rendererUrlIsTrusted,
+} from "./desktop-boundaries.js";
+import {
+  managedWorkerChildEnvironment,
+  parseManagedWorkerProvisioning,
+  resolveManagedWorkerProvisioning,
+  type ParsedManagedWorkerProvisioning,
+} from "./managed-worker-provisioning.js";
 import { LocalEvidenceResponseSchema, desktopChannels } from "./ipc.js";
 
 const WorkerCredentialSchema = z
@@ -48,6 +59,7 @@ const EnvironmentSchema = z
     SISYPHUS_HOOK_TOKEN: WorkerCredentialSchema.optional(),
     SISYPHUS_MCP_TOKEN: WorkerCredentialSchema.optional(),
     SISYPHUS_DESKTOP_TOKEN: WorkerCredentialSchema.optional(),
+    SISYPHUS_CODEX_RUNTIME_VERSION: z.string().trim().min(1).optional(),
     SISYPHUS_API_URL: z.string().url().optional(),
     SISYPHUS_DESKTOP_API_TOKEN: z.string().trim().min(1).optional(),
   })
@@ -64,6 +76,19 @@ const EnvironmentSchema = z
     }
   })
   .parse(process.env);
+const disabledManagedWorkerProvisioning: ParsedManagedWorkerProvisioning = {
+  kind: "offline-default",
+};
+const ManagedWorkerProvisioningConfiguration =
+  EnvironmentSchema.SISYPHUS_DESKTOP_MANAGE_WORKER
+    ? parseManagedWorkerProvisioning(process.env)
+    : disabledManagedWorkerProvisioning;
+
+const developmentRendererUrl =
+  EnvironmentSchema.SISYPHUS_DESKTOP_DEV_URL === undefined
+    ? undefined
+    : parseDevelopmentRendererUrl(EnvironmentSchema.SISYPHUS_DESKTOP_DEV_URL);
+const packagedRendererUrl = new URL("../dist/index.html", import.meta.url).href;
 
 let managedWorker: UtilityProcess | undefined;
 let workerStartupError: string | undefined;
@@ -89,11 +114,15 @@ async function workerAuthenticatesDesktop(): Promise<boolean> {
   if (workerDesktopToken === undefined) return false;
   try {
     const nonce = createLocalChallengeNonce();
-    const url = new URL("/v1/challenge", EnvironmentSchema.SISYPHUS_WORKER_URL);
+    const url = localWorkerUrl(
+      EnvironmentSchema.SISYPHUS_WORKER_URL,
+      "/v1/challenge",
+    );
     url.searchParams.set("channel", "desktop");
     url.searchParams.set("nonce", nonce);
     const response = await fetch(url, {
       method: "GET",
+      redirect: "error",
       signal: AbortSignal.timeout(1_500),
     });
     if (!response.ok) return false;
@@ -113,13 +142,17 @@ async function evidenceBrokerIsAvailable(): Promise<boolean> {
     return false;
   }
   try {
-    const response = await fetch(`${EnvironmentSchema.SISYPHUS_WORKER_URL}/v1/evidence`, {
+    const response = await fetch(localWorkerUrl(
+      EnvironmentSchema.SISYPHUS_WORKER_URL,
+      "/v1/evidence",
+    ), {
       method: "POST",
       headers: {
         authorization: `Bearer ${workerDesktopToken}`,
         "content-type": "application/json",
       },
       body: JSON.stringify({ eventId: "sisyphus-desktop-capability-probe" }),
+      redirect: "error",
       signal: AbortSignal.timeout(1_500),
     });
     return (
@@ -138,13 +171,17 @@ async function localEvidence(eventId: string) {
   if (!(await workerAuthenticatesDesktop())) {
     throw new Error("The local worker failed device authentication.");
   }
-  const response = await fetch(`${EnvironmentSchema.SISYPHUS_WORKER_URL}/v1/evidence`, {
+  const response = await fetch(localWorkerUrl(
+    EnvironmentSchema.SISYPHUS_WORKER_URL,
+    "/v1/evidence",
+  ), {
     method: "POST",
     headers: {
       authorization: `Bearer ${workerDesktopToken}`,
       "content-type": "application/json",
     },
     body: JSON.stringify({ eventId: z.string().trim().min(1).max(512).parse(eventId) }),
+    redirect: "error",
     signal: AbortSignal.timeout(5_000),
   });
   if (!response.ok) {
@@ -175,7 +212,11 @@ async function workerHostContext(): Promise<HostContext> {
         },
   ];
   try {
-    const response = await fetch(`${EnvironmentSchema.SISYPHUS_WORKER_URL}/health`, {
+    const response = await fetch(localWorkerUrl(
+      EnvironmentSchema.SISYPHUS_WORKER_URL,
+      "/health",
+    ), {
+      redirect: "error",
       signal: AbortSignal.timeout(1500),
     });
     if (!response.ok) {
@@ -208,6 +249,9 @@ async function workerHostContext(): Promise<HostContext> {
         kind: "online",
         version: health.version,
         pendingUploads: 0,
+        policyMode: EnvironmentSchema.SISYPHUS_DESKTOP_MANAGE_WORKER
+          ? ManagedWorkerProvisioningConfiguration.kind
+          : "external",
       },
       localEvidence: evidenceAvailable
         ? { kind: "supported" }
@@ -233,20 +277,17 @@ async function workerHostContext(): Promise<HostContext> {
 }
 
 function workerNetworkConfiguration(): {
-  readonly host: "127.0.0.1" | "::1" | "localhost";
+  readonly host: "127.0.0.1" | "::1";
   readonly port: string;
 } {
-  const endpoint = new URL(EnvironmentSchema.SISYPHUS_WORKER_URL);
+  const endpoint = localWorkerUrl(EnvironmentSchema.SISYPHUS_WORKER_URL, "/");
   if (endpoint.protocol !== "http:") {
     throw new Error("The managed worker URL must use loopback HTTP.");
   }
   const host = endpoint.hostname === "[::1]" ? "::1" : endpoint.hostname;
-  const parsedHost = z.enum(["127.0.0.1", "::1", "localhost"]).safeParse(host);
-  if (!parsedHost.success || endpoint.pathname !== "/" || endpoint.search !== "") {
-    throw new Error("The managed worker URL must be an origin on a loopback host.");
-  }
+  const parsedHost = z.enum(["127.0.0.1", "::1"]).parse(host);
   return {
-    host: parsedHost.data,
+    host: parsedHost,
     port: String(endpoint.port === "" ? 80 : Number(endpoint.port)),
   };
 }
@@ -279,7 +320,15 @@ function assertDesktopSender(event: IpcMainInvokeEvent): void {
   if (
     mainWindow === undefined ||
     event.sender !== mainWindow.webContents ||
-    event.senderFrame !== mainWindow.webContents.mainFrame
+    event.senderFrame !== mainWindow.webContents.mainFrame ||
+    !rendererUrlIsTrusted({
+      candidateUrl: event.senderFrame.url,
+      packaged: app.isPackaged,
+      packagedRendererUrl,
+      ...(developmentRendererUrl === undefined
+        ? {}
+        : { developmentRendererUrl: developmentRendererUrl.href }),
+    })
   ) {
     throw new Error("Desktop IPC is limited to the Sisyphus renderer.");
   }
@@ -323,6 +372,7 @@ async function desktopApiRequest(input: {
       "content-type": "application/json",
     },
     ...(input.body === undefined ? {} : { body: JSON.stringify(input.body) }),
+    redirect: "error",
     signal: AbortSignal.timeout(10_000),
   });
   const payload: unknown = await response.json();
@@ -337,7 +387,11 @@ async function desktopApiRequest(input: {
 
 async function workerIsOnline(): Promise<boolean> {
   try {
-    const response = await fetch(`${EnvironmentSchema.SISYPHUS_WORKER_URL}/health`, {
+    const response = await fetch(localWorkerUrl(
+      EnvironmentSchema.SISYPHUS_WORKER_URL,
+      "/health",
+    ), {
+      redirect: "error",
       signal: AbortSignal.timeout(500),
     });
     return (
@@ -367,7 +421,17 @@ async function startManagedWorker(): Promise<void> {
   workerDesktopToken =
     EnvironmentSchema.SISYPHUS_DESKTOP_TOKEN ??
     (await secretStore.loadOrCreate("desktop-token"));
-  if (!EnvironmentSchema.SISYPHUS_DESKTOP_MANAGE_WORKER || (await workerIsOnline())) return;
+  if (!EnvironmentSchema.SISYPHUS_DESKTOP_MANAGE_WORKER) return;
+  const provisioning = await resolveManagedWorkerProvisioning({
+    configuration: ManagedWorkerProvisioningConfiguration,
+    loadDeviceToken: () => secretStore.loadProvisioned("device-token"),
+    persistDeviceToken: (value) =>
+      secretStore.persistProvisioned("device-token", value),
+  });
+  if (provisioning.kind !== "offline-default") {
+    await access(provisioning.policyFile);
+  }
+  if (await workerIsOnline()) return;
   const workerEntrypoint =
     EnvironmentSchema.SISYPHUS_WORKER_ENTRYPOINT ??
     (app.isPackaged
@@ -402,6 +466,13 @@ async function startManagedWorker(): Promise<void> {
       SISYPHUS_DESKTOP_TOKEN: workerDesktopToken,
       SISYPHUS_WORKER_HOST: network.host,
       SISYPHUS_WORKER_PORT: network.port,
+      ...managedWorkerChildEnvironment(provisioning),
+      ...(EnvironmentSchema.SISYPHUS_CODEX_RUNTIME_VERSION === undefined
+        ? {}
+        : {
+            SISYPHUS_CODEX_RUNTIME_VERSION:
+              EnvironmentSchema.SISYPHUS_CODEX_RUNTIME_VERSION,
+          }),
     }),
     serviceName: "Sisyphus local worker",
     stdio: "ignore",
@@ -452,20 +523,30 @@ function createWindow(): BrowserWindow {
     if (mainWindow === browserWindow) mainWindow = undefined;
   });
   browserWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  const navigationIsTrusted = (targetUrl: string): boolean =>
+    rendererUrlIsTrusted({
+      candidateUrl: targetUrl,
+      packaged: app.isPackaged,
+      packagedRendererUrl,
+      ...(developmentRendererUrl === undefined
+        ? {}
+        : { developmentRendererUrl: developmentRendererUrl.href }),
+    });
   browserWindow.webContents.on("will-navigate", (event, targetUrl) => {
-    const allowedUrl = EnvironmentSchema.SISYPHUS_DESKTOP_DEV_URL;
-    if (
-      allowedUrl === undefined ||
-      new URL(targetUrl).origin !== new URL(allowedUrl).origin
-    ) {
+    if (!navigationIsTrusted(targetUrl)) {
+      event.preventDefault();
+    }
+  });
+  browserWindow.webContents.on("will-redirect", (event, targetUrl) => {
+    if (!navigationIsTrusted(targetUrl)) {
       event.preventDefault();
     }
   });
 
-  if (EnvironmentSchema.SISYPHUS_DESKTOP_DEV_URL !== undefined) {
-    void browserWindow.loadURL(EnvironmentSchema.SISYPHUS_DESKTOP_DEV_URL);
+  if (developmentRendererUrl !== undefined) {
+    void browserWindow.loadURL(developmentRendererUrl.href);
   } else {
-    void browserWindow.loadFile(fileURLToPath(new URL("../dist/index.html", import.meta.url)));
+    void browserWindow.loadURL(packagedRendererUrl);
   }
   mainWindow = browserWindow;
   return browserWindow;
@@ -519,6 +600,11 @@ ipcMain.handle(
 );
 
 await app.whenReady();
+if (app.isPackaged && developmentRendererUrl !== undefined) {
+  throw new Error(
+    "SISYPHUS_DESKTOP_DEV_URL is not permitted in a packaged application.",
+  );
+}
 try {
   await startManagedWorker();
 } catch (error: unknown) {

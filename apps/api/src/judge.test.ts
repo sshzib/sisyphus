@@ -12,10 +12,20 @@ import {
 import { createInMemoryRepository } from "./repository.js";
 
 describe("OpenAiResponsesJudgeProvider", () => {
+  it("refuses to send provider keys over remote plaintext HTTP", () => {
+    expect(
+      () =>
+        new OpenAiResponsesJudgeProvider({
+          endpoint: "http://judge.example.test/v1/responses",
+        }),
+    ).toThrow(/HTTPS/u);
+  });
+
   it("uses stateless strict structured output", async () => {
     let requestBody: unknown;
     const provider = new OpenAiResponsesJudgeProvider({
       fetcher: async (_request, init) => {
+        expect(init?.redirect).toBe("error");
         if (typeof init?.body === "string") {
           requestBody = JSON.parse(init.body);
         }

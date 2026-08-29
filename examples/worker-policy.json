@@ -6,6 +6,7 @@
     "retryLimit": 2,
     "requiredCapabilities": [],
     "skillCandidates": [],
+    "cloudEvidence": { "kind": "disabled" },
     "toolPolicy": { "kind": "allow" }
   },
   "deterministicChecks": [],

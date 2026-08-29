@@ -15,6 +15,8 @@ import {
 import {
   AdapterInstallRequestSchema,
   AdapterUninstallRequestSchema,
+  managedActivationForDecision,
+  type AdapterDecisionContext,
   type AdapterInstallRequest,
   type AdapterInstallation,
   type AdapterUninstallRequest,
@@ -152,8 +154,12 @@ export class CodexRuntimeAdapter implements AgentRuntimeAdapter {
   renderDecision<E extends HookObservation>(
     _event: E,
     decision: DecisionFor<E>,
+    context?: AdapterDecisionContext,
   ): RuntimeResponse {
-    return renderCodexDecision(decision);
+    return renderCodexDecision(
+      decision,
+      managedActivationForDecision(decision, context),
+    );
   }
 
   deriveIdentity(event: UnknownRuntimeEvent): RuntimeIdentity {

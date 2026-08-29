@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -15,7 +16,8 @@ import {
   createLocalChallengeNonce,
   verifyLocalChallenge,
 } from "@sisyphus/local-protocol";
-import { z } from "zod";
+
+import { CODEX_WORKER_CHALLENGE_TIMEOUT_MILLISECONDS } from "./timeouts.js";
 
 const WorkerEndpointSchema = z.string().url();
 const WorkerMcpTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43,128}$/u);
@@ -71,8 +73,14 @@ function localWorkerUrl(endpoint: string, pathname: string): URL {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error("the Sisyphus worker endpoint must use HTTP or HTTPS");
   }
-  if (url.username !== "" || url.password !== "") {
-    throw new Error("the Sisyphus worker endpoint must not contain credentials");
+  if (
+    url.username !== "" ||
+    url.password !== "" ||
+    url.pathname !== "/" ||
+    url.search !== "" ||
+    url.hash !== ""
+  ) {
+    throw new Error("the Sisyphus worker endpoint must contain an origin only");
   }
   url.pathname = pathname;
   url.search = "";
@@ -92,7 +100,7 @@ async function authenticateWorker(input: {
   const response = await input.request(challengeUrl, {
     method: "GET",
     redirect: "error",
-    signal: AbortSignal.timeout(2_000),
+    signal: AbortSignal.timeout(CODEX_WORKER_CHALLENGE_TIMEOUT_MILLISECONDS),
   });
   if (!response.ok) throw new Error("Sisyphus worker authentication failed.");
   const body: unknown = await response.json();

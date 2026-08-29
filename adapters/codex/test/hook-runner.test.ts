@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   LocalChallengeNonceSchema,
   signLocalChallenge,
@@ -142,6 +142,24 @@ describe("Codex hook worker bridge", () => {
     ).rejects.toThrow("loopback host");
   });
 
+  it.each([
+    "http://user:password@127.0.0.1:7331",
+    "http://127.0.0.1:7331/base",
+    "http://127.0.0.1:7331?forward=elsewhere",
+  ])("rejects a non-origin worker URL before making a request: %s", async (workerEndpoint) => {
+    const request = vi.fn<typeof fetch>();
+    await expect(
+      runCodexHook({
+        rawEvent: loadFixture("user-prompt-submit.json"),
+        adapter,
+        workerToken: hookToken,
+        workerEndpoint,
+        request,
+      }),
+    ).rejects.toThrow("origin");
+    expect(request).not.toHaveBeenCalled();
+  });
+
   it("sends no token or event body to a loopback port squatter", async () => {
     const requests: { readonly authorization: string | null; readonly body: BodyInit | null | undefined }[] = [];
     const request: typeof fetch = async (input, init) => {
@@ -163,6 +181,25 @@ describe("Codex hook worker bridge", () => {
       }),
     ).rejects.toThrow("authentication failed");
     expect(requests).toEqual([{ authorization: null, body: undefined }]);
+  });
+
+  it("does not probe the runtime when worker authentication fails", async () => {
+    const runtimeVersionProbe = vi.fn(async () => "0.99.0");
+    const request: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      const nonce = LocalChallengeNonceSchema.parse(url.searchParams.get("nonce"));
+      return Response.json({ channel: "hook", nonce, proof: "A".repeat(43) });
+    };
+
+    await expect(
+      runCodexHook({
+        rawEvent: loadFixture("user-prompt-submit.json"),
+        workerToken: hookToken,
+        runtimeVersionProbe,
+        request,
+      }),
+    ).rejects.toThrow("authentication failed");
+    expect(runtimeVersionProbe).not.toHaveBeenCalled();
   });
 
   it("injects only a lease issued in the worker response", async () => {
@@ -189,7 +226,31 @@ describe("Codex hook worker bridge", () => {
                 pattern: "parser",
               },
             },
-            candidates: [],
+            candidates: [
+              {
+                candidate: {
+                  skillVersionId: "skill-unavailable-v1",
+                  stableVersionKey: "unavailable-v1",
+                  displayName: "Unavailable wrapper",
+                  administratorPriority: 9,
+                  specificity: 19,
+                  disposition: "active",
+                  activationAvailability: {
+                    kind: "unavailable",
+                    reason: "No Codex wrapper is installed for this version.",
+                  },
+                  trigger: {
+                    triggerId: "unavailable-trigger",
+                    kind: "contains",
+                    pattern: "parser",
+                  },
+                },
+                outcome: {
+                  kind: "rejected",
+                  reason: "wrapper-unavailable",
+                },
+              },
+            ],
           },
         },
         activationLease: {

@@ -3,6 +3,7 @@ import type {
   Attribution,
   EnforcementCoverage,
   EvaluationResult,
+  RuntimeProfile,
 } from "./contracts.js";
 
 export function runtimeLabel(runtime: AgentRuntime): string {
@@ -17,6 +18,19 @@ export function runtimeLabel(runtime: AgentRuntime): string {
       return "OpenCode";
     default: {
       const exhaustive: never = runtime;
+      return exhaustive;
+    }
+  }
+}
+
+export function runtimeProfileLabel(profile: RuntimeProfile): string {
+  switch (profile) {
+    case "local":
+      return "Local";
+    case "cloud-agent":
+      return "Cloud agent";
+    default: {
+      const exhaustive: never = profile;
       return exhaustive;
     }
   }

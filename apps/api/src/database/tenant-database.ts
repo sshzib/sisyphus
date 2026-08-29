@@ -38,6 +38,11 @@ import {
   EncryptedSecretSchema,
   type EncryptedSecret,
 } from "../secret-cipher.js";
+import {
+  cloudQuarantineReason,
+  evaluateCloudQuarantineWindow,
+  quarantineCandidateSkillVersionIds,
+} from "../quarantine-window.js";
 import * as schema from "./schema.js";
 import { latestMigrationTimestamp } from "./migrate.js";
 
@@ -282,6 +287,8 @@ function adapterConfigurationDigest(
     .map((integration) => ({
       id: integration.id,
       runtime: integration.runtime,
+      adapterInstallationId: integration.adapterInstallationId,
+      profile: integration.profile,
       scope: integration.scope,
       adapterVersion: integration.adapterVersion,
       runtimeVersion: integration.runtimeVersion,
@@ -1316,6 +1323,9 @@ export class PostgresTenantDatabase {
                   runtime: record.payload.runtime,
                   runtimeVersion: record.payload.runtimeVersion,
                   adapterVersion: record.payload.adapterVersion,
+                  adapterInstallationId:
+                    record.payload.runtimeInstallation.adapterInstallationId,
+                  runtimeProfile: record.payload.runtimeInstallation.profile,
                   capabilitySnapshot: record.payload.capabilities,
                   agentId: record.payload.identity.agent.agentId,
                   project: record.payload.project,
@@ -1385,17 +1395,56 @@ export class PostgresTenantDatabase {
             deviceId: input.deviceId,
             records: acceptedRecords,
           });
-          for (const record of acceptedRecords) {
-            if (
-              record.payload.kind !== "completion" ||
-              record.payload.provisionalDisposition.kind !== "quarantine"
-            ) {
-              continue;
-            }
-            const provisional = record.payload.provisionalDisposition;
+          const quarantineCandidates = quarantineCandidateSkillVersionIds(
+            acceptedRecords,
+          );
+          const completionHistory =
+            quarantineCandidates.length === 0
+              ? []
+              : (
+                  await transaction
+                    .select({
+                      sourceRecordId: schema.ingestEvents.sourceRecordId,
+                      eventId: schema.ingestEvents.eventId,
+                      payload: schema.ingestEvents.payload,
+                    })
+                    .from(schema.ingestEvents)
+                    .where(
+                      and(
+                        eq(schema.ingestEvents.tenantId, input.tenantId),
+                        sql`${schema.ingestEvents.payload} ->> 'kind' = 'completion'`,
+                      ),
+                    )
+                ).map((row) =>
+                  CloudSupervisionEnvelopeSchema.parse({
+                    id: row.sourceRecordId,
+                    eventId: row.eventId,
+                    payload: row.payload,
+                  }),
+                );
+          const transitionRows =
+            quarantineCandidates.length === 0
+              ? []
+              : await transaction
+                  .select()
+                  .from(schema.dispositionTransitions)
+                  .where(
+                    eq(schema.dispositionTransitions.tenantId, input.tenantId),
+                  )
+                  .orderBy(asc(schema.dispositionTransitions.revision));
+          const transitions = transitionRows.map((row) =>
+            SkillDispositionTransitionSchema.parse({
+              kind: row.kind,
+              skillVersionId: row.skillVersionId,
+              reason: row.reason,
+              actor: row.actor,
+              occurredAt: row.occurredAt.toISOString(),
+              revision: row.revision,
+            }),
+          );
+          for (const skillVersionId of quarantineCandidates) {
             const skill = projected.skills.find(
-              (candidate) =>
-                candidate.skillVersionId === provisional.skillVersionId,
+              (candidate) => candidate.skillVersionId === skillVersionId,
             );
             if (
               skill === undefined ||
@@ -1404,18 +1453,46 @@ export class PostgresTenantDatabase {
             ) {
               continue;
             }
+            const window = evaluateCloudQuarantineWindow({
+              records: completionHistory,
+              transitions,
+              skillVersionId,
+            });
+            if (
+              !window.shouldQuarantine ||
+              window.latestOccurredAt === null ||
+              window.latestRuntime === null
+            ) {
+              continue;
+            }
+            const reason = cloudQuarantineReason(window);
             const transition = await appendDispositionTransition({
               transaction,
               tenantId: input.tenantId,
               kind: "quarantine",
-              skillVersionId: provisional.skillVersionId,
-              reason: provisional.reason,
+              skillVersionId,
+              reason,
               actor: `device:${input.deviceId}`,
-              occurredAt: record.payload.occurredAt,
+              occurredAt: window.latestOccurredAt,
             });
+            transitions.push(transition);
             projected = applyDispositionTransition({
               snapshot: projected,
               transition,
+            });
+            projected = DashboardSnapshotSchema.parse({
+              ...projected,
+              audit: [
+                {
+                  id: `audit-quarantine-${transition.revision}`,
+                  occurredAt: window.latestOccurredAt,
+                  actor: `device:${input.deviceId}`,
+                  action: "skill.quarantined",
+                  summary: `${skill.name} quarantined. ${reason}`,
+                  runtime: window.latestRuntime,
+                },
+                ...projected.audit,
+              ],
             });
           }
           await transaction

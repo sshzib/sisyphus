@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type {
   CloudEvaluationMetadata,
   CloudSupervisionEnvelope,
@@ -15,6 +17,7 @@ import type {
   RunSummary,
   SkillSummary,
 } from "@sisyphus/ui/contracts";
+import { canonicalJson } from "./canonical-json.js";
 
 function attributionCohort(
   record: CompletionCloudRecord,
@@ -60,7 +63,7 @@ function evaluationScore(
     case "terminal-failure":
       return Math.round(evaluation.score * 1_000) / 10;
     case "late":
-      return Math.round(evaluation.advisory.score * 1_000) / 10;
+      return null;
     case "inconclusive":
       return null;
     default: {
@@ -68,6 +71,29 @@ function evaluationScore(
       return exhaustive;
     }
   }
+}
+
+function comparisonCohortId(record: CompletionCloudRecord): string {
+  return createHash("sha256")
+    .update(
+      canonicalJson({
+        runtime: record.runtime,
+        profile: record.runtimeInstallation.profile,
+        adapterInstallationId:
+          record.runtimeInstallation.adapterInstallationId,
+        runtimeVersion: record.runtimeVersion,
+        adapterVersion: record.adapterVersion,
+        capabilities: record.capabilities,
+        attribution: attributionCohort(record),
+        enforcement: enforcementCohort(record),
+      }),
+      "utf8",
+    )
+    .digest("hex");
+}
+
+function agentProjectionId(record: CompletionCloudRecord): string {
+  return `${comparisonCohortId(record)}:${record.identity.agent.agentId}`;
 }
 
 function evaluationFindings(
@@ -113,7 +139,12 @@ function projectedRun(input: {
     eventId: input.eventId,
     occurredAt: record.occurredAt,
     runtime: record.runtime,
+    profile: record.runtimeInstallation.profile,
     runtimeVersion: record.runtimeVersion,
+    adapterVersion: record.adapterVersion,
+    adapterInstallationId:
+      record.runtimeInstallation.adapterInstallationId,
+    comparisonCohortId: comparisonCohortId(record),
     agentName: record.identity.agent.agentId,
     project: record.project,
     skillVersionId,
@@ -164,21 +195,34 @@ function projectAgent(
 ): AgentSummary[] {
   const attribution = attributionCohort(record);
   const enforcement = enforcementCohort(record);
-  const agentId = `${record.identity.agent.agentId}:${attribution}:${enforcement}`;
+  const agentId = agentProjectionId(record);
   const existing = agents.find((agent) => agent.id === agentId);
   const result = evaluationResult(record.evaluation);
   const score = evaluationScore(record.evaluation);
-  const recovered = result === "pass" && record.evaluation.attempts > 1;
+  const conclusive = result !== "inconclusive";
+  const retried =
+    record.evaluation.attempts > 1 ||
+    record.evaluation.kind === "retryable-failure";
+  const recovered = retried && result === "pass";
   if (existing === undefined) {
     return [
       {
         id: agentId,
         name: record.identity.agent.agentId,
         runtime: record.runtime,
+        profile: record.runtimeInstallation.profile,
+        runtimeVersion: record.runtimeVersion,
+        adapterVersion: record.adapterVersion,
+        adapterInstallationId:
+          record.runtimeInstallation.adapterInstallationId,
+        comparisonCohortId: comparisonCohortId(record),
         attributionCohort: attribution,
         enforcementCohort: enforcement,
         runs: 1,
-        passRate: result === "pass" ? 100 : 0,
+        conclusiveRuns: conclusive ? 1 : 0,
+        scoredRuns: score === null ? 0 : 1,
+        retryRuns: retried ? 1 : 0,
+        passRate: conclusive && result === "pass" ? 100 : 0,
         retryRecoveryRate: recovered ? 100 : 0,
         terminalFailures: result === "terminal-failure" ? 1 : 0,
         averageScore: score ?? 0,
@@ -188,26 +232,36 @@ function projectAgent(
     ];
   }
   const nextRuns = existing.runs + 1;
+  const nextScoredRuns = existing.scoredRuns + (score === null ? 0 : 1);
   const nextAverage =
     score === null
       ? existing.averageScore
-      : Math.round(
-          ((existing.averageScore * existing.runs + score) / nextRuns) * 10,
-        ) / 10;
+      : nextScoredRuns === 0
+        ? 0
+        : Math.round(
+            ((existing.averageScore * existing.scoredRuns + score) /
+              nextScoredRuns) * 10,
+          ) / 10;
   const updated: AgentSummary = {
     ...existing,
     runs: nextRuns,
-    passRate: weightedRate({
-      previousRate: existing.passRate,
-      previousSamples: existing.runs,
-      passed: result === "pass",
-    }),
-    retryRecoveryRate:
-      weightedRate({
-        previousRate: existing.retryRecoveryRate,
-        previousSamples: existing.runs,
-        passed: recovered,
-      }),
+    conclusiveRuns: existing.conclusiveRuns + (conclusive ? 1 : 0),
+    scoredRuns: nextScoredRuns,
+    retryRuns: existing.retryRuns + (retried ? 1 : 0),
+    passRate: conclusive
+      ? weightedRate({
+          previousRate: existing.passRate,
+          previousSamples: existing.conclusiveRuns,
+          passed: result === "pass",
+        })
+      : existing.passRate,
+    retryRecoveryRate: retried
+      ? weightedRate({
+          previousRate: existing.retryRecoveryRate,
+          previousSamples: existing.retryRuns,
+          passed: recovered,
+        })
+      : existing.retryRecoveryRate,
     terminalFailures:
       existing.terminalFailures + (result === "terminal-failure" ? 1 : 0),
     averageScore: nextAverage,
@@ -220,7 +274,7 @@ function removeAgentSample(
   agents: AgentSummary[],
   run: RunSummary,
 ): AgentSummary[] {
-  const agentId = `${run.agentName}:${run.attribution}:${run.enforcement}`;
+  const agentId = `${run.comparisonCohortId}:${run.agentName}`;
   const existing = agents.find((agent) => agent.id === agentId);
   if (existing === undefined) {
     return agents;
@@ -229,33 +283,46 @@ function removeAgentSample(
     return agents.filter((agent) => agent.id !== agentId);
   }
   const nextRuns = existing.runs - 1;
-  const recovered = run.result === "pass" && run.attempts > 1;
+  const conclusive = run.result !== "inconclusive";
+  const retried = run.attempts > 1 || run.result === "retryable-failure";
+  const recovered = retried && run.result === "pass";
+  const nextScoredRuns = existing.scoredRuns - (run.score === null ? 0 : 1);
   const nextAverage =
     run.score === null
       ? existing.averageScore
-      : Math.min(
-          100,
-          Math.max(
-            0,
-            Math.round(
-              ((existing.averageScore * existing.runs - run.score) / nextRuns) *
-                10,
-            ) / 10,
-          ),
-        );
+      : nextScoredRuns <= 0
+        ? 0
+        : Math.min(
+            100,
+            Math.max(
+              0,
+              Math.round(
+                ((existing.averageScore * existing.scoredRuns - run.score) /
+                  nextScoredRuns) *
+                  10,
+              ) / 10,
+            ),
+          );
   const updated: AgentSummary = {
     ...existing,
     runs: nextRuns,
-    passRate: removeWeightedRate({
-      previousRate: existing.passRate,
-      previousSamples: existing.runs,
-      passed: run.result === "pass",
-    }),
-    retryRecoveryRate: removeWeightedRate({
-      previousRate: existing.retryRecoveryRate,
-      previousSamples: existing.runs,
-      passed: recovered,
-    }),
+    conclusiveRuns: existing.conclusiveRuns - (conclusive ? 1 : 0),
+    scoredRuns: nextScoredRuns,
+    retryRuns: existing.retryRuns - (retried ? 1 : 0),
+    passRate: conclusive
+      ? removeWeightedRate({
+          previousRate: existing.passRate,
+          previousSamples: existing.conclusiveRuns,
+          passed: run.result === "pass",
+        })
+      : existing.passRate,
+    retryRecoveryRate: retried
+      ? removeWeightedRate({
+          previousRate: existing.retryRecoveryRate,
+          previousSamples: existing.retryRuns,
+          passed: recovered,
+        })
+      : existing.retryRecoveryRate,
     terminalFailures: Math.max(
       0,
       existing.terminalFailures - (run.result === "terminal-failure" ? 1 : 0),
@@ -275,14 +342,17 @@ function projectSkill(
   skills: SkillSummary[],
   record: CompletionCloudRecord,
 ): SkillSummary[] {
-  if (record.attribution.kind !== "verified") {
+  if (record.attribution.kind === "none") {
     return skills;
   }
   const skillVersionId = record.attribution.skillVersionId;
+  const verified = record.attribution.kind === "verified";
   const existing = skills.find(
-    (skill) => skill.skillVersionId === skillVersionId,
+    (skill) =>
+      skill.skillVersionId === skillVersionId && skill.runtime === record.runtime,
   );
   const result = evaluationResult(record.evaluation);
+  const conclusive = result !== "inconclusive";
   if (existing === undefined) {
     return [
       {
@@ -291,10 +361,13 @@ function projectSkill(
         version: versionFromSkillId(skillVersionId),
         runtime: record.runtime,
         disposition: "active",
-        verifiedAttributionRate: 100,
+        verifiedAttributionRate: verified ? 100 : 0,
         runs: 1,
-        passRate: result === "pass" ? 100 : 0,
-        terminalFailures: result === "terminal-failure" ? 1 : 0,
+        verifiedRuns: verified ? 1 : 0,
+        conclusiveRuns: conclusive ? 1 : 0,
+        passRate: conclusive && result === "pass" ? 100 : 0,
+        terminalFailures:
+          verified && result === "terminal-failure" ? 1 : 0,
         lastChangedAt: record.occurredAt,
       },
       ...skills,
@@ -303,16 +376,28 @@ function projectSkill(
   const updated: SkillSummary = {
     ...existing,
     runs: existing.runs + 1,
-    passRate: weightedRate({
-      previousRate: existing.passRate,
+    verifiedRuns: existing.verifiedRuns + (verified ? 1 : 0),
+    conclusiveRuns: existing.conclusiveRuns + (conclusive ? 1 : 0),
+    verifiedAttributionRate: weightedRate({
+      previousRate: existing.verifiedAttributionRate,
       previousSamples: existing.runs,
-      passed: result === "pass",
+      passed: verified,
     }),
+    passRate: conclusive
+      ? weightedRate({
+          previousRate: existing.passRate,
+          previousSamples: existing.conclusiveRuns,
+          passed: result === "pass",
+        })
+      : existing.passRate,
     terminalFailures:
-      existing.terminalFailures + (result === "terminal-failure" ? 1 : 0),
+      existing.terminalFailures +
+      (verified && result === "terminal-failure" ? 1 : 0),
   };
   return skills.map((skill) =>
-    skill.skillVersionId === skillVersionId ? updated : skill,
+    skill.skillVersionId === skillVersionId && skill.runtime === record.runtime
+      ? updated
+      : skill,
   );
 }
 
@@ -320,52 +405,87 @@ function removeSkillSample(
   skills: SkillSummary[],
   run: RunSummary,
 ): SkillSummary[] {
-  if (run.attribution !== "verified" || run.skillVersionId === null) {
+  if (run.attribution === "absent" || run.skillVersionId === null) {
     return skills;
   }
   const existing = skills.find(
-    (skill) => skill.skillVersionId === run.skillVersionId,
+    (skill) =>
+      skill.skillVersionId === run.skillVersionId && skill.runtime === run.runtime,
   );
   if (existing === undefined) {
     return skills;
   }
   if (existing.runs <= 1) {
     return skills.filter(
-      (skill) => skill.skillVersionId !== run.skillVersionId,
+      (skill) =>
+        skill.skillVersionId !== run.skillVersionId || skill.runtime !== run.runtime,
     );
   }
   const updated: SkillSummary = {
     ...existing,
     runs: existing.runs - 1,
-    passRate: removeWeightedRate({
-      previousRate: existing.passRate,
+    verifiedRuns:
+      existing.verifiedRuns - (run.attribution === "verified" ? 1 : 0),
+    conclusiveRuns:
+      existing.conclusiveRuns - (run.result === "inconclusive" ? 0 : 1),
+    verifiedAttributionRate: removeWeightedRate({
+      previousRate: existing.verifiedAttributionRate,
       previousSamples: existing.runs,
-      passed: run.result === "pass",
+      passed: run.attribution === "verified",
     }),
+    passRate:
+      run.result === "inconclusive"
+        ? existing.passRate
+        : removeWeightedRate({
+            previousRate: existing.passRate,
+            previousSamples: existing.conclusiveRuns,
+            passed: run.result === "pass",
+          }),
     terminalFailures: Math.max(
       0,
-      existing.terminalFailures - (run.result === "terminal-failure" ? 1 : 0),
+      existing.terminalFailures -
+        (run.attribution === "verified" && run.result === "terminal-failure"
+          ? 1
+          : 0),
     ),
   };
   return skills.map((skill) =>
-    skill.skillVersionId === run.skillVersionId ? updated : skill,
+    skill.skillVersionId === run.skillVersionId && skill.runtime === run.runtime
+      ? updated
+      : skill,
   );
+}
+
+function integrationScope(
+  profile: CloudSupervisionRecord["runtimeInstallation"]["profile"],
+): IntegrationSummary["scope"] {
+  switch (profile) {
+    case "local":
+      return "local";
+    case "cloud-agent":
+      return "cloud";
+    default: {
+      const exhaustive: never = profile;
+      return exhaustive;
+    }
+  }
 }
 
 function projectIntegration(
   integrations: IntegrationSummary[],
   record: CloudSupervisionRecord,
 ): IntegrationSummary[] {
-  const existing = integrations.find(
-    (integration) =>
-      integration.runtime === record.runtime && integration.scope === "local",
-  );
+  const profile = record.runtimeInstallation.profile;
+  const scope = integrationScope(profile);
+  const existing = matchingIntegration(integrations, record);
   if (existing === undefined) {
     return [
       {
-        id: `integration-${record.runtime}-local`,
+        id: `integration:${record.runtime}:${profile}:${record.runtimeInstallation.adapterInstallationId}`,
         runtime: record.runtime,
-        scope: "local",
+        adapterInstallationId: record.runtimeInstallation.adapterInstallationId,
+        profile,
+        scope,
         status: "healthy",
         adapterVersion: record.adapterVersion,
         runtimeVersion: record.runtimeVersion,
@@ -374,6 +494,9 @@ function projectIntegration(
       },
       ...integrations,
     ];
+  }
+  if (!shouldReplaceIntegration(existing, record)) {
+    return integrations;
   }
   const updated: IntegrationSummary = {
     ...existing,
@@ -388,14 +511,93 @@ function projectIntegration(
   );
 }
 
+function matchingIntegration(
+  integrations: IntegrationSummary[],
+  record: CloudSupervisionRecord,
+): IntegrationSummary | undefined {
+  return integrations.find(
+    (integration) =>
+      integration.runtime === record.runtime &&
+      integration.adapterInstallationId ===
+        record.runtimeInstallation.adapterInstallationId &&
+      integration.profile === record.runtimeInstallation.profile,
+  );
+}
+
+function integrationConfigurationKey(
+  input:
+    | CloudSupervisionRecord
+    | Pick<
+        IntegrationSummary,
+        | "runtime"
+        | "runtimeVersion"
+        | "adapterVersion"
+        | "capabilities"
+        | "adapterInstallationId"
+        | "profile"
+      >,
+): string {
+  const installation =
+    "runtimeInstallation" in input
+      ? input.runtimeInstallation
+      : {
+          profile: input.profile,
+          adapterInstallationId: input.adapterInstallationId,
+        };
+  return canonicalJson({
+    runtime: input.runtime,
+    profile: installation.profile,
+    adapterInstallationId: installation.adapterInstallationId,
+    runtimeVersion: input.runtimeVersion,
+    adapterVersion: input.adapterVersion,
+    capabilities: input.capabilities,
+  });
+}
+
+function shouldReplaceIntegration(
+  integration: IntegrationSummary,
+  record: CloudSupervisionRecord,
+): boolean {
+  const chronology =
+    Date.parse(record.occurredAt) - Date.parse(integration.lastSeenAt);
+  if (chronology !== 0) return chronology > 0;
+  return (
+    integrationConfigurationKey(record) >
+    integrationConfigurationKey(integration)
+  );
+}
+
+function adapterConfigurationChanged(
+  integration: IntegrationSummary,
+  record: CloudSupervisionRecord,
+): boolean {
+  return (
+    integration.adapterVersion !== record.adapterVersion ||
+    integration.runtimeVersion !== record.runtimeVersion ||
+    JSON.stringify(integration.capabilities) !== JSON.stringify(record.capabilities)
+  );
+}
+
 function updateOverview(snapshot: DashboardSnapshot): DashboardSnapshot["overview"] {
   const totalRuns = snapshot.agents.reduce((sum, agent) => sum + agent.runs, 0);
+  const conclusiveRuns = snapshot.agents.reduce(
+    (sum, agent) => sum + agent.conclusiveRuns,
+    0,
+  );
+  const retryRuns = snapshot.agents.reduce(
+    (sum, agent) => sum + agent.retryRuns,
+    0,
+  );
   const tokensSpent = snapshot.agents.reduce(
     (sum, agent) => sum + agent.tokens,
     0,
   );
   const weightedPasses = snapshot.agents.reduce(
-    (sum, agent) => sum + agent.passRate * agent.runs,
+    (sum, agent) => sum + agent.passRate * agent.conclusiveRuns,
+    0,
+  );
+  const weightedRecoveries = snapshot.agents.reduce(
+    (sum, agent) => sum + agent.retryRecoveryRate * agent.retryRuns,
     0,
   );
   const terminalFailures = snapshot.agents.reduce(
@@ -416,7 +618,13 @@ function updateOverview(snapshot: DashboardSnapshot): DashboardSnapshot["overvie
     ...snapshot.overview,
     totalRuns,
     passRate:
-      totalRuns === 0 ? 0 : Math.round((weightedPasses / totalRuns) * 10) / 10,
+      conclusiveRuns === 0
+        ? 0
+        : Math.round((weightedPasses / conclusiveRuns) * 10) / 10,
+    retryRecoveryRate:
+      retryRuns === 0
+        ? 0
+        : Math.round((weightedRecoveries / retryRuns) * 10) / 10,
     terminalFailures,
     tokensSpent,
     tokensAvoidedEstimate: Math.round(tokensSpent * 0.143),
@@ -434,9 +642,41 @@ function projectCommon(input: {
   envelope: CloudSupervisionEnvelope;
 }): DashboardSnapshot {
   const record = input.envelope.payload;
+  const previousIntegration = matchingIntegration(
+    input.snapshot.integrations,
+    record,
+  );
+  const operationalAudit: DashboardSnapshot["audit"] = [];
+  if (
+    previousIntegration !== undefined &&
+    shouldReplaceIntegration(previousIntegration, record) &&
+    adapterConfigurationChanged(previousIntegration, record)
+  ) {
+    operationalAudit.push({
+      id: `audit-adapter-changed-${input.envelope.eventId}`,
+      occurredAt: record.occurredAt,
+      actor: `device:${input.deviceId}`,
+      action: "adapter.changed",
+      summary: `Observed adapter ${record.adapterVersion} on runtime ${record.runtimeVersion}.`,
+      runtime: record.runtime,
+    });
+  }
+  if (record.enforcement.kind === "observation") {
+    operationalAudit.push({
+      id: `audit-enforcement-degraded-${input.envelope.eventId}`,
+      occurredAt: record.occurredAt,
+      actor: `device:${input.deviceId}`,
+      action: "integration.degraded",
+      summary: `Enforcement degraded to observation: ${record.enforcement.reason}`,
+      runtime: record.runtime,
+    });
+  }
   return {
     ...input.snapshot,
-    generatedAt: record.occurredAt,
+    generatedAt:
+      Date.parse(record.occurredAt) >= Date.parse(input.snapshot.generatedAt)
+        ? record.occurredAt
+        : input.snapshot.generatedAt,
     integrations: projectIntegration(input.snapshot.integrations, record),
     devices: input.snapshot.devices.map((device) =>
       device.id === input.deviceId
@@ -444,12 +684,16 @@ function projectCommon(input: {
             ...device,
             status: "online",
             runtimes: [...new Set([...device.runtimes, record.runtime])],
-            lastSeenAt: record.occurredAt,
+            lastSeenAt:
+              Date.parse(record.occurredAt) >= Date.parse(device.lastSeenAt)
+                ? record.occurredAt
+                : device.lastSeenAt,
             syncLagSeconds: 0,
           }
         : device,
     ),
     audit: [
+      ...operationalAudit,
       {
         id: `audit-ingest-${input.envelope.eventId}`,
         occurredAt: record.occurredAt,
@@ -461,6 +705,26 @@ function projectCommon(input: {
       ...input.snapshot.audit,
     ],
   };
+}
+
+function retryAudit(input: {
+  deviceId: string;
+  envelope: CloudSupervisionEnvelope & { payload: CompletionCloudRecord };
+}): DashboardSnapshot["audit"] {
+  const evaluation = input.envelope.payload.evaluation;
+  if (evaluation.kind !== "retryable-failure") {
+    return [];
+  }
+  return [
+    {
+      id: `audit-retry-${input.envelope.eventId}`,
+      occurredAt: input.envelope.payload.occurredAt,
+      actor: `device:${input.deviceId}`,
+      action: "retry.issued",
+      summary: `Issued retry ${evaluation.retryOrdinal} for ${input.envelope.payload.runId}:${input.envelope.payload.workItemId}.`,
+      runtime: input.envelope.payload.runtime,
+    },
+  ];
 }
 
 function resolutionReason(input: {
@@ -523,6 +787,12 @@ function projectCompletion(input: {
     (candidate) => candidate.id === run.id,
   );
   if (existingRun !== undefined) {
+    const chronologicalOrder =
+      Date.parse(run.occurredAt) - Date.parse(existingRun.occurredAt) ||
+      run.eventId.localeCompare(existingRun.eventId);
+    if (chronologicalOrder <= 0) {
+      return projected;
+    }
     const agentsWithoutPriorAttempt = removeAgentSample(
       projected.agents,
       existingRun,
@@ -539,6 +809,7 @@ function projectCompletion(input: {
       agents: projectAgent(agentsWithoutPriorAttempt, record),
       skills: projectSkill(skillsWithoutPriorAttempt, record),
       audit: [
+        ...retryAudit(input),
         {
           id: `audit-evaluation-${input.envelope.eventId}`,
           occurredAt: record.occurredAt,
@@ -558,6 +829,7 @@ function projectCompletion(input: {
     agents: projectAgent(projected.agents, record),
     skills: projectSkill(projected.skills, record),
     audit: [
+      ...retryAudit(input),
       {
         id: `audit-evaluation-${input.envelope.eventId}`,
         occurredAt: record.occurredAt,

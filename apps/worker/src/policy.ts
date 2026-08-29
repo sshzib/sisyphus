@@ -3,12 +3,12 @@ import { createHash, createPublicKey, verify } from "node:crypto";
 import {
   SignedPolicyBundleSchema,
   parseEvaluationConstraint,
-  supportsCapability,
   type AdapterConfigurationDigest,
   type AdapterInstallationId,
   type DeviceId,
   type EvaluationConstraint,
   type HookObservation,
+  type RuntimeProfile,
   type SignedPolicyBundlePayload,
   type SignedPolicyBundle,
   type SkillDispositionTransition,
@@ -17,8 +17,6 @@ import {
 
 import { controlPlaneEndpoint } from "./control-plane-endpoint.js";
 import type { PolicyProvider } from "./supervisor.js";
-
-export type RuntimeProfile = "local" | "cloud-agent";
 
 export interface WorkerPolicyIdentity {
   readonly tenantId: TenantId;
@@ -128,15 +126,10 @@ export function verifyPolicyBundle(
 
 export class MutablePolicyProvider implements PolicyProvider {
   readonly #localConstraint: EvaluationConstraint;
-  readonly #profile: RuntimeProfile;
   #bundle: SignedPolicyBundlePayload | undefined;
 
-  public constructor(
-    initial: EvaluationConstraint,
-    input: { readonly profile?: RuntimeProfile } = {},
-  ) {
+  public constructor(initial: EvaluationConstraint) {
     this.#localConstraint = parseEvaluationConstraint(initial);
-    this.#profile = input.profile ?? "local";
   }
 
   public async constraintFor(event: HookObservation): Promise<EvaluationConstraint> {
@@ -144,15 +137,15 @@ export class MutablePolicyProvider implements PolicyProvider {
       if (policy.runtime !== null && policy.runtime !== event.capabilities.runtime) {
         return false;
       }
-      if (policy.profile !== "any" && policy.profile !== this.#profile) return false;
+      if (
+        policy.profile !== "any" &&
+        policy.profile !== event.runtimeInstallation.profile
+      ) {
+        return false;
+      }
       return true;
     });
-    const capable = applicable?.find((policy) =>
-      policy.requiredCapabilities.every((capability) =>
-        supportsCapability(event.capabilities, capability),
-      ),
-    );
-    const selected = capable ?? applicable?.[0];
+    const selected = applicable?.[0];
     if (selected === undefined) return this.#localConstraint;
     return parseEvaluationConstraint({
       ...selected.constraint,
@@ -235,6 +228,7 @@ export class PolicyBundleSynchronizer {
   public async refresh(): Promise<SignedPolicyBundlePayload> {
     const response = await this.#fetch(this.#endpoint, {
       method: "GET",
+      redirect: "error",
       headers: { authorization: `Bearer ${this.#deviceToken}` },
       signal: AbortSignal.timeout(10_000),
     });

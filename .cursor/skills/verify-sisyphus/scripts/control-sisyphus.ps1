@@ -108,6 +108,15 @@ switch ($Action) {
 
     $pnpm = Join-Path $corepackBin "pnpm.cmd"
     $env:Path = "$corepackBin;$nodeDirectory;$env:Path"
+    foreach ($setting in @(
+      "SISYPHUS_WEB_API_URL",
+      "SISYPHUS_WEB_ORIGIN",
+      "SISYPHUS_WEB_SESSION_KEY",
+      "NEXT_PUBLIC_SISYPHUS_API_URL",
+      "NEXT_PUBLIC_SISYPHUS_DEMO_TOKEN"
+    )) {
+      [Environment]::SetEnvironmentVariable($setting, $null, "Process")
+    }
     $quotedPnpm = '"' + $pnpm + '"'
     $quotedRepo = '"' + $repoRoot + '"'
     $command = "cd /d $quotedRepo && $quotedPnpm --filter @sisyphus/web dev --hostname 127.0.0.1 --port $Port"

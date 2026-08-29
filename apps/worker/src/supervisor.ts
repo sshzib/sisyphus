@@ -27,6 +27,10 @@ import {
 import { canonicalSha256 } from "./canonical-json.js";
 import { projectCloudSupervisionRecord } from "./cloud-projection.js";
 import type { EvidenceRecord } from "./evidence-vault.js";
+import type {
+  EvaluationEvidenceCollector,
+  LocalEvaluationEvidence,
+} from "./evaluation-evidence.js";
 import {
   JournalEventCollisionError,
   type LocalJournal,
@@ -85,6 +89,7 @@ interface WorkerSupervisorInput {
   readonly policyProvider: PolicyProvider;
   readonly leaseAuthority: ActivationLeaseAuthority;
   readonly runtimeInstallations: RuntimeInstallationRegistry;
+  readonly evaluationEvidence: EvaluationEvidenceCollector;
   readonly now?: (() => Date) | undefined;
   readonly activationLeaseLifetimeMilliseconds?: number | undefined;
   readonly maximumCloudExcerptCharacters?: number | undefined;
@@ -139,11 +144,13 @@ function envelopeDigest(
 function serializeEvidence(
   envelope: WorkerSupervisionEnvelope,
   event: HookObservation,
+  evaluationEvidence: readonly LocalEvaluationEvidence[],
 ): string {
   const serialized = JSON.stringify({
     normalizedEvent: event,
     nativeEvent: envelope.nativeEvent ?? event,
     submittedActivation: envelope.activation,
+    evaluationEvidence,
   });
   if (serialized === undefined) {
     throw new WorkerRequestError("Supervision evidence is not JSON serializable.");
@@ -158,6 +165,7 @@ export class WorkerSupervisor {
   readonly #policyProvider: PolicyProvider;
   readonly #leaseAuthority: ActivationLeaseAuthority;
   readonly #runtimeInstallations: RuntimeInstallationRegistry;
+  readonly #evaluationEvidence: EvaluationEvidenceCollector;
   readonly #now: () => Date;
   readonly #activationLeaseLifetimeMilliseconds: number;
   readonly #maximumCloudExcerptCharacters: number;
@@ -170,6 +178,7 @@ export class WorkerSupervisor {
     this.#policyProvider = input.policyProvider;
     this.#leaseAuthority = input.leaseAuthority;
     this.#runtimeInstallations = input.runtimeInstallations;
+    this.#evaluationEvidence = input.evaluationEvidence;
     this.#now = input.now ?? (() => new Date());
     this.#activationLeaseLifetimeMilliseconds =
       input.activationLeaseLifetimeMilliseconds ??
@@ -238,14 +247,10 @@ export class WorkerSupervisor {
     }
 
     const event = this.#authoritativeAttribution(receivedEvent);
-    const serializedEvidence = serializeEvidence(envelope, event);
+    const serializedEventEvidence = serializeEvidence(envelope, event, []);
     const redacted = redactEvidence({
-      source: serializedEvidence,
+      source: serializedEventEvidence,
       maximumCharacters: this.#maximumCloudExcerptCharacters,
-    });
-    const evidence = await this.#evidenceVault.store({
-      evidence: serializedEvidence,
-      redactedExcerpt: redacted.text,
     });
     const constraint = await this.#policyProvider.constraintFor(event);
     const attempts = isStop(event)
@@ -257,8 +262,15 @@ export class WorkerSupervisor {
         })
       : 1;
     const evaluationStartedAt = performance.now();
-    const decision = await this.#kernel.supervise(event, constraint);
+    const evaluated = await this.#evaluationEvidence.collect(() =>
+      this.#kernel.supervise(event, constraint),
+    );
+    const decision = evaluated.result;
     const latencyMs = Math.max(0, Math.round(performance.now() - evaluationStartedAt));
+    const evidence = await this.#evidenceVault.store({
+      evidence: serializeEvidence(envelope, event, evaluated.evidence),
+      redactedExcerpt: redacted.text,
+    });
     const activationLease = this.#issueActivationLease(event, decision);
     const localDispositionRevision =
       decision.kind === "stop-decision" &&

@@ -14,6 +14,7 @@ import {
   type SignedPolicyBundlePayload,
   type SkillDispositionTransition,
 } from "@sisyphus/domain";
+import { createInMemoryKernel } from "@sisyphus/kernel";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -137,6 +138,105 @@ describe("signed policy bundles", () => {
     });
   });
 
+  it("selects policy applicability from each event runtime profile", async () => {
+    const base = payload();
+    const localPolicy = base.policies[0];
+    if (localPolicy === undefined) {
+      throw new Error("The policy fixture requires a local policy.");
+    }
+    const profilePayload = SignedPolicyBundlePayloadSchema.parse({
+      ...base,
+      policies: [
+        localPolicy,
+        {
+          ...localPolicy,
+          order: 1,
+          profile: "cloud-agent",
+          passThreshold: 0.95,
+          constraint: {
+            ...localPolicy.constraint,
+            policyId: "cloud-policy",
+            policyVersionId: "cloud-policy-v1",
+            passThreshold: 0.95,
+            toolPolicy: { kind: "allow" },
+          },
+        },
+      ],
+    });
+    const provider = new MutablePolicyProvider(defaultEvaluationConstraint());
+    provider.replaceBundle(profilePayload);
+    const cloudObservation = PromptObservationSchema.parse({
+      ...observation,
+      eventId: "policy-cloud-prompt",
+      workItemId: "policy-cloud-work",
+      retryBudgetId: "policy-cloud-budget",
+      runId: "policy-cloud-run",
+      runtimeInstallation: {
+        ...observation.runtimeInstallation,
+        profile: "cloud-agent",
+      },
+    });
+
+    await expect(provider.constraintFor(observation)).resolves.toMatchObject({
+      passThreshold: 0.8,
+      toolPolicy: { kind: "deny" },
+    });
+    await expect(provider.constraintFor(cloudObservation)).resolves.toMatchObject({
+      policyId: "cloud-policy",
+      passThreshold: 0.95,
+      toolPolicy: { kind: "allow" },
+    });
+  });
+
+  it("keeps the ordered policy authoritative when a capability is unavailable", async () => {
+    const base = payload();
+    const ordered = base.policies[0];
+    if (ordered === undefined) throw new Error("The policy fixture requires one policy.");
+    const strictConstraint = {
+      ...ordered.constraint,
+      requiredCapabilities: ["stableTokenUsage" as const],
+      toolPolicy: { kind: "deny" as const, reason: "strict policy remains authoritative" },
+    };
+    const bundle = SignedPolicyBundlePayloadSchema.parse({
+      ...base,
+      policies: [
+        {
+          ...ordered,
+          requiredCapabilities: ["stableTokenUsage"],
+          constraint: strictConstraint,
+        },
+        {
+          ...ordered,
+          order: 1,
+          requiredCapabilities: [],
+          constraint: {
+            ...ordered.constraint,
+            policyId: "weaker-policy",
+            policyVersionId: "weaker-policy-v1",
+            requiredCapabilities: [],
+            toolPolicy: { kind: "allow" },
+          },
+        },
+      ],
+    });
+    const provider = new MutablePolicyProvider(defaultEvaluationConstraint());
+    provider.replaceBundle(bundle);
+
+    const constraint = await provider.constraintFor(observation);
+    expect(constraint).toMatchObject({
+      requiredCapabilities: ["stableTokenUsage"],
+      toolPolicy: { kind: "deny", reason: "strict policy remains authoritative" },
+    });
+    await expect(
+      createInMemoryKernel().supervise(observation, constraint),
+    ).resolves.toMatchObject({
+      enforcement: {
+        kind: "observation",
+        missingCapabilities: ["stableTokenUsage"],
+      },
+    });
+  });
+
   it("rejects tampering and cross-tenant reuse", () => {
     const original = payload();
     const signed = signedBundle(original);
@@ -206,6 +306,7 @@ describe("signed policy bundles", () => {
       now: () => new Date("2026-08-29T12:00:00.000Z"),
       fetchImplementation: async (url, init) => {
         expect(String(url)).toBe("http://127.0.0.1:7332/v1/policy-bundle");
+        expect(init?.redirect).toBe("error");
         expect(new Headers(init?.headers).get("authorization")).toBe(
           "Bearer device-token",
         );

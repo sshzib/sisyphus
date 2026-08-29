@@ -1,8 +1,14 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 import {
+  createActivationLeaseId,
   createAdapterVersion,
   createDeviceId,
+  createSkillVersionId,
+  createSkillVersionKey,
+  createTimestamp,
+  createTriggerId,
   type DecisionFor,
   type PromptObservation,
   type RootStopObservation,
@@ -40,12 +46,32 @@ describe("Claude Code adapter conformance", () => {
       throw new Error("invalid fixtures");
     }
 
+    const selectedSkill = {
+      skillVersionId: createSkillVersionId("skill-claude-conformance@1.0.0"),
+      stableVersionKey: createSkillVersionKey("skill-claude-conformance@1.0.0"),
+      displayName: "Claude conformance skill",
+      administratorPriority: 100,
+      specificity: 100,
+      disposition: "active" as const,
+      activationAvailability: { kind: "available" as const },
+      trigger: {
+        triggerId: createTriggerId("trigger-claude-conformance"),
+        kind: "contains" as const,
+        pattern: "parser",
+      },
+    };
     const promptDecision: DecisionFor<PromptObservation> = {
       kind: "prompt-decision",
       eventId: prompt.eventId,
       enforcement: { kind: "enforced" },
       action: "continue",
-      resolution: { kind: "none", candidates: [] },
+      resolution: {
+        kind: "selected",
+        selected: selectedSkill,
+        candidates: [
+          { candidate: selectedSkill, outcome: { kind: "selected" } },
+        ],
+      },
     };
     const requestDecision: DecisionFor<ToolRequestObservation> = {
       kind: "tool-request-decision",
@@ -92,7 +118,51 @@ describe("Claude Code adapter conformance", () => {
         "tool_response",
       ],
       cases: [
-        { kind: "prompt", rawEvent: loadFixture("user-prompt-submit.json"), decision: promptDecision },
+        {
+          kind: "prompt",
+          rawEvent: loadFixture("user-prompt-submit.json"),
+          decision: promptDecision,
+          managedActivation: {
+            kind: "required",
+            workerIssued: {
+              activationLeaseId: createActivationLeaseId(
+                "sisyphus-v1.claude-conformance",
+              ),
+              skillVersionId: selectedSkill.skillVersionId,
+              expiresAt: createTimestamp("2026-08-29T10:05:00.000Z"),
+            },
+            activationResponseAccepted(response, activation) {
+              const parsed = z
+                .object({
+                  continue: z.literal(true),
+                  hookSpecificOutput: z
+                    .object({
+                      hookEventName: z.literal("UserPromptSubmit"),
+                      additionalContext: z.string(),
+                    })
+                    .strict(),
+                })
+                .strict()
+                .safeParse(response);
+              if (!parsed.success) return false;
+              const markerText = /with (\{[^\r\n]+\})\./u.exec(
+                parsed.data.hookSpecificOutput.additionalContext,
+              )?.[1];
+              if (markerText === undefined) return false;
+              try {
+                return z
+                  .object({
+                    skillVersionId: z.literal(activation.skillVersionId),
+                    activationLeaseId: z.literal(activation.activationLeaseId),
+                  })
+                  .strict()
+                  .safeParse(JSON.parse(markerText)).success;
+              } catch {
+                return false;
+              }
+            },
+          },
+        },
         { kind: "tool-request", rawEvent: loadFixture("pre-tool-use.json"), decision: requestDecision },
         { kind: "tool-result", rawEvent: loadFixture("post-tool-use.json"), decision: resultDecision },
         {
