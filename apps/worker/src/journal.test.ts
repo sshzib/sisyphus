@@ -123,6 +123,7 @@ describe("LocalJournal", () => {
     const authority = new ActivationLeaseAuthority({ key: new Uint8Array(32).fill(7) });
     const issued = authority.issue({
       promptEventId: "prompt-event-1",
+      runtime: "codex",
       runId: "run-1",
       workItemId: "work-1",
       skillVersionId: "skill-version-1",
@@ -162,6 +163,7 @@ describe("LocalJournal", () => {
     const authority = new ActivationLeaseAuthority({ key: new Uint8Array(32).fill(8) });
     const issued = authority.issue({
       promptEventId: "prompt-event-2",
+      runtime: "codex",
       runId: "run-2",
       workItemId: "work-2",
       skillVersionId: "skill-version-2",

@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import {
+  LocalChallengeNonceSchema,
+  signLocalChallenge,
+} from "@sisyphus/local-protocol";
 
 import { CodexSupervisionEnvelopeSchema, createCodexAdapter, runCodexHook } from "../src/index.js";
 import { loadFixture } from "./fixture.js";
@@ -16,9 +20,26 @@ function parseRequestBody(body: BodyInit | null | undefined) {
   return CodexSupervisionEnvelopeSchema.parse(parsed);
 }
 
+function authenticatedRequest(supervisionRequest: typeof fetch): typeof fetch {
+  return async (input, init) => {
+    const url = new URL(String(input));
+    if (url.pathname !== "/v1/challenge") {
+      return supervisionRequest(input, init);
+    }
+    expect(new Headers(init?.headers).has("authorization")).toBe(false);
+    expect(init?.body).toBeUndefined();
+    const nonce = LocalChallengeNonceSchema.parse(url.searchParams.get("nonce"));
+    return Response.json({
+      channel: "hook",
+      nonce,
+      proof: signLocalChallenge({ channel: "hook", nonce, token: hookToken }),
+    });
+  };
+}
+
 describe("Codex hook worker bridge", () => {
   it("posts a normalized strict envelope and renders the returned decision", async () => {
-    const request: typeof fetch = async (url, init) => {
+    const request = authenticatedRequest(async (url, init) => {
       expect(String(url)).toBe("http://127.0.0.1:7331/v1/supervise");
       expect(new Headers(init?.headers).get("authorization")).toBe(
         `Bearer ${hookToken}`,
@@ -42,7 +63,7 @@ describe("Codex hook worker bridge", () => {
           resolution: { kind: "none", candidates: [] },
         },
       });
-    };
+    });
 
     await expect(
       runCodexHook({
@@ -55,7 +76,7 @@ describe("Codex hook worker bridge", () => {
   });
 
   it("sends worker-confirmed activation evidence without tool payload logs", async () => {
-    const request: typeof fetch = async (_url, init) => {
+    const request = authenticatedRequest(async (_url, init) => {
       const envelope = parseRequestBody(init?.body);
       expect(envelope.activation).toEqual({
         kind: "verified",
@@ -75,7 +96,7 @@ describe("Codex hook worker bridge", () => {
           action: "recorded",
         },
       });
-    };
+    });
 
     await expect(
       runCodexHook({
@@ -88,7 +109,7 @@ describe("Codex hook worker bridge", () => {
   });
 
   it("rejects a response for another event", async () => {
-    const request: typeof fetch = async () =>
+    const request = authenticatedRequest(async () =>
       Response.json({
         decision: {
           kind: "prompt-decision",
@@ -97,7 +118,8 @@ describe("Codex hook worker bridge", () => {
           action: "continue",
           resolution: { kind: "none", candidates: [] },
         },
-      });
+      }),
+    );
 
     await expect(
       runCodexHook({
@@ -120,8 +142,31 @@ describe("Codex hook worker bridge", () => {
     ).rejects.toThrow("loopback host");
   });
 
+  it("sends no token or event body to a loopback port squatter", async () => {
+    const requests: { readonly authorization: string | null; readonly body: BodyInit | null | undefined }[] = [];
+    const request: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      const nonce = LocalChallengeNonceSchema.parse(url.searchParams.get("nonce"));
+      requests.push({
+        authorization: new Headers(init?.headers).get("authorization"),
+        body: init?.body,
+      });
+      return Response.json({ channel: "hook", nonce, proof: "A".repeat(43) });
+    };
+
+    await expect(
+      runCodexHook({
+        rawEvent: loadFixture("user-prompt-submit.json"),
+        adapter,
+        workerToken: hookToken,
+        request,
+      }),
+    ).rejects.toThrow("authentication failed");
+    expect(requests).toEqual([{ authorization: null, body: undefined }]);
+  });
+
   it("injects only a lease issued in the worker response", async () => {
-    const request: typeof fetch = async (_url, init) => {
+    const request = authenticatedRequest(async (_url, init) => {
       const envelope = parseRequestBody(init?.body);
       return Response.json({
         decision: {
@@ -153,7 +198,7 @@ describe("Codex hook worker bridge", () => {
           expiresAt: "2026-08-29T10:05:00.000Z",
         },
       });
-    };
+    });
 
     const response = await runCodexHook({
       rawEvent: loadFixture("user-prompt-submit.json"),
@@ -167,7 +212,7 @@ describe("Codex hook worker bridge", () => {
   });
 
   it("rejects a selected skill response without a worker-issued lease", async () => {
-    const request: typeof fetch = async (_url, init) => {
+    const request = authenticatedRequest(async (_url, init) => {
       const envelope = parseRequestBody(init?.body);
       return Response.json({
         decision: {
@@ -194,7 +239,7 @@ describe("Codex hook worker bridge", () => {
           },
         },
       });
-    };
+    });
 
     await expect(
       runCodexHook({

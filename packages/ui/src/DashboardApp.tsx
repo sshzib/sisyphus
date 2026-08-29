@@ -280,6 +280,7 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
               runtime={runtime}
               onNavigate={navigate}
               onRestore={setRestoreTarget}
+              hostContext={hostContext}
               {...(
                 hostContext?.kind === "desktop" &&
                 hostContext.localEvidence.kind === "supported" &&
@@ -380,6 +381,16 @@ function HostStatus({ context }: { context: HostContext | undefined }) {
       </span>
     );
   }
+  const setupRequired = context.adapterAccess.find(
+    (access) => access.kind === "setup-required",
+  );
+  if (setupRequired?.kind === "setup-required") {
+    return (
+      <span className="host-pill host-pill--warning" title={setupRequired.reason}>
+        <span className="status-dot status-dot--warning" />Worker online · adapter setup needed
+      </span>
+    );
+  }
   return (
     <span className="host-pill">
       <span className="status-dot status-dot--good" />
@@ -404,6 +415,7 @@ function DashboardSection(input: {
   runtime: AgentRuntime | undefined;
   onNavigate: (section: Section) => void;
   onRestore: (skill: SkillSummary) => void;
+  hostContext: HostContext | undefined;
   onInspectEvidence?: (run: RunSummary) => void;
 }) {
   switch (input.section) {
@@ -425,7 +437,12 @@ function DashboardSection(input: {
     case "conflicts":
       return <ConflictsView conflicts={input.snapshot.conflicts} />;
     case "integrations":
-      return <IntegrationsView integrations={input.snapshot.integrations} />;
+      return (
+        <IntegrationsView
+          integrations={input.snapshot.integrations}
+          hostContext={input.hostContext}
+        />
+      );
     case "policies":
       return <PoliciesView snapshot={input.snapshot} />;
     case "audit":
@@ -736,18 +753,37 @@ const capabilityFields: {
   { label: "Local evidence", read: (integration) => integration.capabilities.localEvidenceAccess },
 ];
 
-function IntegrationsView({ integrations }: { integrations: IntegrationSummary[] }) {
+function IntegrationsView({
+  integrations,
+  hostContext,
+}: {
+  integrations: IntegrationSummary[];
+  hostContext: HostContext | undefined;
+}) {
   return (
     <div className="integration-grid">
-      {integrations.map((integration) => (
-        <article className="integration-card" key={integration.id}>
-          <header><div className="integration-card__identity"><RuntimeMark runtime={integration.runtime} /><div><h2>{runtimeLabel(integration.runtime)}</h2><span>{integration.scope} · adapter {integration.adapterVersion}</span></div></div><StatusBadge value={integration.status} /></header>
-          <div className="integration-meta"><span>Runtime {integration.runtimeVersion}</span><span>Seen {formatTimestamp(integration.lastSeenAt)}</span></div>
-          <div className="capability-list">
-            {capabilityFields.map((field) => <CapabilityRow key={field.label} label={field.label} capability={field.read(integration)} />)}
-          </div>
-        </article>
-      ))}
+      {integrations.map((integration) => {
+        const access =
+          hostContext?.kind === "desktop" && integration.scope === "local"
+            ? hostContext.adapterAccess.find(
+                (candidate) => candidate.runtime === integration.runtime,
+              )
+            : undefined;
+        const effectiveStatus =
+          access?.kind === "setup-required" ? "degraded" : integration.status;
+        return (
+          <article className="integration-card" key={integration.id}>
+            <header><div className="integration-card__identity"><RuntimeMark runtime={integration.runtime} /><div><h2>{runtimeLabel(integration.runtime)}</h2><span>{integration.scope} · adapter {integration.adapterVersion}</span></div></div><StatusBadge value={effectiveStatus} /></header>
+            {access?.kind === "setup-required" ? (
+              <p className="integration-warning">{access.reason}</p>
+            ) : null}
+            <div className="integration-meta"><span>Runtime {integration.runtimeVersion}</span><span>Seen {formatTimestamp(integration.lastSeenAt)}</span></div>
+            <div className="capability-list">
+              {capabilityFields.map((field) => <CapabilityRow key={field.label} label={field.label} capability={field.read(integration)} />)}
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }

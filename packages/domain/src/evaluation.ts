@@ -1,14 +1,18 @@
 import { z } from "zod";
 
 import {
+  AdapterVersionSchema,
   PolicyIdSchema,
   PolicyVersionIdSchema,
+  RunIdSchema,
   RuntimeEventIdSchema,
   SkillVersionIdSchema,
   TimestampSchema,
+  WorkItemIdSchema,
   type Timestamp,
 } from "./identifiers.js";
 import { CapabilityNameSchema, EnforcementSchema, RuntimeCapabilitySnapshotSchema } from "./capabilities.js";
+import { RuntimeIdentitySchema } from "./observations.js";
 import { SkillMatchCandidateSchema, SkillResolutionSchema } from "./skills.js";
 
 export const EvaluationFindingSchema = z.object({
@@ -235,7 +239,14 @@ export type DecisionFor<E extends { readonly kind: string }> =
 
 export const SkillCompletionRecordSchema = z.object({
   eventId: RuntimeEventIdSchema,
+  runId: RunIdSchema,
+  workItemId: WorkItemIdSchema,
+  adapterVersion: AdapterVersionSchema,
+  policyId: PolicyIdSchema,
+  policyVersionId: PolicyVersionIdSchema,
   skillVersionId: SkillVersionIdSchema,
+  identity: RuntimeIdentitySchema,
+  attempt: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   completedAt: TimestampSchema,
   outcome: z.enum(["pass", "terminal-failure"]),
   capabilities: RuntimeCapabilitySnapshotSchema,

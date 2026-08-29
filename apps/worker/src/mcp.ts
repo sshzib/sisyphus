@@ -3,10 +3,16 @@ import type { IncomingMessage, RequestListener, ServerResponse } from "node:http
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import {
+  createSkillVersionId,
+  type AgentRuntime,
+  type SkillVersionId,
+} from "@sisyphus/domain";
 import { z } from "zod";
 
 import { activationLeaseDigest } from "./activation-lease.js";
 import type { LocalJournal } from "./journal.js";
+import type { ManagedSkillInstruction } from "./managed-catalog.js";
 import {
   authorizeLocalRequest,
   type LocalBearerToken,
@@ -15,8 +21,33 @@ import {
 interface McpRequestHandlerInput {
   readonly journal: LocalJournal;
   readonly mcpToken: LocalBearerToken;
+  readonly instructionForSkill?:
+    | ((input: {
+        readonly runtime: AgentRuntime;
+        readonly skillVersionId: SkillVersionId;
+      }) => ManagedSkillInstruction | undefined)
+    | undefined;
   readonly now?: (() => Date) | undefined;
 }
+
+const ManagedSkillInstructionSchema = z
+  .object({
+    skillVersionId: z.string().trim().min(1),
+    displayName: z.string().trim().min(1),
+    content: z.string().min(1),
+    contentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+    provenance: z.discriminatedUnion("kind", [
+      z.object({ kind: z.literal("canonical") }).strict(),
+      z
+        .object({
+          kind: z.literal("runtime-wrapper"),
+          wrapperId: z.string().trim().min(1),
+          path: z.string().trim().min(1),
+        })
+        .strict(),
+    ]),
+  })
+  .strict();
 
 function writeJsonRpcError(response: ServerResponse, status: number): void {
   if (response.headersSent) return;
@@ -72,6 +103,7 @@ async function handleMcpRequest(
         activated: z.literal(true),
         skillVersionId: z.string(),
         activationLeaseId: z.string(),
+        instruction: ManagedSkillInstructionSchema.optional(),
       },
     },
     async ({ activationLeaseId, skillVersionId }) => {
@@ -85,7 +117,16 @@ async function handleMcpRequest(
       if (consumed === undefined) {
         throw new Error("Activation lease is invalid, expired, or already consumed.");
       }
-      const result = { activated: true as const, skillVersionId, activationLeaseId };
+      const instruction = input.instructionForSkill?.({
+        runtime: consumed.runtime,
+        skillVersionId: createSkillVersionId(consumed.skillVersionId),
+      });
+      const result = {
+        activated: true as const,
+        skillVersionId,
+        activationLeaseId,
+        ...(instruction === undefined ? {} : { instruction }),
+      };
       return {
         content: [{ type: "text" as const, text: JSON.stringify(result) }],
         structuredContent: result,

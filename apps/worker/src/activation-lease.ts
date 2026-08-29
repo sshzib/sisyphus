@@ -4,6 +4,7 @@ import {
   createActivationLeaseId,
   createSkillVersionId,
   createTimestamp,
+  type AgentRuntime,
   type ActivationLeaseId,
   type SkillVersionId,
   type Timestamp,
@@ -15,6 +16,7 @@ const KEY_BYTES = 32;
 
 export interface StoredActivationLease {
   readonly promptEventId: string;
+  readonly runtime: AgentRuntime;
   readonly runId: string;
   readonly workItemId: string;
   readonly skillVersionId: string;
@@ -32,6 +34,7 @@ export interface WorkerIssuedActivationLease {
 
 interface IssueActivationLeaseInput {
   readonly promptEventId: string;
+  readonly runtime: AgentRuntime;
   readonly runId: string;
   readonly workItemId: string;
   readonly skillVersionId: string;
@@ -73,6 +76,7 @@ export class ActivationLeaseAuthority {
     }
     const unsigned = {
       promptEventId: input.promptEventId,
+      runtime: input.runtime,
       runId: input.runId,
       workItemId: input.workItemId,
       skillVersionId: input.skillVersionId,
@@ -107,6 +111,7 @@ export class ActivationLeaseAuthority {
     const payload = canonicalJson([
       "sisyphus-activation-lease-v1",
       input.promptEventId,
+      input.runtime,
       input.runId,
       input.workItemId,
       input.skillVersionId,

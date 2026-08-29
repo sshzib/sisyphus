@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "./app.js";
+import { createInMemoryRepository } from "./repository.js";
 import { AesGcmSecretCipher } from "./secret-cipher.js";
 import {
   parseServerEnvironment,
@@ -44,7 +45,10 @@ describe("production repository selection", () => {
   it("does not let production createApp construct its demo repository", async () => {
     vi.stubEnv("NODE_ENV", "production");
     await expect(createApp()).rejects.toThrow(
-      /requires an explicit persistent ControlPlaneRepository/u,
+      /Production API startup is disabled/u,
     );
+    await expect(
+      createApp({ repository: createInMemoryRepository() }),
+    ).rejects.toThrow(/in-memory repositories and demo credentials are refused/u);
   });
 });

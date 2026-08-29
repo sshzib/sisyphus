@@ -27,17 +27,29 @@ import {
   defaultEvaluationConstraint,
   type WorkerPolicyIdentity,
 } from "./policy.js";
+import {
+  ManagedSkillCatalogConfigurationSchema,
+  type ManagedSkillCatalogConfiguration,
+} from "./managed-catalog.js";
 
-const WorkerPolicyFileSchema = z.object({
-  constraint: EvaluationConstraintSchema.default(defaultEvaluationConstraint()),
-  deterministicChecks: z.array(CommandEvaluatorInputSchema).default([]),
-  completionGuards: CompletionGuardInputSchema.default({ requiredEvidencePatterns: [] }),
-});
+const WorkerPolicyFileSchema = z
+  .object({
+    constraint: EvaluationConstraintSchema.default(defaultEvaluationConstraint()),
+    deterministicChecks: z.array(CommandEvaluatorInputSchema).default([]),
+    completionGuards: CompletionGuardInputSchema.default({ requiredEvidencePatterns: [] }),
+    managedCatalog: ManagedSkillCatalogConfigurationSchema.default({
+      skills: [],
+      administratorPriorities: [],
+      wrappers: [],
+    }),
+  })
+  .strict();
 
 export interface WorkerPolicyConfiguration {
   readonly constraint: EvaluationConstraint;
   readonly deterministicChecks: readonly CommandEvaluatorInput[];
   readonly completionGuards: CompletionGuardInput;
+  readonly managedCatalog: ManagedSkillCatalogConfiguration;
 }
 
 export interface WorkerControlPlaneConfiguration {

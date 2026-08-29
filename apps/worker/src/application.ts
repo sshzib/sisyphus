@@ -11,6 +11,10 @@ import { LocalEvidenceBroker } from "./evidence-broker.js";
 import { CommandEvaluator, CompletionGuardEvaluator } from "./evaluators.js";
 import { HostedJudge } from "./hosted-judge.js";
 import { LocalJournal } from "./journal.js";
+import {
+  ManagedCatalogPolicyProvider,
+  createManagedSkillCatalog,
+} from "./managed-catalog.js";
 import { createMcpRequestHandler } from "./mcp.js";
 import { OutboxSynchronizer } from "./outbox-sync.js";
 import { MutablePolicyProvider, PolicyBundleSynchronizer } from "./policy.js";
@@ -52,7 +56,7 @@ export async function createWorkerApplication(
     directory: join(input.configuration.dataDirectory, "evidence"),
     key: input.evidenceKey,
   });
-  const policyProvider = new MutablePolicyProvider(
+  const mutablePolicyProvider = new MutablePolicyProvider(
     input.configuration.policy.constraint,
     {
       profile: input.configuration.controlPlane?.policyIdentity?.profile ?? "local",
@@ -78,6 +82,18 @@ export async function createWorkerApplication(
     deterministicEvaluators,
     judge,
   });
+  const managedCatalog = await createManagedSkillCatalog(
+    input.configuration.policy.managedCatalog,
+  );
+  const policyProvider = new ManagedCatalogPolicyProvider({
+    base: mutablePolicyProvider,
+    catalog: managedCatalog,
+    standing: {
+      async dispositionFor(skillVersionId) {
+        return (await kernel.getSkillStanding(skillVersionId)).disposition;
+      },
+    },
+  });
   const leaseAuthority = new ActivationLeaseAuthority({ key: input.evidenceKey });
   const supervisor = new WorkerSupervisor({
     journal,
@@ -96,6 +112,8 @@ export async function createWorkerApplication(
     mcpHandler: createMcpRequestHandler({
       journal,
       mcpToken: input.configuration.mcpToken,
+      instructionForSkill: ({ runtime, skillVersionId }) =>
+        managedCatalog.instructionFor(runtime, skillVersionId),
     }),
     ...(input.configuration.desktopToken === undefined
       ? {}
@@ -124,7 +142,7 @@ export async function createWorkerApplication(
       : new PolicyBundleSynchronizer({
           endpoint: controlPlane.endpoint,
           deviceToken: controlPlane.deviceToken,
-          provider: policyProvider,
+          provider: mutablePolicyProvider,
           publicKeys: controlPlane.trustedPolicyKeys,
           identity: controlPlane.policyIdentity,
           stateStore: journal,

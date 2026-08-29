@@ -1220,6 +1220,17 @@ tbody tr:hover {
   font-size: 13px;
 }
 
+.integration-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(241, 184, 76, 0.28);
+  border-radius: 8px;
+  color: #f1c46d;
+  background: rgba(241, 184, 76, 0.08);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
 .integration-card header span:not(.runtime-mark, .status-label, .status-dot),
 .policy-card header span:not(.status-dot, .toggle-label),
 .device-card header span:not(.status-label, .status-dot) {

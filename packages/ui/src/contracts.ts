@@ -263,6 +263,23 @@ export const RestoreSkillResponseSchema = z
   .strict();
 export type RestoreSkillResponse = z.infer<typeof RestoreSkillResponseSchema>;
 
+export const RuntimeAdapterAccessSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("paired"),
+      runtime: AgentRuntimeSchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("setup-required"),
+      runtime: AgentRuntimeSchema,
+      reason: z.string().trim().min(1),
+    })
+    .strict(),
+]);
+export type RuntimeAdapterAccess = z.infer<typeof RuntimeAdapterAccessSchema>;
+
 export const HostContextSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("web") }).strict(),
   z
@@ -279,6 +296,7 @@ export const HostContextSchema = z.discriminatedUnion("kind", [
         z.object({ kind: z.literal("offline"), reason: z.string().min(1) }).strict(),
       ]),
       localEvidence: CapabilitySchema,
+      adapterAccess: z.array(RuntimeAdapterAccessSchema),
     })
     .strict(),
 ]);

@@ -13,6 +13,10 @@ import {
   type UtilityProcess,
 } from "electron";
 import { z } from "zod";
+import {
+  createLocalChallengeNonce,
+  verifyLocalChallenge,
+} from "@sisyphus/local-protocol";
 import { HostContextSchema, type HostContext } from "@sisyphus/ui/contracts";
 import { DeviceSecretStore, type DeviceSecretCipher } from "./device-secrets.js";
 import { LocalEvidenceResponseSchema, desktopChannels } from "./ipc.js";
@@ -59,8 +63,33 @@ const EvidenceNotFoundSchema = z
   .object({ error: z.literal("evidence-not-found") })
   .strict();
 
-async function evidenceBrokerIsAvailable(): Promise<boolean> {
+async function workerAuthenticatesDesktop(): Promise<boolean> {
   if (workerDesktopToken === undefined) return false;
+  try {
+    const nonce = createLocalChallengeNonce();
+    const url = new URL("/v1/challenge", EnvironmentSchema.SISYPHUS_WORKER_URL);
+    url.searchParams.set("channel", "desktop");
+    url.searchParams.set("nonce", nonce);
+    const response = await fetch(url, {
+      method: "GET",
+      signal: AbortSignal.timeout(1_500),
+    });
+    if (!response.ok) return false;
+    return verifyLocalChallenge({
+      response: await response.json(),
+      channel: "desktop",
+      nonce,
+      token: workerDesktopToken,
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function evidenceBrokerIsAvailable(): Promise<boolean> {
+  if (workerDesktopToken === undefined || !(await workerAuthenticatesDesktop())) {
+    return false;
+  }
   try {
     const response = await fetch(`${EnvironmentSchema.SISYPHUS_WORKER_URL}/v1/evidence`, {
       method: "POST",
@@ -83,6 +112,9 @@ async function evidenceBrokerIsAvailable(): Promise<boolean> {
 async function localEvidence(eventId: string) {
   if (workerDesktopToken === undefined) {
     throw new Error("The desktop evidence credential is unavailable.");
+  }
+  if (!(await workerAuthenticatesDesktop())) {
+    throw new Error("The local worker failed device authentication.");
   }
   const response = await fetch(`${EnvironmentSchema.SISYPHUS_WORKER_URL}/v1/evidence`, {
     method: "POST",
@@ -109,6 +141,17 @@ async function localEvidence(eventId: string) {
 }
 
 async function workerHostContext(): Promise<HostContext> {
+  const adapterAccess = [
+    EnvironmentSchema.SISYPHUS_HOOK_TOKEN !== undefined &&
+    EnvironmentSchema.SISYPHUS_MCP_TOKEN !== undefined
+      ? { kind: "paired" as const, runtime: "codex" as const }
+      : {
+          kind: "setup-required" as const,
+          runtime: "codex" as const,
+          reason:
+            "Launch the desktop app and Codex with the same SISYPHUS_HOOK_TOKEN and SISYPHUS_MCP_TOKEN values.",
+        },
+  ];
   try {
     const response = await fetch(`${EnvironmentSchema.SISYPHUS_WORKER_URL}/health`, {
       signal: AbortSignal.timeout(1500),
@@ -118,9 +161,24 @@ async function workerHostContext(): Promise<HostContext> {
         kind: "desktop",
         worker: { kind: "offline", reason: `Worker returned HTTP ${response.status}.` },
         localEvidence: { kind: "unsupported", reason: "The local worker is offline." },
+        adapterAccess,
       };
     }
     const health = WorkerHealthSchema.parse(await response.json());
+    if (!(await workerAuthenticatesDesktop())) {
+      return {
+        kind: "desktop",
+        worker: {
+          kind: "offline",
+          reason: "The process on the worker port failed device authentication.",
+        },
+        localEvidence: {
+          kind: "unsupported",
+          reason: "The worker could not be authenticated.",
+        },
+        adapterAccess,
+      };
+    }
     const evidenceAvailable = await evidenceBrokerIsAvailable();
     return HostContextSchema.parse({
       kind: "desktop",
@@ -135,6 +193,7 @@ async function workerHostContext(): Promise<HostContext> {
             kind: "unsupported",
             reason: "The authenticated desktop evidence broker is unavailable.",
           },
+      adapterAccess,
     });
   } catch (error: unknown) {
     return {
@@ -146,6 +205,7 @@ async function workerHostContext(): Promise<HostContext> {
           (error instanceof Error ? error.message : "The local worker is unavailable."),
       },
       localEvidence: { kind: "unsupported", reason: "The local worker is offline." },
+      adapterAccess,
     };
   }
 }
@@ -197,7 +257,11 @@ async function workerIsOnline(): Promise<boolean> {
     const response = await fetch(`${EnvironmentSchema.SISYPHUS_WORKER_URL}/health`, {
       signal: AbortSignal.timeout(500),
     });
-    return response.ok && WorkerHealthSchema.safeParse(await response.json()).success;
+    return (
+      response.ok &&
+      WorkerHealthSchema.safeParse(await response.json()).success &&
+      (await workerAuthenticatesDesktop())
+    );
   } catch {
     return false;
   }

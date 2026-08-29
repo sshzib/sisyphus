@@ -24,7 +24,7 @@ const policyBundleSigner =
           "base64",
         ).toString("utf8"),
       });
-const repository = selectServerRepository({ environment, secretCipher });
+const repository = await selectServerRepository({ environment, secretCipher });
 
 const app = await createApp({
   logger: environment.nodeEnvironment !== "test",

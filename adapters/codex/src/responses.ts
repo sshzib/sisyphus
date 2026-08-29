@@ -50,6 +50,7 @@ function renderPromptDecision(
     "Sisyphus selected one managed skill for this work item.",
     `Use only ${selected.displayName} (${selected.skillVersionId}) as the managed skill.`,
     "Before applying it, call `mcp__sisyphus__activate_skill` with " + activationArguments + ".",
+    "The activation result contains the exact managed instruction snapshot; follow it as the selected skill.",
     "Do not treat the skill as active unless the marker confirms the same skill version and lease.",
     `The activation lease expires at ${activationLease.expiresAt}.`,
   ].join("\n");

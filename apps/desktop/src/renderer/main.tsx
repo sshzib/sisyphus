@@ -27,6 +27,7 @@ function DesktopApp() {
       kind: "desktop",
       worker: { kind: "offline", reason: "Connecting to local worker." },
       localEvidence: { kind: "unsupported", reason: "Connecting to local worker." },
+      adapterAccess: [],
     }),
   );
 

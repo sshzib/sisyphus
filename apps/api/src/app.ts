@@ -18,6 +18,7 @@ import Fastify, {
 } from "fastify";
 import { z } from "zod";
 import { containsCredentialShapedString } from "./credential-screen.js";
+import { isReadyPostgresControlPlaneRepository } from "./database/postgres-repository.js";
 import {
   authenticated,
   bearerToken,
@@ -135,9 +136,13 @@ async function tenantDashboard(input: {
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
-  if (options.repository === undefined && process.env.NODE_ENV === "production") {
+  if (
+    process.env.NODE_ENV === "production" &&
+    (options.repository === undefined ||
+      !isReadyPostgresControlPlaneRepository(options.repository))
+  ) {
     throw new Error(
-      "Production createApp requires an explicit persistent ControlPlaneRepository.",
+      "Production API startup requires a migrated, RLS-verified PostgreSQL ControlPlaneRepository; in-memory repositories and demo credentials are refused.",
     );
   }
   const repository = options.repository ?? createInMemoryRepository();
@@ -153,8 +158,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(cors, {
     origin: options.corsOrigins ?? ["http://localhost:3000"],
     allowedHeaders: ["Authorization", "Content-Type"],
-    methods: ["GET", "POST", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "OPTIONS"],
   });
+
+  app.addHook("onClose", async () => repository.close());
 
   app.decorateRequest("authContext", null);
   app.addHook("onRequest", async (request, reply) => {
@@ -186,16 +193,16 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     request.authContext = auth;
   });
 
-  app.get("/health", async () => ({
-    status: "ok",
-    service: "sisyphus-control-plane",
-    version: "0.1.0",
-  }));
-  app.get("/v1/health", async () => ({
-    status: "ok",
-    service: "sisyphus-control-plane",
-    version: "0.1.0",
-  }));
+  const health = async () => {
+    await repository.health();
+    return {
+      status: "ok",
+      service: "sisyphus-control-plane",
+      version: "0.1.0",
+    };
+  };
+  app.get("/health", health);
+  app.get("/v1/health", health);
 
   app.get("/v1/dashboard", async (request, reply) => {
     const snapshot = await tenantDashboard({ request, reply, repository });
@@ -275,17 +282,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       });
       return;
     }
-    const snapshot = await repository.dashboard(auth.tenantId, {});
-    if (snapshot === undefined) {
-      sendApiError({
-        request,
-        reply,
-        status: 404,
-        error: "tenant_not_found",
-        message: "The authenticated tenant is unavailable.",
-      });
-      return;
-    }
     const issuance = await repository.issuePolicyBundle({
       tenantId: auth.tenantId,
       deviceId: auth.subjectId,
@@ -302,7 +298,6 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       return;
     }
     const bundle = createSignedPolicyBundle({
-      snapshot,
       signer: policyBundleSigner,
       ...issuance,
     });

@@ -1,8 +1,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
+  CloudSupervisionEnvelopeSchema,
+  JudgeResultSchema,
+  SignedPolicyBundleSchema,
   SkillDispositionTransitionSchema,
   type AdapterConfigurationDigest,
   type CloudSupervisionEnvelope,
+  type JudgeResult,
   type SignedPolicyBundle,
   type SkillDispositionTransition,
 } from "@sisyphus/domain";
@@ -19,7 +23,10 @@ import {
 } from "@sisyphus/ui/demo";
 import type { AuthContext, CredentialResolver } from "./auth.js";
 import { canonicalJson } from "./canonical-json.js";
-import type { JudgeConfigurationStore } from "./judge.js";
+import type {
+  JudgeConfigurationStore,
+  JudgeRequestClaim,
+} from "./judge.js";
 import {
   applyDispositionTransition,
   projectAcceptedCloudRecords,
@@ -46,6 +53,15 @@ interface TenantState {
   policyRevision: number;
   adapterConfigurationDigest: AdapterConfigurationDigest;
   signedPolicyBundles: Map<number, SignedPolicyBundle>;
+  judgeRequests: Map<
+    string,
+    {
+      inputDigest: string;
+      leaseId: string | null;
+      leaseExpiresAt: string | null;
+      result: JudgeResult | null;
+    }
+  >;
   judgeProvider?: {
     encryptedApiKey: EncryptedSecret;
     model: string;
@@ -53,6 +69,9 @@ interface TenantState {
 }
 
 export interface ControlPlaneRepository extends CredentialResolver, JudgeConfigurationStore {
+  readonly persistenceKind: "memory" | "postgres";
+  health(): Promise<void>;
+  close(): Promise<void>;
   dashboard(tenantId: string, query: DashboardQuery): Promise<DashboardSnapshot | undefined>;
   restoreSkill(input: {
     tenantId: string;
@@ -87,6 +106,7 @@ export interface PolicyBundleIssuance {
   revision: number;
   adapterConfigurationDigest: AdapterConfigurationDigest;
   dispositionTransitions: SkillDispositionTransition[];
+  snapshot: DashboardSnapshot;
 }
 
 export class InvalidStateTransitionError extends Error {
@@ -188,6 +208,10 @@ function payloadDigest(payload: CloudSupervisionEnvelope["payload"]): string {
   return createHash("sha256").update(canonicalJson(payload)).digest("hex");
 }
 
+function judgeRequestKey(eventId: string, policyVersionId: string): string {
+  return `${eventId}\u0000${policyVersionId}`;
+}
+
 function tenantSeed(): Map<string, TenantState> {
   const acmeSnapshot = createDemoSnapshot();
   const beta = betaSnapshot();
@@ -202,6 +226,7 @@ function tenantSeed(): Map<string, TenantState> {
         policyRevision: 0,
         adapterConfigurationDigest: adapterConfigurationDigest(acmeSnapshot),
         signedPolicyBundles: new Map(),
+        judgeRequests: new Map(),
       },
     ],
     [
@@ -214,6 +239,7 @@ function tenantSeed(): Map<string, TenantState> {
         policyRevision: 0,
         adapterConfigurationDigest: adapterConfigurationDigest(beta),
         signedPolicyBundles: new Map(),
+        judgeRequests: new Map(),
       },
     ],
   ]);
@@ -272,6 +298,7 @@ function credentialSeed(): Map<string, AuthContext> {
 }
 
 export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
+  public readonly persistenceKind = "memory" as const;
   readonly #tenants: Map<string, TenantState>;
   readonly #credentials: Map<string, AuthContext>;
   readonly #secretCipher: SecretCipher;
@@ -289,6 +316,10 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
   public async resolveCredential(token: string): Promise<AuthContext | undefined> {
     return this.#credentials.get(token);
   }
+
+  public async health(): Promise<void> {}
+
+  public async close(): Promise<void> {}
 
   public async dashboard(
     tenantId: string,
@@ -366,13 +397,17 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
     auth: Extract<AuthContext, { kind: "device" }>;
     records: CloudSupervisionEnvelope[];
   }): Promise<string[]> {
+    const records = CloudSupervisionEnvelopeSchema.array()
+      .min(1)
+      .max(100)
+      .parse(input.records);
     const tenant = this.#tenants.get(input.auth.tenantId);
     if (tenant === undefined) {
       return [];
     }
 
     const prospective = new Map<string, string>();
-    for (const record of input.records) {
+    for (const record of records) {
       const digest = payloadDigest(record.payload);
       const stored = tenant.ingestEvents.get(record.eventId);
       const earlierInBatch = prospective.get(record.eventId);
@@ -387,7 +422,7 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
 
     const acceptedAt = new Date().toISOString();
     const acceptedRecords: CloudSupervisionEnvelope[] = [];
-    for (const record of input.records) {
+    for (const record of records) {
       if (!tenant.ingestEvents.has(record.eventId)) {
         const digest = payloadDigest(record.payload);
         tenant.ingestEvents.set(record.eventId, {
@@ -455,7 +490,7 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
         };
       }
     }
-    return input.records.map((record) => record.id);
+    return records.map((record) => record.id);
   }
 
   public async configureJudgeProvider(input: {
@@ -493,6 +528,78 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
     };
   }
 
+  public async claimJudgeRequest(
+    input: Parameters<JudgeConfigurationStore["claimJudgeRequest"]>[0],
+  ): Promise<JudgeRequestClaim> {
+    const tenant = this.#tenants.get(input.tenantId);
+    if (tenant === undefined) {
+      throw new Error("The judge request tenant is unavailable.");
+    }
+    const key = judgeRequestKey(input.eventId, input.policyVersionId);
+    const stored = tenant.judgeRequests.get(key);
+    if (stored !== undefined) {
+      if (stored.inputDigest !== input.inputDigest) {
+        return { kind: "collision" };
+      }
+      if (stored.result !== null) {
+        return { kind: "completed", result: stored.result };
+      }
+      if (
+        stored.leaseExpiresAt !== null &&
+        Date.parse(stored.leaseExpiresAt) > Date.now()
+      ) {
+        return { kind: "pending" };
+      }
+    }
+    tenant.judgeRequests.set(key, {
+      inputDigest: input.inputDigest,
+      leaseId: input.leaseId,
+      leaseExpiresAt: input.leaseExpiresAt,
+      result: null,
+    });
+    return { kind: "owner" };
+  }
+
+  public async completeJudgeRequest(
+    input: Parameters<JudgeConfigurationStore["completeJudgeRequest"]>[0],
+  ): Promise<JudgeResult> {
+    const tenant = this.#tenants.get(input.tenantId);
+    const key = judgeRequestKey(input.eventId, input.policyVersionId);
+    const stored = tenant?.judgeRequests.get(key);
+    if (stored === undefined || stored.inputDigest !== input.inputDigest) {
+      throw new Error("The judge request completion does not match its claim.");
+    }
+    if (stored.result !== null) {
+      return stored.result;
+    }
+    if (stored.leaseId !== input.leaseId) {
+      throw new Error("The judge request lease is no longer owned by this caller.");
+    }
+    const result = JudgeResultSchema.parse(input.result);
+    tenant?.judgeRequests.set(key, {
+      ...stored,
+      leaseId: null,
+      leaseExpiresAt: null,
+      result,
+    });
+    return result;
+  }
+
+  public async judgeRequestResult(
+    input: Parameters<JudgeConfigurationStore["judgeRequestResult"]>[0],
+  ): Promise<JudgeResult | "pending" | "collision" | undefined> {
+    const stored = this.#tenants
+      .get(input.tenantId)
+      ?.judgeRequests.get(judgeRequestKey(input.eventId, input.policyVersionId));
+    if (stored === undefined) {
+      return undefined;
+    }
+    if (stored.inputDigest !== input.inputDigest) {
+      return "collision";
+    }
+    return stored.result ?? "pending";
+  }
+
   public async issuePolicyBundle(input: {
     tenantId: string;
     deviceId: string;
@@ -513,6 +620,7 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
       revision: tenant.policyRevision,
       adapterConfigurationDigest: tenant.adapterConfigurationDigest,
       dispositionTransitions: structuredClone(tenant.dispositionTransitions),
+      snapshot: structuredClone(tenant.snapshot),
     };
   }
 
@@ -520,14 +628,15 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
     tenantId: string;
     bundle: SignedPolicyBundle;
   }): Promise<void> {
+    const bundle = SignedPolicyBundleSchema.parse(input.bundle);
     const tenant = this.#tenants.get(input.tenantId);
     if (
       tenant === undefined ||
-      input.bundle.payload.tenantId !== input.tenantId
+      bundle.payload.tenantId !== input.tenantId
     ) {
       throw new Error("The signed policy bundle tenant does not match repository state.");
     }
-    tenant.signedPolicyBundles.set(input.bundle.payload.revision, input.bundle);
+    tenant.signedPolicyBundles.set(bundle.payload.revision, bundle);
   }
 }
 

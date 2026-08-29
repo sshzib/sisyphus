@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
+import { createContentHash } from "@sisyphus/catalog";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ActivationLeaseAuthority } from "./activation-lease.js";
@@ -31,6 +32,7 @@ describe("worker MCP tools", () => {
     cleanups.push(() => journal.close());
     const issued = authority.issue({
       promptEventId: "prompt-event-1",
+      runtime: "codex",
       runId: "run-1",
       workItemId: "work-1",
       skillVersionId: "skill-version-1",
@@ -50,6 +52,15 @@ describe("worker MCP tools", () => {
       createMcpRequestHandler({
         journal,
         mcpToken,
+        instructionForSkill: ({ runtime, skillVersionId }) => ({
+          skillVersionId,
+          displayName: "Managed test skill",
+          content: `Instructions for ${runtime}.`,
+          contentHash: createContentHash(
+            "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          ),
+          provenance: { kind: "canonical" },
+        }),
         now: () => new Date("2026-08-29T10:01:00.000Z"),
       }),
     );
@@ -78,6 +89,14 @@ describe("worker MCP tools", () => {
       activated: true,
       skillVersionId: "skill-version-1",
       activationLeaseId: issued.lease.activationLeaseId,
+      instruction: {
+        skillVersionId: "skill-version-1",
+        displayName: "Managed test skill",
+        content: "Instructions for codex.",
+        contentHash:
+          "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        provenance: { kind: "canonical" },
+      },
     });
     expect(journal.activationFor({ runId: "run-1", workItemId: "work-1" })).toMatchObject({
       skillVersionId: "skill-version-1",

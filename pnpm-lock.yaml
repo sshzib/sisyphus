@@ -38,6 +38,9 @@ importers:
 
   adapters/codex:
     dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.17.4
+        version: 1.30.0(zod@4.5.2)
       '@sisyphus/adapter-kit':
         specifier: workspace:*
         version: link:../../packages/adapter-kit
@@ -124,12 +127,6 @@ importers:
       '@sisyphus/ui':
         specifier: workspace:*
         version: link:../../packages/ui
-      '@sisyphus/worker':
-        specifier: workspace:*
-        version: link:../worker
-      electron:
-        specifier: ^37.4.0
-        version: 37.10.3
       react:
         specifier: ^19.1.1
         version: 19.2.8
@@ -140,6 +137,9 @@ importers:
         specifier: ^4.1.5
         version: 4.5.2
     devDependencies:
+      '@sisyphus/worker':
+        specifier: workspace:*
+        version: link:../worker
       '@types/node':
         specifier: ^24.3.0
         version: 24.13.3
@@ -152,9 +152,15 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.3.4
         version: 4.7.0(vite@6.4.3(@types/node@24.13.3)(jiti@2.7.0)(tsx@4.23.12))
+      electron:
+        specifier: ^37.4.0
+        version: 37.10.3
       electron-builder:
         specifier: ^26.0.12
         version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
+      esbuild:
+        specifier: ^0.25.9
+        version: 0.25.12
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
@@ -201,6 +207,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.17.4
         version: 1.30.0(zod@4.5.2)
+      '@sisyphus/catalog':
+        specifier: workspace:*
+        version: link:../../packages/catalog
       '@sisyphus/domain':
         specifier: workspace:*
         version: link:../../packages/domain

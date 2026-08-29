@@ -344,6 +344,7 @@ export class WorkerSupervisor {
     );
     return this.#leaseAuthority.issue({
       promptEventId: event.eventId,
+      runtime: event.capabilities.runtime,
       runId: event.runId,
       workItemId: event.workItemId,
       skillVersionId: decision.resolution.selected.skillVersionId,

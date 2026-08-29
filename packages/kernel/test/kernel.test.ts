@@ -477,7 +477,17 @@ describe("quarantine window", () => {
   function record(index: number, outcome: "pass" | "terminal-failure"): SkillCompletionRecord {
     return {
       eventId: createEventId(`window-${index}`),
+      runId: createRunId(`window-run-${index}`),
+      workItemId: createWorkItemId(`window-work-${index}`),
+      adapterVersion: createAdapterVersion("0.1.0"),
+      policyId: createPolicyId("window-policy"),
+      policyVersionId: createPolicyVersionId("window-policy-v1"),
       skillVersionId: createSkillVersionId("skill-window"),
+      identity: {
+        sessionId: createSessionId(`window-session-${index}`),
+        agent: { kind: "root", agentId: createAgentId("window-agent") },
+      },
+      attempt: 1,
       completedAt: createTimestamp("2026-08-29T10:00:00.000Z"),
       outcome,
       capabilities: capabilitySnapshot(),

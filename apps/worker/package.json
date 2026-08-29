@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.17.4",
+    "@sisyphus/catalog": "workspace:*",
     "@sisyphus/domain": "workspace:*",
     "@sisyphus/kernel": "workspace:*",
     "@sisyphus/local-protocol": "workspace:*",

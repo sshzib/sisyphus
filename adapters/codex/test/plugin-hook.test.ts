@@ -4,6 +4,10 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
+import {
+  LocalChallengeNonceSchema,
+  signLocalChallenge,
+} from "@sisyphus/local-protocol";
 
 import { CodexSupervisionEnvelopeSchema } from "../src/index.js";
 
@@ -31,13 +35,14 @@ function runHook(input: string) {
 }
 
 describe("bundled Codex hook", () => {
-  it("sources the MCP bearer credential from its dedicated environment variable", () => {
+  it("routes MCP through the bundled stdio proxy", () => {
     expect(mcpConfiguration).toEqual({
       mcpServers: {
         sisyphus: {
-          type: "http",
-          url: "http://127.0.0.1:7331/mcp",
-          bearer_token_env_var: "SISYPHUS_MCP_TOKEN",
+          command: "node",
+          args: ["./scripts/mcp-proxy.mjs"],
+          cwd: ".",
+          env_vars: ["SISYPHUS_MCP_TOKEN", "SISYPHUS_WORKER_URL"],
         },
       },
     });
@@ -80,6 +85,19 @@ describe("bundled Codex hook", () => {
     const hookToken = "hook_token_0123456789abcdefghijklmnopqrstuvwxyz";
     let authorization = "";
     const server = createServer((request, response) => {
+      const url = new URL(request.url ?? "/", "http://worker.local");
+      if (url.pathname === "/v1/challenge") {
+        const nonce = LocalChallengeNonceSchema.parse(url.searchParams.get("nonce"));
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            channel: "hook",
+            nonce,
+            proof: signLocalChallenge({ channel: "hook", nonce, token: hookToken }),
+          }),
+        );
+        return;
+      }
       authorization = request.headers.authorization ?? "";
       const chunks: Buffer[] = [];
       request.on("data", (chunk: Buffer) => chunks.push(chunk));

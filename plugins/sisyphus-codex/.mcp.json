@@ -1,9 +1,10 @@
 {
   "mcpServers": {
     "sisyphus": {
-      "type": "http",
-      "url": "http://127.0.0.1:7331/mcp",
-      "bearer_token_env_var": "SISYPHUS_MCP_TOKEN"
+      "command": "node",
+      "args": ["./scripts/mcp-proxy.mjs"],
+      "cwd": ".",
+      "env_vars": ["SISYPHUS_MCP_TOKEN", "SISYPHUS_WORKER_URL"]
     }
   }
 }

@@ -1,5 +1,6 @@
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
@@ -100,5 +101,20 @@ describe("loadWorkerConfiguration", () => {
         },
       }),
     ).rejects.toThrow("must differ");
+  });
+
+  it("keeps the checked-in worker policy example executable", async () => {
+    const config = await loadWorkerConfiguration({
+      environment: {
+        SISYPHUS_HOOK_TOKEN: hookToken,
+        SISYPHUS_MCP_TOKEN: mcpToken,
+        SISYPHUS_POLICY_FILE: fileURLToPath(
+          new URL("../../../examples/worker-policy.json", import.meta.url),
+        ),
+      },
+    });
+
+    expect(config.policy.managedCatalog.skills).toHaveLength(1);
+    expect(config.policy.managedCatalog.skills[0]?.skillId).toBe("review-change");
   });
 });

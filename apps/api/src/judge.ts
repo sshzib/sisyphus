@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   JudgeResultSchema,
   type JudgeResult,
@@ -26,7 +26,35 @@ export interface JudgeConfigurationStore {
     | { apiKey: string; model: string }
     | undefined
   >;
+  claimJudgeRequest(input: {
+    tenantId: string;
+    eventId: RuntimeEventId;
+    policyVersionId: PolicyVersionId;
+    inputDigest: string;
+    leaseId: string;
+    leaseExpiresAt: string;
+  }): Promise<JudgeRequestClaim>;
+  completeJudgeRequest(input: {
+    tenantId: string;
+    eventId: RuntimeEventId;
+    policyVersionId: PolicyVersionId;
+    inputDigest: string;
+    leaseId: string;
+    result: JudgeResult;
+  }): Promise<JudgeResult>;
+  judgeRequestResult(input: {
+    tenantId: string;
+    eventId: RuntimeEventId;
+    policyVersionId: PolicyVersionId;
+    inputDigest: string;
+  }): Promise<JudgeResult | "pending" | "collision" | undefined>;
 }
+
+export type JudgeRequestClaim =
+  | { kind: "owner" }
+  | { kind: "pending" }
+  | { kind: "collision" }
+  | { kind: "completed"; result: JudgeResult };
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -134,14 +162,7 @@ export class JudgeIdempotencyCollisionError extends Error {
   }
 }
 
-interface CachedJudgeRequest {
-  digest: string;
-  result: Promise<JudgeResult>;
-}
-
 export class JudgeBroker {
-  readonly #cache = new Map<string, CachedJudgeRequest>();
-
   public constructor(
     private readonly store: JudgeConfigurationStore,
     private readonly provider: JudgeProvider,
@@ -154,7 +175,6 @@ export class JudgeBroker {
     policyVersionId: PolicyVersionId;
     redactedInput: string;
   }): Promise<JudgeResult> {
-    const cacheKey = `${input.tenantId}\u0000${input.eventId}\u0000${input.policyVersionId}`;
     const digest = createHash("sha256")
       .update(canonicalJson({
         eventId: input.eventId,
@@ -162,17 +182,64 @@ export class JudgeBroker {
         redactedInput: input.redactedInput,
       }))
       .digest("hex");
-    const cached = this.#cache.get(cacheKey);
-    if (cached !== undefined) {
-      if (cached.digest !== digest) {
+    const leaseId = randomUUID();
+    const claim = await this.store.claimJudgeRequest({
+      tenantId: input.tenantId,
+      eventId: input.eventId,
+      policyVersionId: input.policyVersionId,
+      inputDigest: digest,
+      leaseId,
+      leaseExpiresAt: new Date(
+        Date.now() + this.deadlineMs + 2_000,
+      ).toISOString(),
+    });
+    switch (claim.kind) {
+      case "collision":
+        throw new JudgeIdempotencyCollisionError(input.eventId);
+      case "completed":
+        return claim.result;
+      case "pending":
+        return this.waitForJudgeResult({ ...input, inputDigest: digest });
+      case "owner": {
+        const result = await this.runJudge(input);
+        return this.store.completeJudgeRequest({
+          tenantId: input.tenantId,
+          eventId: input.eventId,
+          policyVersionId: input.policyVersionId,
+          inputDigest: digest,
+          leaseId,
+          result,
+        });
+      }
+      default: {
+        const exhaustive: never = claim;
+        return exhaustive;
+      }
+    }
+  }
+
+  private async waitForJudgeResult(input: {
+    tenantId: string;
+    eventId: RuntimeEventId;
+    policyVersionId: PolicyVersionId;
+    redactedInput: string;
+    inputDigest: string;
+  }): Promise<JudgeResult> {
+    const deadline = Date.now() + this.deadlineMs;
+    while (Date.now() < deadline) {
+      await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      const stored = await this.store.judgeRequestResult(input);
+      if (stored === "collision") {
         throw new JudgeIdempotencyCollisionError(input.eventId);
       }
-      return cached.result;
+      if (stored !== undefined && stored !== "pending") {
+        return JudgeResultSchema.parse(stored);
+      }
     }
-
-    const result = this.runJudge(input);
-    this.#cache.set(cacheKey, { digest, result });
-    return result;
+    return {
+      kind: "inconclusive",
+      reason: "An equivalent judge request is still in progress.",
+    };
   }
 
   private async runJudge(input: {

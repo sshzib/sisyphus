@@ -44,3 +44,5 @@ A synchronous cloud evaluator would make every stop depend on network latency an
 - What evidence-retention defaults will hosted tenants receive before public beta?
 - Production deployments must separate the PostgreSQL migration owner from the row-level-policy application role.
 - Stable policy-signing, evidence, and secret-encryption keys must replace generated development keys.
+- Electron can provision its worker secrets in the operating-system store, but independently launched runtimes still need an explicit secure pairing flow; v1 uses shared launch-time hook and MCP environment credentials and labels an unpaired adapter as degraded.
+- The hosted service validates typed projections and credential patterns but cannot yet attest that excerpt text was produced by a particular device redactor version.

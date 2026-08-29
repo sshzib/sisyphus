@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { createPostgresControlPlaneRepository } from "./database/postgres-repository.js";
 import type { ControlPlaneRepository } from "./repository.js";
 import { createInMemoryRepository } from "./repository.js";
 import type { SecretCipher } from "./secret-cipher.js";
@@ -9,6 +10,7 @@ const RawServerEnvironmentSchema = z.object({
   SISYPHUS_WEB_ORIGIN: z.string().url().default("http://localhost:3000"),
   SISYPHUS_REPOSITORY_MODE: z.enum(["memory", "postgres"]).optional(),
   SISYPHUS_DATABASE_URL: z.string().url().optional(),
+  SISYPHUS_MIGRATION_DATABASE_URL: z.string().url().optional(),
   SISYPHUS_SECRET_ENCRYPTION_KEY: z.string().min(1).optional(),
   SISYPHUS_POLICY_SIGNING_KEY: z.string().min(1).optional(),
   SISYPHUS_POLICY_KEY_ID: z.string().min(1).default("sisyphus-dev-ed25519"),
@@ -32,7 +34,11 @@ export type ServerEnvironment = {
   policyKeyId: string;
   repository:
     | { kind: "memory" }
-    | { kind: "postgres"; databaseUrl: string };
+    | {
+        kind: "postgres";
+        databaseUrl: string;
+        migrationDatabaseUrl: string;
+      };
 };
 
 export function parseServerEnvironment(
@@ -64,11 +70,33 @@ export function parseServerEnvironment(
       "SISYPHUS_DATABASE_URL is required when SISYPHUS_REPOSITORY_MODE=postgres.",
     );
   }
+  if (environment.SISYPHUS_MIGRATION_DATABASE_URL === undefined) {
+    throw new ServerConfigurationError(
+      "SISYPHUS_MIGRATION_DATABASE_URL is required for a separate schema-owner role when SISYPHUS_REPOSITORY_MODE=postgres.",
+    );
+  }
+  if (
+    environment.NODE_ENV === "production" &&
+    environment.SISYPHUS_SECRET_ENCRYPTION_KEY === undefined
+  ) {
+    throw new ServerConfigurationError(
+      "SISYPHUS_SECRET_ENCRYPTION_KEY is required in production so encrypted judge credentials survive restarts.",
+    );
+  }
+  if (
+    environment.NODE_ENV === "production" &&
+    environment.SISYPHUS_POLICY_SIGNING_KEY === undefined
+  ) {
+    throw new ServerConfigurationError(
+      "SISYPHUS_POLICY_SIGNING_KEY is required in production so policy-bundle trust is stable across restarts.",
+    );
+  }
   return {
     ...base,
     repository: {
       kind: "postgres",
       databaseUrl: environment.SISYPHUS_DATABASE_URL,
+      migrationDatabaseUrl: environment.SISYPHUS_MIGRATION_DATABASE_URL,
     },
   };
 }
@@ -76,11 +104,17 @@ export function parseServerEnvironment(
 export function selectServerRepository(input: {
   environment: ServerEnvironment;
   secretCipher: SecretCipher;
-}): ControlPlaneRepository {
+  postgresFactory?: typeof createPostgresControlPlaneRepository;
+}): Promise<ControlPlaneRepository> {
   if (input.environment.repository.kind === "memory") {
-    return createInMemoryRepository({ secretCipher: input.secretCipher });
+    return Promise.resolve(
+      createInMemoryRepository({ secretCipher: input.secretCipher }),
+    );
   }
-  throw new ServerConfigurationError(
-    "PostgreSQL ControlPlaneRepository wiring is incomplete. Production startup refused instead of falling back to demo credentials or volatile state.",
-  );
+  const factory = input.postgresFactory ?? createPostgresControlPlaneRepository;
+  return factory({
+    applicationDatabaseUrl: input.environment.repository.databaseUrl,
+    migrationDatabaseUrl: input.environment.repository.migrationDatabaseUrl,
+    secretCipher: input.secretCipher,
+  });
 }

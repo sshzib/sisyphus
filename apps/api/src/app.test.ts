@@ -572,6 +572,14 @@ describe("worker batch ingest", () => {
       terminalFailures: 0,
       averageScore: 97,
     });
+    const projectedSkill = dashboard.skills.find(
+      (skill) => skill.skillVersionId === "skill-ts-review@4.2.1",
+    );
+    expect(projectedSkill).toMatchObject({
+      runs: 215,
+      passRate: 93.8,
+      terminalFailures: 6,
+    });
   });
 
   it("projects prompt conflicts and tool telemetry without uploading raw inputs", async () => {

@@ -12,14 +12,18 @@ with this command:
 node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
 ```
 
-The hooks send only `SISYPHUS_HOOK_TOKEN` to `/v1/supervise`. Codex reads
-`SISYPHUS_MCP_TOKEN` through `bearer_token_env_var` for `/mcp` requests.
+The hooks send only `SISYPHUS_HOOK_TOKEN` to `/v1/supervise`. Codex starts the
+bundled MCP proxy over stdio. Before the proxy reads a tool call or sends the
+MCP bearer token, it verifies the worker's `mcp` challenge with
+`SISYPHUS_MCP_TOKEN`. It then forwards MCP requests to the authenticated
+loopback worker.
 
 The worker exposes `activate_skill` through the `sisyphus` MCP server. The
 worker issues a short-lived activation lease only after it selects a managed
-skill. The tool consumes that exact lease once. Sisyphus verifies attribution
+skill. The tool consumes that exact lease once and returns the hash-verified
+canonical or Codex-wrapper instruction snapshot. Sisyphus verifies attribution
 only from the consumed worker record, not from the hook payload.
 
 If the worker is unavailable, every hook returns valid fail-open Codex JSON.
-The hook process does not write prompts, tool arguments, or model output to
-stdout or stderr.
+The hook and proxy processes do not write prompts, tool arguments, credentials,
+or model output to logs.

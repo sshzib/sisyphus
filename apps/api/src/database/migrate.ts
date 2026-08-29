@@ -1,21 +1,35 @@
-import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { z } from "zod";
 
-const environment = z
-  .object({ SISYPHUS_DATABASE_URL: z.string().url() })
-  .parse(process.env);
-const client = postgres(environment.SISYPHUS_DATABASE_URL, {
-  max: 1,
-  prepare: false,
-});
+const migrationsFolder = fileURLToPath(
+  new URL("../../migrations", import.meta.url),
+);
+export const latestMigrationTimestamp = 1_788_000_000_000;
 
-try {
-  await migrate(drizzle(client), {
-    migrationsFolder: fileURLToPath(new URL("../../migrations", import.meta.url)),
+export async function migratePostgres(connectionUrl: string): Promise<void> {
+  const client = postgres(z.string().url().parse(connectionUrl), {
+    max: 1,
+    prepare: false,
+    connect_timeout: 10,
   });
-} finally {
-  await client.end({ timeout: 5 });
+  try {
+    await migrate(drizzle(client), { migrationsFolder });
+  } finally {
+    await client.end({ timeout: 5 });
+  }
 }
-import { fileURLToPath } from "node:url";
+
+const invokedPath = process.argv[1];
+if (
+  invokedPath !== undefined &&
+  resolve(invokedPath) === resolve(fileURLToPath(import.meta.url))
+) {
+  const environment = z
+    .object({ SISYPHUS_DATABASE_URL: z.string().url() })
+    .parse(process.env);
+  await migratePostgres(environment.SISYPHUS_DATABASE_URL);
+}

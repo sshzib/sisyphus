@@ -182,6 +182,21 @@ function nextRetry(count: RetryDirectiveCount):
   }
 }
 
+function attemptFor(count: RetryDirectiveCount): 1 | 2 | 3 {
+  switch (count) {
+    case 0:
+      return 1;
+    case 1:
+      return 2;
+    case 2:
+      return 3;
+    default: {
+      const exhaustive: never = count;
+      return exhaustive;
+    }
+  }
+}
+
 function feedbackSummary(findings: EvaluationAssessment & { kind: "fail" }): string {
   return findings.findings.map((finding) => finding.correction).join("; ");
 }
@@ -215,12 +230,24 @@ function canRecordSkillOutcome(
 function appendCompletion(input: {
   transaction: SupervisionTransaction;
   event: StopObservation;
+  constraint: EvaluationConstraint;
   skillVersionId: SkillVersionId;
   outcome: SkillCompletionRecord["outcome"];
 }): SkillCompletionRecord {
+  const retryDirectives = input.transaction.getWorkItem(
+    input.event.workItemId,
+  ).retryDirectives;
+  const attempt = attemptFor(retryDirectives);
   const record: SkillCompletionRecord = {
     eventId: input.event.eventId,
+    runId: input.event.runId,
+    workItemId: input.event.workItemId,
+    adapterVersion: input.event.adapterVersion,
+    policyId: input.constraint.policyId,
+    policyVersionId: input.constraint.policyVersionId,
     skillVersionId: input.skillVersionId,
+    identity: input.event.identity,
+    attempt,
     completedAt: input.event.occurredAt,
     outcome: input.outcome,
     capabilities: input.event.capabilities,
@@ -247,6 +274,7 @@ function recordCompletedOutcome(input: {
   appendCompletion({
     transaction: input.transaction,
     event: input.event,
+    constraint: input.constraint,
     skillVersionId,
     outcome: input.outcome,
   });

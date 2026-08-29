@@ -11,12 +11,13 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json && esbuild src/hook-cli.ts --bundle --platform=node --format=esm --target=node22 --minify --outfile=../../plugins/sisyphus-codex/scripts/hook.mjs",
-    "bundle:plugin": "esbuild src/hook-cli.ts --bundle --platform=node --format=esm --target=node22 --minify --outfile=../../plugins/sisyphus-codex/scripts/hook.mjs",
+    "build": "tsc -p tsconfig.build.json && esbuild src/hook-cli.ts --bundle --platform=node --format=esm --target=node22 --minify --outfile=../../plugins/sisyphus-codex/scripts/hook.mjs && esbuild src/mcp-proxy.ts --bundle --platform=node --format=esm --target=node22 --minify --outfile=../../plugins/sisyphus-codex/scripts/mcp-proxy.mjs",
+    "bundle:plugin": "esbuild src/hook-cli.ts --bundle --platform=node --format=esm --target=node22 --minify --outfile=../../plugins/sisyphus-codex/scripts/hook.mjs && esbuild src/mcp-proxy.ts --bundle --platform=node --format=esm --target=node22 --minify --outfile=../../plugins/sisyphus-codex/scripts/mcp-proxy.mjs",
     "test": "vitest run",
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.17.4",
     "@sisyphus/adapter-kit": "workspace:*",
     "@sisyphus/domain": "workspace:*",
     "@sisyphus/local-protocol": "workspace:*",

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 
+import { AgentRuntimeSchema } from "@sisyphus/domain";
 import { z } from "zod";
 
 import type { StoredActivationLease } from "./activation-lease.js";
@@ -136,6 +137,7 @@ function storedActivationLease(row: SQLiteRow): StoredActivationLease | undefine
   const consumedAt = optionalString(row, "lease_consumed_at");
   return {
     promptEventId,
+    runtime: AgentRuntimeSchema.parse(requiredString(row, "lease_runtime")),
     runId: requiredString(row, "lease_run_id"),
     workItemId: requiredString(row, "lease_work_item_id"),
     skillVersionId: requiredString(row, "lease_skill_version_id"),
@@ -149,6 +151,7 @@ function storedActivationLease(row: SQLiteRow): StoredActivationLease | undefine
 function activationLeaseSelect(): string {
   return `
     activation_leases.prompt_event_id AS lease_prompt_event_id,
+    activation_leases.runtime AS lease_runtime,
     activation_leases.run_id AS lease_run_id,
     activation_leases.work_item_id AS lease_work_item_id,
     activation_leases.skill_version_id AS lease_skill_version_id,
@@ -166,6 +169,16 @@ function ensureDecisionColumn(
   const columns = database.prepare("PRAGMA table_info(decisions)").all();
   const exists = columns.some((row) => row["name"] === name);
   if (!exists) database.exec(`ALTER TABLE decisions ADD COLUMN ${name} TEXT;`);
+}
+
+function ensureActivationLeaseRuntimeColumn(database: DatabaseSync): void {
+  const columns = database.prepare("PRAGMA table_info(activation_leases)").all();
+  const exists = columns.some((row) => row["name"] === "runtime");
+  if (!exists) {
+    database.exec(
+      "ALTER TABLE activation_leases ADD COLUMN runtime TEXT NOT NULL DEFAULT 'codex';",
+    );
+  }
 }
 
 export class LocalJournal {
@@ -223,6 +236,7 @@ export class LocalJournal {
       ) STRICT;
       CREATE TABLE IF NOT EXISTS activation_leases (
         prompt_event_id TEXT PRIMARY KEY REFERENCES decisions(event_id),
+        runtime TEXT NOT NULL,
         activation_lease_digest TEXT NOT NULL UNIQUE,
         run_id TEXT NOT NULL,
         work_item_id TEXT NOT NULL,
@@ -235,6 +249,7 @@ export class LocalJournal {
       CREATE INDEX IF NOT EXISTS activation_leases_consumed_work_item
         ON activation_leases(run_id, work_item_id, consumed_at);
     `);
+    ensureActivationLeaseRuntimeColumn(this.#database);
   }
 
   recordDecision(input: RecordDecisionInput): RecordedDecision {
@@ -284,12 +299,13 @@ export class LocalJournal {
           this.#database
             .prepare(
               `INSERT INTO activation_leases(
-                prompt_event_id, activation_lease_digest, run_id, work_item_id,
+                prompt_event_id, runtime, activation_lease_digest, run_id, work_item_id,
                 skill_version_id, issued_at, expires_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .run(
               input.activationLease.promptEventId,
+              input.activationLease.runtime,
               input.activationLease.activationLeaseDigest,
               input.activationLease.runId,
               input.activationLease.workItemId,

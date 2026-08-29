@@ -52,6 +52,7 @@ describe("DashboardApp", () => {
           kind: "desktop",
           worker: { kind: "online", version: "0.1.0", pendingUploads: 0 },
           localEvidence: { kind: "supported" },
+          adapterAccess: [{ kind: "paired", runtime: "codex" }],
         }}
         readLocalEvidence={readLocalEvidence}
       />,
@@ -66,5 +67,26 @@ describe("DashboardApp", () => {
 
     expect(await screen.findByText("private device transcript")).toBeInTheDocument();
     expect(readLocalEvidence).toHaveBeenCalledOnce();
+  });
+
+  it("does not claim a local adapter is healthy before desktop credentials are paired", async () => {
+    const user = userEvent.setup();
+    const reason = "Launch desktop and Codex with matching credentials.";
+    render(
+      <DashboardApp
+        client={createDemoDataClient()}
+        hostContext={{
+          kind: "desktop",
+          worker: { kind: "online", version: "0.1.0", pendingUploads: 0 },
+          localEvidence: { kind: "supported" },
+          adapterAccess: [{ kind: "setup-required", runtime: "codex", reason }],
+        }}
+      />,
+    );
+
+    expect(await screen.findByText(/adapter setup needed/u)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Integrations/u }));
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    expect(screen.getAllByText("Degraded").length).toBeGreaterThan(0);
   });
 });

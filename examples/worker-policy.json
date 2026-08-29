@@ -1,0 +1,35 @@
+{
+  "constraint": {
+    "policyId": "local-default",
+    "policyVersionId": "local-default-v1",
+    "requiredCapabilities": [],
+    "skillCandidates": [],
+    "toolPolicy": { "kind": "allow" }
+  },
+  "deterministicChecks": [],
+  "completionGuards": {
+    "requiredEvidencePatterns": []
+  },
+  "managedCatalog": {
+    "skills": [
+      {
+        "skillId": "review-change",
+        "displayName": "Review change",
+        "description": "Review a code change and report actionable findings.",
+        "canonicalContent": "# Review change\n\nInspect the changed behavior, verify important claims against source or executable evidence, and report findings in severity order with file references.\n",
+        "source": {
+          "kind": "file",
+          "path": "examples/skills/review-change/SKILL.md"
+        },
+        "triggers": [
+          { "kind": "contains", "pattern": "review this change" },
+          { "kind": "contains", "pattern": "review this code" }
+        ]
+      }
+    ],
+    "administratorPriorities": [
+      { "skillId": "review-change", "priority": 10 }
+    ],
+    "wrappers": []
+  }
+}

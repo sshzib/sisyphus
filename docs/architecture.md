@@ -21,16 +21,16 @@ Hosted API <- redacted records <- worker
 
 1. The adapter validates an unknown vendor payload at its boundary and produces a `HookObservation`.
 2. The worker checks the vendor event ID. A duplicate returns the committed decision immediately.
-3. The worker stores raw evidence locally, correlates any activation lease, and calls `SupervisionKernel.supervise`.
+3. The worker stores raw evidence locally, correlates any activation lease, matches the prompt against the managed catalog, and calls `SupervisionKernel.supervise`.
 4. The kernel resolves one skill, evaluates a completion or tool request, applies the shared retry limit, and derives any eligible quarantine transition.
-5. The worker commits the decision, local state, and cloud outbox record transactionally.
+5. The kernel and journal apply idempotent state transitions. The journal commits the decision and cloud outbox record in one SQLite transaction, so replay converges after a crash.
 6. The adapter converts the typed decision into the runtime's response format.
 
 The hosted service is not on the deterministic enforcement path. A remote judge timeout becomes `inconclusive`, allows completion, and cannot affect automatic quarantine. Late results are advisory.
 
 ## Skill resolution and attribution
 
-The catalog keeps canonical skill content immutable and stores runtime wrappers separately. Resolution orders candidates by administrator priority, trigger specificity, and then lexicographic skill-version ID. The proof records every candidate and rejection reason.
+The catalog keeps canonical skill content immutable and stores runtime wrappers separately. It verifies file-wrapper hashes before worker startup. Resolution orders candidates by administrator priority, trigger specificity, and then lexicographic skill-version ID. The proof records every candidate and rejection reason. A selected prompt receives a five-minute, one-use activation lease; the activation tool returns the exact canonical or runtime-wrapper instruction bound to that skill version.
 
 Selection alone is not attribution. A run affects skill standing only when the adapter observes a managed activation marker or invocation bound to that run and work item. Quarantined versions are excluded only on runtimes that can prove managed routing or tool enforcement.
 
@@ -42,11 +42,11 @@ Cursor local sessions and cloud agents use separate profiles. OpenCode advertise
 
 ## Data boundaries
 
-SQLite in WAL mode stores normalized observations, encrypted evidence handles, retry and quarantine state, activation leases, persisted decisions, and the idempotent cloud outbox. The evidence vault uses AES-256-GCM with a device key supplied by the operating-system credential boundary.
+SQLite in WAL mode stores normalized observations, encrypted evidence handles, retry and quarantine state, activation leases, persisted decisions, and the idempotent cloud outbox. The evidence vault uses AES-256-GCM with a device key supplied by the operating-system credential boundary. Hook, MCP, and desktop channels use distinct bearer tokens plus challenge-first HMAC authentication; the MCP bearer and tool arguments remain inside the stdio proxy until the worker proves possession of the channel secret.
 
 The PostgreSQL schema stores tenant-scoped devices, runs, evaluations, skill dispositions, policy bundles, encrypted judge configuration, ingest events, and an ingest outbox. Tenant transactions set `app.tenant_id`; row-level policies constrain reads and writes.
 
-Before a cloud or judge payload exists, the worker redacts its input. A redaction failure stops the transfer. The hosted service therefore receives only scores, findings, hashes, cost and latency data, capability coverage, resolution proofs, status changes, and approved redacted excerpts.
+Before a cloud or judge payload exists, the worker redacts its input. A redaction failure stops the transfer. The projection excludes native payload objects and permits only typed metadata plus bounded redacted excerpts. The hosted service still cannot prove the lineage of arbitrary excerpt text without a future device-attestation protocol.
 
 ## Package boundaries
 

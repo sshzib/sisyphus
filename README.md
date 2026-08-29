@@ -40,13 +40,13 @@ pnpm verify
 
 ## Run the local stack
 
-Copy `.env.example` into your shell environment. The worker refuses to start without a 32-byte evidence key. Generate a development key in PowerShell:
+Copy `.env.example` into your shell environment. The worker requires four distinct local credentials: an evidence key plus hook, MCP, and desktop bearer tokens. Generate development values with Node.js:
 
-```powershell
-$env:SISYPHUS_EVIDENCE_KEY = [Convert]::ToBase64String(
-  [Security.Cryptography.RandomNumberGenerator]::GetBytes(32)
-)
+```sh
+node -e "const c=require('node:crypto'); console.log('SISYPHUS_EVIDENCE_KEY='+c.randomBytes(32).toString('base64')); for (const n of ['SISYPHUS_HOOK_TOKEN','SISYPHUS_MCP_TOKEN','SISYPHUS_DESKTOP_TOKEN']) console.log(n+'='+c.randomBytes(32).toString('base64url'))"
 ```
+
+Set the printed values in the shell that launches the worker. Launch Codex from a shell containing the same hook and MCP values. The Electron app labels Codex as `setup required` until both shared values are present; it never exposes OS-stored secrets to the renderer.
 
 Then start the services in separate terminals:
 
@@ -57,6 +57,8 @@ pnpm --filter @sisyphus/web dev
 ```
 
 The dashboard uses built-in sample data unless both `NEXT_PUBLIC_SISYPHUS_API_URL` and `NEXT_PUBLIC_SISYPHUS_DEMO_TOKEN` are set. Use `http://127.0.0.1:7330` and `demo-admin` to connect it to the development control plane.
+
+The sample [worker policy](examples/worker-policy.json) imports an immutable canonical skill and matches it by prompt trigger. Runtime wrapper files are optional. When present, the worker verifies their declared SHA-256 hash before startup and returns the matching wrapper from the activation tool; otherwise it returns the canonical snapshot.
 
 To prepare PostgreSQL, start `compose.yaml` and run the API migration:
 
@@ -69,6 +71,8 @@ pnpm --filter @sisyphus/api migrate
 
 The v1 plugin bundle is in `plugins/sisyphus-codex`. Its lifecycle hooks send vendor events only to the loopback worker. If the worker is unavailable, the hooks return valid fail-open responses without printing prompt or tool content.
 
+Both local transports authenticate the worker before releasing private data. Hooks perform an HMAC challenge before posting a vendor event. Codex talks to a bundled stdio MCP proxy, which performs the same challenge before reading tool arguments or sending its bearer token to the loopback port.
+
 Validate the bundle before installing or publishing it:
 
 ```sh
@@ -77,8 +81,8 @@ python ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins
 
 ## Security and enforcement guarantees
 
-- Raw prompts, outputs, transcripts, and tool evidence remain in the encrypted local vault.
-- Cloud records contain metrics, hashes, capability snapshots, and locally redacted excerpts.
+- Full prompts, outputs, transcripts, and tool evidence remain in the encrypted local vault. Cloud records may contain bounded, locally redacted excerpts as configured by policy.
+- The worker projection structurally excludes native vendor payloads and screens credential-shaped values. The hosted service cannot independently prove that a generic excerpt came from the current device redactor; redaction lineage remains a deployment limitation until device attestation is added.
 - Failed local redaction blocks upload and judge requests.
 - Authenticated user or device credentials determine tenant scope; request bodies cannot select a tenant.
 - Every run stores its runtime and adapter versions plus its capability snapshot.
@@ -86,4 +90,4 @@ python ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py plugins
 - Only verified skill activation contributes to quarantine.
 - Duplicate vendor events replay the stored decision without consuming another retry or failure sample.
 
-Development credentials, generated signing keys, and the in-memory API seed are not production identity or key management. Provision stable keys and PostgreSQL-backed credentials before deployment.
+Development credentials, generated signing keys, the example policy, and the in-memory API seed are not production identity or key management. Production startup stays fail-closed unless the PostgreSQL repository, migrations, and tenant policies initialize successfully.
