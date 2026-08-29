@@ -9,6 +9,7 @@
   "scripts": {
     "build": "turbo run build",
     "check": "turbo run check test build",
+    "check:ui": "node scripts/check-ui-style.mjs",
     "dev": "turbo run dev --parallel",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",

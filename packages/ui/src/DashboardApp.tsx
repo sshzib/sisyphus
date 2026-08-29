@@ -43,17 +43,44 @@ type Section =
   | "audit"
   | "devices";
 
-const sections: { id: Section; label: string; glyph: string }[] = [
-  { id: "overview", label: "Overview", glyph: "OV" },
-  { id: "runs", label: "Runs", glyph: "RU" },
-  { id: "agents", label: "Agents", glyph: "AG" },
-  { id: "skills", label: "Skills", glyph: "SK" },
-  { id: "conflicts", label: "Conflict matrix", glyph: "CM" },
-  { id: "integrations", label: "Integrations", glyph: "IN" },
-  { id: "policies", label: "Policies", glyph: "PO" },
-  { id: "audit", label: "Audit log", glyph: "AU" },
-  { id: "devices", label: "Devices", glyph: "DE" },
+interface SectionDefinition {
+  readonly id: Section;
+  readonly label: string;
+}
+
+interface NavigationGroup {
+  readonly label: string;
+  readonly sections: readonly SectionDefinition[];
+}
+
+const navigationGroups: readonly NavigationGroup[] = [
+  {
+    label: "Monitor",
+    sections: [
+      { id: "overview", label: "Overview" },
+      { id: "runs", label: "Runs" },
+      { id: "agents", label: "Agents" },
+      { id: "skills", label: "Skills" },
+    ],
+  },
+  {
+    label: "Manage",
+    sections: [
+      { id: "conflicts", label: "Conflict matrix" },
+      { id: "integrations", label: "Integrations" },
+      { id: "policies", label: "Policies" },
+    ],
+  },
+  {
+    label: "Workspace",
+    sections: [
+      { id: "audit", label: "Audit log" },
+      { id: "devices", label: "Devices" },
+    ],
+  },
 ];
+
+const sections = navigationGroups.flatMap((group) => group.sections);
 
 const runtimeOptions: AgentRuntime[] = [
   "codex",
@@ -170,12 +197,17 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
 
   return (
     <div className="sisyphus-app">
-      <aside className={mobileNavigationOpen ? "side-nav side-nav--open" : "side-nav"}>
+      <aside
+        className={mobileNavigationOpen ? "side-nav side-nav--open" : "side-nav"}
+        id="dashboard-navigation"
+      >
         <div className="brand-lockup">
           <div className="brand-mark" aria-hidden="true">
-            <span />
-            <span />
-            <span />
+            <svg viewBox="0 0 24 24">
+              <path d="M4 19h16" />
+              <path d="m6.5 19 5-9 5 9" />
+              <circle cx="16.5" cy="6.5" r="2.5" />
+            </svg>
           </div>
           <div>
             <div className="brand-name">Sisyphus</div>
@@ -184,23 +216,31 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
         </div>
 
         <nav className="nav-list" aria-label="Dashboard sections">
-          {sections.map((item) => (
-            <button
-              className={item.id === section ? "nav-item nav-item--active" : "nav-item"}
-              key={item.id}
-              onClick={() => navigate(item.id)}
-              type="button"
-            >
-              <span className="nav-glyph" aria-hidden="true">
-                {item.glyph}
-              </span>
-              <span>{item.label}</span>
-              {item.id === "skills" && snapshot !== undefined ? (
-                <span className="nav-count">
-                  {snapshot.skills.filter((skill) => skill.disposition === "quarantined").length}
-                </span>
-              ) : null}
-            </button>
+          {navigationGroups.map((group) => (
+            <div className="nav-group" key={group.label}>
+              <span className="nav-group__label">{group.label}</span>
+              <div className="nav-group__items">
+                {group.sections.map((item) => (
+                  <button
+                    aria-current={item.id === section ? "page" : undefined}
+                    className={item.id === section ? "nav-item nav-item--active" : "nav-item"}
+                    key={item.id}
+                    onClick={() => navigate(item.id)}
+                    type="button"
+                  >
+                    <span className="nav-glyph" aria-hidden="true">
+                      <SectionIcon section={item.id} />
+                    </span>
+                    <span>{item.label}</span>
+                    {item.id === "skills" && snapshot !== undefined ? (
+                      <span className="nav-count">
+                        {snapshot.skills.filter((skill) => skill.disposition === "quarantined").length}
+                      </span>
+                    ) : null}
+                  </button>
+                ))}
+              </div>
+            </div>
           ))}
         </nav>
 
@@ -228,6 +268,8 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
         <header className="top-bar">
           <div className="top-bar__title">
             <button
+              aria-controls="dashboard-navigation"
+              aria-expanded={mobileNavigationOpen}
               className="menu-button"
               type="button"
               aria-label="Open navigation"
@@ -237,9 +279,13 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
               <span />
               <span />
             </button>
-            <div>
-              <p>Operations</p>
-              <h1>{selectedSectionLabel}</h1>
+            <div className="top-bar__heading">
+              <span className="top-bar__icon" aria-hidden="true">
+                <SectionIcon section={section} />
+              </span>
+              <div>
+                <h1>{selectedSectionLabel}</h1>
+              </div>
             </div>
           </div>
 
@@ -310,7 +356,6 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
           <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="restore-title">
             <div className="modal-card__heading">
               <div>
-                <p className="eyebrow">Administrative action</p>
                 <h2 id="restore-title">Restore {restoreTarget.name}</h2>
               </div>
               <button
@@ -360,7 +405,6 @@ export function DashboardApp({ client, hostContext, readLocalEvidence }: Dashboa
           <div className="modal-card modal-card--evidence" role="dialog" aria-modal="true" aria-labelledby="evidence-title">
             <div className="modal-card__heading">
               <div>
-                <p className="eyebrow">Device-local evidence</p>
                 <h2 id="evidence-title">{evidenceTarget.agentName} · {evidenceTarget.project}</h2>
               </div>
               <button
@@ -448,6 +492,113 @@ function HostStatus({
   );
 }
 
+function SectionIcon({ section }: { readonly section: Section }) {
+  let paths: ReactNode;
+  switch (section) {
+    case "overview":
+      paths = (
+        <>
+          <rect x="3" y="3" width="7" height="7" rx="1" />
+          <rect x="14" y="3" width="7" height="4" rx="1" />
+          <rect x="14" y="11" width="7" height="10" rx="1" />
+          <rect x="3" y="14" width="7" height="7" rx="1" />
+        </>
+      );
+      break;
+    case "runs":
+      paths = (
+        <>
+          <circle cx="12" cy="12" r="9" />
+          <path d="m10 8 6 4-6 4Z" />
+        </>
+      );
+      break;
+    case "agents":
+      paths = (
+        <>
+          <circle cx="9" cy="8" r="3" />
+          <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
+          <circle cx="17" cy="9" r="2" />
+          <path d="M15.5 14.5A4 4 0 0 1 21 18" />
+        </>
+      );
+      break;
+    case "skills":
+      paths = (
+        <>
+          <path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4Z" />
+          <path d="m18.5 14 .7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7Z" />
+          <path d="m6 15 .8 2.2L9 18l-2.2.8L6 21l-.8-2.2L3 18l2.2-.8Z" />
+        </>
+      );
+      break;
+    case "conflicts":
+      paths = (
+        <>
+          <circle cx="6" cy="5" r="2" />
+          <circle cx="18" cy="19" r="2" />
+          <circle cx="6" cy="19" r="2" />
+          <path d="M8 5h2a4 4 0 0 1 4 4v6a4 4 0 0 0 4 4" />
+          <path d="M6 7v10" />
+        </>
+      );
+      break;
+    case "integrations":
+      paths = (
+        <>
+          <path d="M8 3v5M16 3v5" />
+          <path d="M5 8h14v2a7 7 0 0 1-7 7v4" />
+        </>
+      );
+      break;
+    case "policies":
+      paths = (
+        <>
+          <path d="M12 3 20 6v5c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6Z" />
+          <path d="m8.5 12 2.2 2.2 4.8-5" />
+        </>
+      );
+      break;
+    case "audit":
+      paths = (
+        <>
+          <path d="M8 6h12M8 12h12M8 18h8" />
+          <circle cx="4" cy="6" r="1" />
+          <circle cx="4" cy="12" r="1" />
+          <circle cx="4" cy="18" r="1" />
+        </>
+      );
+      break;
+    case "devices":
+      paths = (
+        <>
+          <rect x="3" y="4" width="18" height="13" rx="2" />
+          <path d="M8 21h8M12 17v4" />
+        </>
+      );
+      break;
+    default: {
+      const exhaustive: never = section;
+      return exhaustive;
+    }
+  }
+
+  return (
+    <svg
+      className="section-icon"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      focusable="false"
+    >
+      {paths}
+    </svg>
+  );
+}
+
 function LoadingState() {
   return (
     <div className="loading-grid" aria-label="Loading dashboard">
@@ -521,7 +672,6 @@ function OverviewView(input: {
     <div className="view-stack">
       <section className="summary-strip">
         <div>
-          <p className="eyebrow">Current cohort</p>
           <h2>{input.runtime === undefined ? "Comparable runtime cohorts" : runtimeLabel(input.runtime)}</h2>
           <p>
             Rankings use matching attribution and enforcement coverage. Estimated token savings stay labeled.
@@ -545,7 +695,6 @@ function OverviewView(input: {
       <div className="overview-grid">
         <Panel
           title="Latest runs"
-          eyebrow="Live evaluation feed"
           action={<button type="button" className="text-button" onClick={() => input.onNavigate("runs")}>View all</button>}
         >
           <div className="run-feed">
@@ -557,18 +706,24 @@ function OverviewView(input: {
 
         <Panel
           title="Runtime coverage"
-          eyebrow="Adapter health"
           action={<button type="button" className="text-button" onClick={() => input.onNavigate("integrations")}>Inspect</button>}
         >
           <div className="coverage-summary">
             <div
-              className="coverage-ring"
-              style={{
-                background: `conic-gradient(var(--green) ${(healthyIntegrations / Math.max(input.snapshot.integrations.length, 1)) * 100}%, #25303d 0)`,
-              }}
+              className="coverage-score"
+              aria-label={`${healthyIntegrations} of ${input.snapshot.integrations.length} integrations healthy`}
             >
-              <span>{healthyIntegrations}/{input.snapshot.integrations.length}</span>
-              <small>healthy</small>
+              <div className="coverage-score__value">
+                <span>{healthyIntegrations}/{input.snapshot.integrations.length}</span>
+                <small>healthy</small>
+              </div>
+              <div className="coverage-score__bar" aria-hidden="true">
+                <span
+                  style={{
+                    width: `${(healthyIntegrations / Math.max(input.snapshot.integrations.length, 1)) * 100}%`,
+                  }}
+                />
+              </div>
             </div>
             <div className="coverage-list">
               {input.snapshot.integrations.map((integration) => (
@@ -584,7 +739,7 @@ function OverviewView(input: {
       </div>
 
       {recentFailures.length === 0 ? null : (
-        <Panel title="Needs attention" eyebrow="Recent failures">
+        <Panel title="Needs attention">
           <div className="attention-grid">
             {recentFailures.slice(0, 3).map((run) => (
               <article key={run.id} className="attention-card">
@@ -624,7 +779,6 @@ function MetricCard(input: {
 
 function Panel(input: {
   title: string;
-  eyebrow?: string;
   action?: ReactNode;
   children: ReactNode;
 }) {
@@ -632,7 +786,6 @@ function Panel(input: {
     <section className="panel">
       <div className="panel__heading">
         <div>
-          {input.eyebrow === undefined ? null : <p className="eyebrow">{input.eyebrow}</p>}
           <h2>{input.title}</h2>
         </div>
         {input.action}
@@ -665,7 +818,7 @@ function RunsView({
   onInspectEvidence?: (run: RunSummary) => void;
 }) {
   return (
-    <Panel title="Evaluation runs" eyebrow={`${runs.length} recent records`}>
+    <Panel title="Evaluation runs">
       <div className="table-wrap">
         <table>
           <thead>
@@ -706,7 +859,6 @@ function AgentsView({ snapshot }: { snapshot: DashboardSnapshot }) {
         <section className="agent-cohort" key={cohort.key}>
           <header>
             <div>
-              <p className="eyebrow">Comparable cohort</p>
               <h2>{runtimeLabel(cohort.runtime)} · {runtimeProfileLabel(cohort.profile)} · runtime {cohort.runtimeVersion} · adapter {cohort.adapterVersion} · {attributionLabel(cohort.attribution)} attribution · {enforcementLabel(cohort.enforcement)}</h2>
               <p className="agent-cohort__identity" title={cohort.comparisonCohortId}>
                 Installation {cohort.adapterInstallationId} · cohort {cohort.comparisonCohortId.slice(0, 8)}
@@ -715,9 +867,8 @@ function AgentsView({ snapshot }: { snapshot: DashboardSnapshot }) {
             <span>{cohort.agents.length} agent{cohort.agents.length === 1 ? "" : "s"}</span>
           </header>
           <div className="agent-grid">
-            {cohort.agents.map((agent, index) => (
+            {cohort.agents.map((agent) => (
               <article className="agent-card" key={agent.id}>
-                <div className="agent-card__rank">#{index + 1}</div>
                 <div className="agent-card__heading">
                   <RuntimeMark runtime={agent.runtime} />
                   <div><h2>{agent.name}</h2><span>{runtimeLabel(agent.runtime)} · {runtimeProfileLabel(agent.profile)} · {formatNumber(agent.runs)} runs · {formatNumber(agent.scoredRuns)} scored</span></div>
@@ -742,7 +893,7 @@ function AgentsView({ snapshot }: { snapshot: DashboardSnapshot }) {
 
 function SkillsView(input: { skills: SkillSummary[]; onRestore: (skill: SkillSummary) => void }) {
   return (
-    <Panel title="Managed skill versions" eyebrow="Standing and attribution">
+    <Panel title="Managed skill versions">
       <div className="table-wrap">
         <table>
           <thead><tr><th>Skill version</th><th>Runtime</th><th>Standing</th><th>Verified attribution</th><th>Pass rate</th><th>Failures</th><th>Changed</th><th><span className="sr-only">Actions</span></th></tr></thead>
@@ -770,7 +921,7 @@ function ConflictsView({ conflicts }: { conflicts: DashboardSnapshot["conflicts"
   return (
     <div className="view-stack">
       <section className="summary-strip summary-strip--compact">
-        <div><p className="eyebrow">Deterministic resolver</p><h2>One prompt, one managed skill</h2><p>Administrator priority wins first, trigger specificity second, stable version ID last.</p></div>
+        <div><h2>One prompt, one managed skill</h2><p>Administrator priority wins first, trigger specificity second, stable version ID last.</p></div>
       </section>
       <div className="conflict-list">
         {conflicts.map((conflict) => (
@@ -866,7 +1017,7 @@ function PoliciesView({ snapshot }: { snapshot: DashboardSnapshot }) {
 
 function AuditView({ events }: { events: AuditEvent[] }) {
   return (
-    <Panel title="Audit log" eyebrow="Immutable team history">
+    <Panel title="Audit log">
       <div className="timeline">
         {events.map((event) => (
           <article key={event.id} className="timeline-row">

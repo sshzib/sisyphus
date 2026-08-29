@@ -8,10 +8,11 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 
 function run(command, args) {
+  const needsCommandShell = process.platform === "win32" && command.endsWith(".cmd");
   const result = spawnSync(command, args, {
     cwd: root,
     encoding: "utf8",
-    shell: process.platform === "win32",
+    shell: needsCommandShell,
     stdio: "inherit",
   });
   if (result.status !== 0) process.exit(result.status ?? 1);
@@ -30,6 +31,7 @@ if (manifest.name !== "sisyphus-codex") {
 }
 
 run(process.execPath, ["scripts/check-boundaries.mjs"]);
+run(process.execPath, ["scripts/check-ui-style.mjs"]);
 run(pnpm, ["typecheck"]);
 run(pnpm, ["test"]);
 run(pnpm, ["build"]);

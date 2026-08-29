@@ -1,5 +1,5 @@
 html {
-  background: #090d12;
+  background: var(--canvas, #0c0d0f);
 }
 
 body {
@@ -11,47 +11,61 @@ body {
   display: grid;
   place-items: center;
   padding: 24px;
+  background: var(--canvas, #0c0d0f);
 }
 
 .access-card {
-  width: min(460px, 100%);
-  padding: 32px;
-  background: #11171f;
-  border: 1px solid #26303d;
-  border-radius: 14px;
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+  width: min(440px, 100%);
+  padding: 24px;
+  background: var(--surface-1, #141517);
+  border: 0;
+  border-radius: var(--radius-md, 8px);
 }
 
 .access-brand {
-  color: #ef5d62;
-  font-size: 11px;
-  font-weight: 750;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted-strong, #c2c5cb);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.access-brand::before {
+  width: 8px;
+  height: 8px;
+  background: var(--accent, #72a7ff);
+  border-radius: var(--radius-sm, 2px);
+  content: "";
 }
 
 .access-card h1 {
-  margin: 10px 0 12px;
-  font-size: 24px;
+  margin: 18px 0 8px;
+  color: var(--text, #f2f3f5);
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
 }
 
 .access-copy,
 .access-copy p {
-  color: #b4c0cb;
+  color: var(--muted-strong, #c2c5cb);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.55;
 }
 
 .access-copy p {
-  margin: 0 0 18px;
+  margin: 0 0 16px;
 }
 
 .access-error {
-  padding: 10px 12px;
-  color: #efb3b5 !important;
-  background: rgba(239, 93, 98, 0.12);
-  border: 1px solid rgba(239, 93, 98, 0.25);
-  border-radius: 8px;
+  margin-bottom: 14px !important;
+  padding: 9px 10px;
+  color: var(--danger, #f07478) !important;
+  background: var(--danger-soft, #29191b);
+  border-radius: var(--radius-sm, 6px);
 }
 
 .access-form,
@@ -61,38 +75,48 @@ body {
 }
 
 .access-form {
-  gap: 18px;
+  gap: 14px;
 }
 
 .access-form label {
-  gap: 7px;
-  color: #eef3f7;
+  gap: 6px;
+  color: var(--text, #f2f3f5);
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 500;
 }
 
 .access-form input {
-  height: 42px;
-  padding: 0 11px;
-  color: #eef3f7;
-  background: #0e141b;
-  border: 1px solid #26303d;
-  border-radius: 8px;
+  height: 34px;
+  padding: 0 10px;
+  color: var(--text, #f2f3f5);
+  background: var(--surface-2, #101113);
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
   font: inherit;
 }
 
 .access-form input:focus-visible {
-  outline: 2px solid #69a7ff;
+  outline: 2px solid var(--accent, #72a7ff);
   outline-offset: 2px;
 }
 
 .access-form button {
-  height: 42px;
-  color: #fff;
-  background: #d94f55;
+  height: 34px;
+  color: #08111e;
+  background: var(--accent, #72a7ff);
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm, 6px);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+@media (max-width: 480px) {
+  .access-page {
+    padding: 16px;
+  }
+
+  .access-card {
+    padding: 20px;
+  }
 }
