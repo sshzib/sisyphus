@@ -26,6 +26,10 @@ import {
   type SelectedEngineeringSkill,
 } from "./control-plane-client.js";
 import { OpenRouterClient } from "./openrouter.js";
+import {
+  createLocalStaticFallbackPlan,
+  createLocalStaticFallbackProposal,
+} from "./local-static-fallback.js";
 import { TaskOperationCoordinator } from "./operation-coordinator.js";
 import { scanWorkspace } from "./safety-gate.js";
 import { WorkspaceManager, type TaskWorkspace } from "./workspaces.js";
@@ -83,7 +87,7 @@ export class WorkforceExecution {
     private readonly dependencies: {
       readonly controlPlane: ControlPlaneClient;
       readonly workspaces: WorkspaceManager;
-      readonly openRouter: OpenRouterClient;
+      readonly openRouter: OpenRouterClient | undefined;
       readonly executor: ProjectExecutor;
       readonly isExecutionPermitted: () => Promise<boolean>;
       readonly publish: (
@@ -109,7 +113,14 @@ export class WorkforceExecution {
     let coordinator: TaskOperationCoordinator | undefined;
     try {
       await this.#assertExecutionPermitted();
-      const planned = await this.dependencies.openRouter.plan(task.request);
+      const usingLocalStaticFallback = this.dependencies.executor.backend === "local-static";
+      const planned = usingLocalStaticFallback
+        ? {
+            plan: createLocalStaticFallbackPlan(task.request),
+            model: "local-static-fallback",
+            tokens: undefined,
+          }
+        : await this.#openRouter().plan(task.request);
       const operation = EngineeringOperationSummarySchema.parse({
         ...task.operation,
         status: "working",
@@ -124,7 +135,9 @@ export class WorkforceExecution {
       const assignments = planned.plan.requirements.map((requirement) =>
         newAgent({
           role: requirement.specialistRole,
-          model: this.dependencies.openRouter.modelForRole(requirement.specialistRole),
+          model: usingLocalStaticFallback
+            ? "local-static-fallback"
+            : this.#openRouter().modelForRole(requirement.specialistRole),
           requirementId: requirement.id,
           activity: "planning-work",
           detail: "Waiting for an isolated workspace.",
@@ -753,6 +766,12 @@ export class WorkforceExecution {
     readonly startAttempt?: number;
     readonly feedback?: string;
   }): Promise<AssignmentResult> {
+    if (
+      this.dependencies.executor.backend === "local-static" &&
+      input.assignment.phase === "build"
+    ) {
+      return this.#runLocalStaticAssignment(input);
+    }
     const startedAt = Date.now();
     let feedback = input.feedback;
     const initiallyAssigned = input.coordinator.current().agents.find((agent) => agent.id === input.assignment.agentId);
@@ -762,11 +781,11 @@ export class WorkforceExecution {
     const firstAttempt = input.startAttempt ?? initiallyAssigned.iteration;
     for (let attempt = firstAttempt; attempt <= 3; attempt += 1) {
       const useFallbackModel =
-        attempt === 3 && this.dependencies.openRouter.hasFallbackModel(input.assignment.role);
+        attempt === 3 && this.#openRouter().hasFallbackModel(input.assignment.role);
       const currentAgent = input.coordinator.current().agents.find((agent) => agent.id === input.assignment.agentId) ?? initiallyAssigned;
       const workingAgent: EngineeringAgentSummary = {
         ...currentAgent,
-        model: this.dependencies.openRouter.modelForRole(currentAgent.role, useFallbackModel),
+        model: this.#openRouter().modelForRole(currentAgent.role, useFallbackModel),
         iteration: attempt,
         status: "working",
         activity: input.assignment.phase === "review" ? "reviewing-failure" : "editing-files",
@@ -787,7 +806,7 @@ export class WorkforceExecution {
       });
       try {
         await this.#assertExecutionPermitted();
-        const proposal = await this.dependencies.openRouter.proposePatch({
+        const proposal = await this.#openRouter().proposePatch({
           request: input.task.request,
           requirement: input.assignment.requirement,
           role: workingAgent.role,
@@ -897,6 +916,80 @@ export class WorkforceExecution {
       }
     }
     return { kind: "failed", agentId: input.assignment.agentId, message: "The assignment did not produce a result." };
+  }
+
+  async #runLocalStaticAssignment(input: {
+    readonly task: LeasedEngineeringTask;
+    readonly workspace: TaskWorkspace;
+    readonly coordinator: TaskOperationCoordinator;
+    readonly assignment: PreparedAssignment;
+    readonly baseCommit?: string;
+  }): Promise<AssignmentResult> {
+    await this.#assertExecutionPermitted();
+    const currentAgent = input.coordinator.current().agents.find((agent) => agent.id === input.assignment.agentId);
+    if (currentAgent === undefined) {
+      throw new Error("The local static assignment agent is no longer present in the operation snapshot.");
+    }
+    const workingAgent: EngineeringAgentSummary = {
+      ...currentAgent,
+      model: "local-static-fallback",
+      iteration: 1,
+      status: "working",
+      activity: "editing-files",
+      activityDetail: `Preparing a browser-only implementation for ${input.assignment.requirement.id}.`,
+      updatedAt: new Date().toISOString(),
+    };
+    await input.coordinator.transition({
+      reduce: (current) => ({ ...replaceAgent(current, workingAgent), status: "working" }),
+      events: (current) => [
+        event(current.id, "AGENT_STARTED", `${workingAgent.role} started the local static implementation for ${input.assignment.requirement.id}.`),
+      ],
+    });
+    const proposal = createLocalStaticFallbackProposal({
+      request: input.task.request,
+      requirement: input.assignment.requirement,
+      iteration: workingAgent.iteration,
+    });
+    const policyFailures = validateProposalPolicy({
+      role: workingAgent.role,
+      proposal,
+      productContract: deriveProductContract(input.task.request),
+    });
+    if (policyFailures.length > 0) throw new Error(policyFailures.join(" "));
+    const change = await this.dependencies.workspaces.applyAgentProposal({
+      task: input.workspace,
+      assignmentId: workingAgent.id,
+      role: workingAgent.role,
+      iteration: workingAgent.iteration,
+      proposal,
+      ...(input.baseCommit === undefined ? {} : { baseCommit: input.baseCommit }),
+    });
+    const completedAgent: EngineeringAgentSummary = {
+      ...workingAgent,
+      branch: change.branch,
+      status: "completed",
+      activity: proposal.safeActivity,
+      activityDetail: proposal.safeActivityDetail,
+      filesChanged: [...change.filesChanged],
+      commitId: change.commitId,
+      updatedAt: new Date().toISOString(),
+    };
+    await input.coordinator.transition({
+      reduce: (current) => replaceAgent(current, completedAgent),
+      events: (current) => [
+        event(current.id, "FILE_CHANGED", `${completedAgent.role} created ${change.filesChanged.length} local static files for ${input.assignment.requirement.id}.`),
+        event(current.id, "AGENT_COMPLETED", `${completedAgent.role} completed the local static implementation.`),
+      ],
+    });
+    return { kind: "completed", agentId: completedAgent.id, branch: change.branch };
+  }
+
+  #openRouter(): OpenRouterClient {
+    const client = this.dependencies.openRouter;
+    if (client === undefined) {
+      throw new Error("OpenRouter is required for AWS sandbox execution.");
+    }
+    return client;
   }
 
   async #integrateAssignments(input: {

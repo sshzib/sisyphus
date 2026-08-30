@@ -75,7 +75,7 @@ export class EngineeringOrchestrator {
       await this.#blockUnavailableCodeBuild(task);
       return;
     }
-    if (this.#openRouter === undefined) {
+    if (this.#openRouter === undefined && executor.backend !== "local-static") {
       await this.#runLegacyTask(task);
       return;
     }

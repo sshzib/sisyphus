@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/server.ts",
     "start": "node dist/server.js",
-    "test": "tsx --test src/config.test.ts src/local-static-executor.test.ts src/openrouter.test.ts src/workforce-policy.test.ts",
+    "test": "tsx --test src/config.test.ts src/local-static-executor.test.ts src/local-static-fallback.test.ts src/openrouter.test.ts src/workforce-policy.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
