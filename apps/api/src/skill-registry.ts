@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { copyFile, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
@@ -8,6 +8,91 @@ import { createInMemorySkillCatalog } from "@sisyphus/catalog";
 import { z } from "zod";
 
 const execFileAsync = promisify(execFile);
+
+type JsonDocument = {
+  readonly value: unknown;
+  readonly recoveredText: string | undefined;
+};
+
+class MutationQueue {
+  #tail: Promise<void> = Promise.resolve();
+
+  public async run<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.#tail;
+    let release: () => void = () => undefined;
+    this.#tail = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
+  }
+}
+
+function firstJsonDocument(text: string): string | undefined {
+  const start = text.search(/\S/u);
+  if (start < 0) return undefined;
+  const root = text.charAt(start);
+  if (root !== "{" && root !== "[") return undefined;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < text.length; index += 1) {
+    const character = text.charAt(index);
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      continue;
+    }
+    if (character === "{" || character === "[") depth += 1;
+    if (character === "}" || character === "]") depth -= 1;
+    if (depth === 0) return text.slice(0, index + 1);
+  }
+  return undefined;
+}
+
+async function readJsonDocument(path: string): Promise<JsonDocument> {
+  const text = await readFile(path, "utf8");
+  try {
+    const value: unknown = JSON.parse(text);
+    return { value, recoveredText: undefined };
+  } catch (originalCause: unknown) {
+    const recoveredText = firstJsonDocument(text);
+    if (recoveredText === undefined || recoveredText.trimEnd() === text.trimEnd()) {
+      throw originalCause;
+    }
+    try {
+      const value: unknown = JSON.parse(recoveredText);
+      return { value, recoveredText };
+    } catch {
+      throw originalCause;
+    }
+  }
+}
+
+async function writeAtomically(path: string, content: string): Promise<void> {
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporary, content, { encoding: "utf8", flag: "wx" });
+    await rename(temporary, path);
+  } catch (cause: unknown) {
+    await rm(temporary, { force: true });
+    throw cause;
+  }
+}
+
+async function writeJsonAtomically(path: string, value: unknown): Promise<void> {
+  await writeAtomically(path, JSON.stringify(value, null, 2));
+}
 
 const SourceManifestSchema = z
   .object({
@@ -378,6 +463,7 @@ export class FileSkillRegistry {
   readonly #enhancedRoot: string;
   readonly #evaluationRoot: string;
   readonly #catalog = createInMemorySkillCatalog();
+  readonly #mutations = new MutationQueue();
 
   public constructor(root: string) {
     this.#root = resolve(root);
@@ -482,7 +568,7 @@ export class FileSkillRegistry {
     readonly syncedAt: string;
   }> {
     await this.#refreshUpstreamSource();
-    return this.#synchronizeIndex();
+    return this.#mutations.run(() => this.#synchronizeIndex());
   }
 
   public async previewSync(): Promise<{
@@ -522,6 +608,10 @@ export class FileSkillRegistry {
 
   public async createCustom(input: CustomSkillInput | unknown): Promise<SkillRegistryEntry> {
     const value = CustomSkillInputSchema.parse(input);
+    return this.#mutations.run(() => this.#createCustom(value));
+  }
+
+  async #createCustom(value: z.infer<typeof CustomSkillInputSchema>): Promise<SkillRegistryEntry> {
     const existing = await this.#load();
     if (existing.entries.some((entry) => entry.id === value.name)) {
       throw new Error("A skill with that name already exists.");
@@ -583,6 +673,10 @@ export class FileSkillRegistry {
       ...SkillExecutionInputSchema.parse(input),
       recordedAt: new Date().toISOString(),
     });
+    await this.#mutations.run(() => this.#recordExecution(record));
+  }
+
+  async #recordExecution(record: z.infer<typeof SkillExecutionRecordSchema>): Promise<void> {
     const registry = await this.#load();
     let changed = false;
     const entries = await Promise.all(
@@ -615,6 +709,14 @@ export class FileSkillRegistry {
   }
 
   public async resolveImprovementProposal(input: {
+    readonly skillId: string;
+    readonly proposalId: string;
+    readonly action: "apply" | "reject";
+  }): Promise<SkillRegistryDetail> {
+    return this.#mutations.run(() => this.#resolveImprovementProposal(input));
+  }
+
+  async #resolveImprovementProposal(input: {
     readonly skillId: string;
     readonly proposalId: string;
     readonly action: "apply" | "reject";
@@ -887,10 +989,9 @@ export class FileSkillRegistry {
   ): Promise<void> {
     const records = await this.#readExecutionRecords(skillId);
     await mkdir(join(this.#evaluationRoot, skillId), { recursive: true });
-    await writeFile(
+    await writeJsonAtomically(
       join(this.#evaluationRoot, skillId, "results.json"),
-      JSON.stringify([...records, record], null, 2),
-      "utf8",
+      [...records, record],
     );
   }
 
@@ -898,13 +999,11 @@ export class FileSkillRegistry {
     skillId: string,
   ): Promise<readonly SkillImprovementProposal[]> {
     try {
-      return z
-        .array(SkillImprovementProposalSchema)
-        .parse(
-          JSON.parse(
-            await readFile(join(this.#evaluationRoot, skillId, "proposals.json"), "utf8"),
-          ),
-        );
+      const file = join(this.#evaluationRoot, skillId, "proposals.json");
+      const document = await readJsonDocument(file);
+      const proposals = z.array(SkillImprovementProposalSchema).parse(document.value);
+      if (document.recoveredText !== undefined) await writeAtomically(file, document.recoveredText);
+      return proposals;
     } catch (cause: unknown) {
       if (cause !== null && typeof cause === "object" && "code" in cause && cause.code === "ENOENT") {
         return [];
@@ -918,24 +1017,18 @@ export class FileSkillRegistry {
     proposals: readonly SkillImprovementProposal[],
   ): Promise<void> {
     await mkdir(join(this.#evaluationRoot, skillId), { recursive: true });
-    await writeFile(
-      join(this.#evaluationRoot, skillId, "proposals.json"),
-      JSON.stringify(proposals, null, 2),
-      "utf8",
-    );
+    await writeJsonAtomically(join(this.#evaluationRoot, skillId, "proposals.json"), proposals);
   }
 
   async #readExecutionRecords(
     skillId: string,
   ): Promise<readonly z.infer<typeof SkillExecutionRecordSchema>[]> {
     try {
-      return z
-        .array(SkillExecutionRecordSchema)
-        .parse(
-          JSON.parse(
-            await readFile(join(this.#evaluationRoot, skillId, "results.json"), "utf8"),
-          ),
-        );
+      const file = join(this.#evaluationRoot, skillId, "results.json");
+      const document = await readJsonDocument(file);
+      const records = z.array(SkillExecutionRecordSchema).parse(document.value);
+      if (document.recoveredText !== undefined) await writeAtomically(file, document.recoveredText);
+      return records;
     } catch (cause: unknown) {
       if (cause !== null && typeof cause === "object" && "code" in cause && cause.code === "ENOENT") {
         return [];
@@ -946,7 +1039,12 @@ export class FileSkillRegistry {
 
   async #readRegistry(): Promise<z.infer<typeof RegistryFileSchema>> {
     try {
-      return RegistryFileSchema.parse(JSON.parse(await readFile(this.#registryFile, "utf8")));
+      const document = await readJsonDocument(this.#registryFile);
+      const registry = RegistryFileSchema.parse(document.value);
+      if (document.recoveredText !== undefined) {
+        await writeAtomically(this.#registryFile, document.recoveredText);
+      }
+      return registry;
     } catch (cause: unknown) {
       if (cause !== null && typeof cause === "object" && "code" in cause && cause.code === "ENOENT") {
         return { sourceRevision: null, syncedAt: null, entries: [] };
@@ -957,7 +1055,7 @@ export class FileSkillRegistry {
 
   async #write(value: z.infer<typeof RegistryFileSchema>): Promise<void> {
     await mkdir(join(this.#root, "registry"), { recursive: true });
-    await writeFile(this.#registryFile, JSON.stringify(value, null, 2), "utf8");
+    await writeJsonAtomically(this.#registryFile, value);
   }
 
   #toPublicEntry(entry: SkillRegistryEntry): SkillRegistryEntry {
