@@ -145,6 +145,7 @@ export function deriveClaudeIdentity(event: ClaudeHookEvent): RuntimeIdentity {
         kind: "subagent",
         agentId: createAgentId(event.agent_id),
         parentAgentId: rootAgentId(event.session_id),
+        role: event.agent_type ?? null,
       },
     };
   }

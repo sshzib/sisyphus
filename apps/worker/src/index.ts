@@ -61,7 +61,7 @@ export async function main(
     }
   };
   void synchronize();
-  const interval = setInterval(() => void synchronize(), 30_000);
+  const interval = setInterval(() => void synchronize(), 2_000);
   interval.unref();
 
   let closing = false;

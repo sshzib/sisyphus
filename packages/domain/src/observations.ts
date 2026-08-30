@@ -27,6 +27,7 @@ export const RuntimeIdentitySchema = z
           kind: z.literal("subagent"),
           agentId: AgentIdSchema,
           parentAgentId: AgentIdSchema,
+          role: z.string().trim().min(1).max(160).nullable(),
         })
         .strict(),
     ]),

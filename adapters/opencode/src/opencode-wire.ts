@@ -160,6 +160,7 @@ export function deriveOpenCodeIdentity(event: OpenCodeHookEvent): RuntimeIdentit
         kind: "subagent",
         agentId: createAgentId(`opencode-subagent:${rawSessionId}:${event.input.callID}`),
         parentAgentId: rootAgentId(rawSessionId),
+        role: "task",
       },
     };
   }

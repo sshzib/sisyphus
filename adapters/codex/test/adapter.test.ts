@@ -89,6 +89,7 @@ describe("Codex event parsing", () => {
         kind: "subagent",
         agentId: "agent-042",
         parentAgentId: "codex-root:session-001",
+        role: "reviewer",
       },
     });
   });

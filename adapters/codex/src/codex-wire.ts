@@ -157,6 +157,7 @@ export function deriveCodexIdentity(event: CodexHookEvent): RuntimeIdentity {
         kind: "subagent",
         agentId: createAgentId(event.agent_id),
         parentAgentId: rootAgentId(event.session_id),
+        role: event.agent_type,
       },
     };
   }

@@ -180,6 +180,7 @@ export function deriveCursorIdentity(event: CursorHookEvent): RuntimeIdentity {
         kind: "subagent",
         agentId: subagentId(event),
         parentAgentId: rootAgentId(event.conversation_id),
+        role: event.subagent_type,
       },
     };
   }
