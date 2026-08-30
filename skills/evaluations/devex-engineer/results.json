@@ -1,0 +1,44 @@
+[
+  {
+    "executionId": "task-f88e7753-14ed-470b-95bb-1ae55ff658a5:agent-357517dd-9262-4764-a273-a20a66c66ba4:passed",
+    "skillIds": [
+      "plan-design-review",
+      "plan-eng-review",
+      "devex-engineer"
+    ],
+    "skillVersions": [
+      {
+        "id": "plan-design-review",
+        "skillVersionId": "plan-design-review:sha256:ae6da2a32e70f4990dd86abdc92444af7637527a489e95cf86c0d8c58a176110",
+        "contentHash": "sha256:f2a39ec2b3b74461059889d984d9b0db484e9d6297d6f32962f442b066d2dff9"
+      },
+      {
+        "id": "plan-eng-review",
+        "skillVersionId": "plan-eng-review:sha256:d78a0bf99c11e21ad3948564507e3e2b1ebae31560330d140982a3ce37cc7231",
+        "contentHash": "sha256:6f928253711f6802bb8fd466fd0ad36d0b6b86fa30a96a7156b5f48dc6597253"
+      },
+      {
+        "id": "devex-engineer",
+        "skillVersionId": "devex-engineer:sha256:46938e3fef2f0d355a043f3edcd2d5b4cf19fb00aa7becc9d36d520a8371afeb",
+        "contentHash": "sha256:c60123f479a2c882b4cc12072d4850e0d24beb33820f6222df04af54ca9a13ae"
+      }
+    ],
+    "taskId": "task-f88e7753-14ed-470b-95bb-1ae55ff658a5",
+    "agentId": "agent-357517dd-9262-4764-a273-a20a66c66ba4",
+    "requirementId": "REQ-02",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "passed",
+    "attempts": 1,
+    "durationMs": 26,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T10:57:27.441Z"
+  }
+]

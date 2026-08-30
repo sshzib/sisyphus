@@ -1,0 +1,74 @@
+[
+  {
+    "executionId": "task-fa452aac-4003-4969-8ce2-4264bf89c7ae:agent-97790137-aa36-4ccd-bf03-290753469b5f:failed",
+    "skillIds": [
+      "mcp-builder"
+    ],
+    "skillVersions": [
+      {
+        "id": "mcp-builder",
+        "skillVersionId": "mcp-builder:sha256:a0877564a3621ad09e08e4c84582026f2928f31de66f4fe571791cfb392d027d",
+        "contentHash": "sha256:545631ce8e82086d9c21eb9749d6cf46c7ad62b86450d6afe3c28e3e2648d097"
+      }
+    ],
+    "taskId": "task-fa452aac-4003-4969-8ce2-4264bf89c7ae",
+    "agentId": "agent-97790137-aa36-4ccd-bf03-290753469b5f",
+    "requirementId": "REQ-03",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "failed",
+    "attempts": 1,
+    "durationMs": 0,
+    "evidence": "The agent branch created a verified integration conflict.",
+    "score": {
+      "total": 0,
+      "functional": 0,
+      "contractTests": 0,
+      "security": 0,
+      "requirementCompliance": 0,
+      "codeQuality": 0
+    },
+    "recordedAt": "2026-08-30T08:30:29.852Z"
+  },
+  {
+    "executionId": "task-0fe53505-b1cb-4a49-91f5-42a104538691:agent-291ec524-df6a-4904-b5f5-16dae063e7e4:failed",
+    "skillIds": [
+      "backend-dev",
+      "mcp-builder",
+      "typescript-development"
+    ],
+    "skillVersions": [
+      {
+        "id": "backend-dev",
+        "skillVersionId": "backend-dev:sha256:4caaa38a76f1fa1a6f0f811d14fa62c8d8024ff4e7fce8ed226eb24666a0dc2a",
+        "contentHash": "sha256:3d983d136012e01e12f7ee2678ec8bd84f8b5b4a1a7e9696601bab62fb3edec3"
+      },
+      {
+        "id": "mcp-builder",
+        "skillVersionId": "mcp-builder:sha256:a0877564a3621ad09e08e4c84582026f2928f31de66f4fe571791cfb392d027d",
+        "contentHash": "sha256:545631ce8e82086d9c21eb9749d6cf46c7ad62b86450d6afe3c28e3e2648d097"
+      },
+      {
+        "id": "typescript-development",
+        "skillVersionId": "typescript-development:sha256:617aeefe8665f6a1d46550e2add6c69bd9dfdc5a53a556feee4ebe8b15f6353a",
+        "contentHash": "sha256:77d51893ae4db4d84b5ecbaef39e5e620412c2d78aaa80b8f299ee74b6b3e7c6"
+      }
+    ],
+    "taskId": "task-0fe53505-b1cb-4a49-91f5-42a104538691",
+    "agentId": "agent-291ec524-df6a-4904-b5f5-16dae063e7e4",
+    "requirementId": "REQ-03",
+    "model": "qwen/qwen3-coder",
+    "outcome": "failed",
+    "attempts": 3,
+    "durationMs": 45937,
+    "evidence": "The backend assignment attempted to modify a frontend-owned or shared path.",
+    "score": {
+      "total": 0,
+      "functional": 0,
+      "contractTests": 0,
+      "security": 0,
+      "requirementCompliance": 0,
+      "codeQuality": 0
+    },
+    "recordedAt": "2026-08-30T12:26:53.777Z"
+  }
+]

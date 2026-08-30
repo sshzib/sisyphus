@@ -1,0 +1,212 @@
+[
+  {
+    "executionId": "task-bc7147cb-82e2-46ff-9fd3-926168c43afb:agent-923b9fc9-9c04-43c5-877a-87791e38ba35:failed",
+    "skillIds": [
+      "code-reviewer",
+      "plan-design-review",
+      "python-development"
+    ],
+    "skillVersions": [
+      {
+        "id": "code-reviewer",
+        "skillVersionId": "code-reviewer:sha256:ed52cd3e8bfe061789a98542591f8fa704b3a00617e77e28fd875ad2e27c2c39",
+        "contentHash": "sha256:02a9089c1325deaafabf38ff2b7ae68ef487f15ba67b315e87f49336b72b5b1e"
+      },
+      {
+        "id": "plan-design-review",
+        "skillVersionId": "plan-design-review:sha256:ae6da2a32e70f4990dd86abdc92444af7637527a489e95cf86c0d8c58a176110",
+        "contentHash": "sha256:f2a39ec2b3b74461059889d984d9b0db484e9d6297d6f32962f442b066d2dff9"
+      },
+      {
+        "id": "python-development",
+        "skillVersionId": "python-development:sha256:1ba25cc000789cbd62288c602892b4c7dc15ab8969eaaf49da162acedbcf3910",
+        "contentHash": "sha256:2ed0737be106dc03f21448f0f325ee4f8cc804b6a189ae19ae96a5699b254d93"
+      }
+    ],
+    "taskId": "task-bc7147cb-82e2-46ff-9fd3-926168c43afb",
+    "agentId": "agent-923b9fc9-9c04-43c5-877a-87791e38ba35",
+    "requirementId": "REQ-04",
+    "model": "qwen/qwen3-coder",
+    "outcome": "failed",
+    "attempts": 3,
+    "durationMs": 65202,
+    "evidence": "[\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [\n      \"files\"\n    ],\n    \"message\": \"Too small: expected array to have >=1 items\"\n  }\n]",
+    "score": {
+      "total": 0,
+      "functional": 0,
+      "contractTests": 0,
+      "security": 0,
+      "requirementCompliance": 0,
+      "codeQuality": 0
+    },
+    "recordedAt": "2026-08-30T10:17:07.415Z"
+  },
+  {
+    "executionId": "task-36b3161f-4fd0-4001-b34f-8a49def87642:agent-8e9c3fae-7a45-46af-babe-38cca920b010:passed",
+    "skillIds": [
+      "code-reviewer",
+      "plan-design-review",
+      "plan-eng-review"
+    ],
+    "skillVersions": [
+      {
+        "id": "code-reviewer",
+        "skillVersionId": "code-reviewer:sha256:ed52cd3e8bfe061789a98542591f8fa704b3a00617e77e28fd875ad2e27c2c39",
+        "contentHash": "sha256:02a9089c1325deaafabf38ff2b7ae68ef487f15ba67b315e87f49336b72b5b1e"
+      },
+      {
+        "id": "plan-design-review",
+        "skillVersionId": "plan-design-review:sha256:ae6da2a32e70f4990dd86abdc92444af7637527a489e95cf86c0d8c58a176110",
+        "contentHash": "sha256:f2a39ec2b3b74461059889d984d9b0db484e9d6297d6f32962f442b066d2dff9"
+      },
+      {
+        "id": "plan-eng-review",
+        "skillVersionId": "plan-eng-review:sha256:d78a0bf99c11e21ad3948564507e3e2b1ebae31560330d140982a3ce37cc7231",
+        "contentHash": "sha256:6f928253711f6802bb8fd466fd0ad36d0b6b86fa30a96a7156b5f48dc6597253"
+      }
+    ],
+    "taskId": "task-36b3161f-4fd0-4001-b34f-8a49def87642",
+    "agentId": "agent-8e9c3fae-7a45-46af-babe-38cca920b010",
+    "requirementId": "REQ-02",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "passed",
+    "attempts": 3,
+    "durationMs": 22,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T10:25:31.311Z"
+  },
+  {
+    "executionId": "task-f88e7753-14ed-470b-95bb-1ae55ff658a5:agent-357517dd-9262-4764-a273-a20a66c66ba4:passed",
+    "skillIds": [
+      "plan-design-review",
+      "plan-eng-review",
+      "devex-engineer"
+    ],
+    "skillVersions": [
+      {
+        "id": "plan-design-review",
+        "skillVersionId": "plan-design-review:sha256:ae6da2a32e70f4990dd86abdc92444af7637527a489e95cf86c0d8c58a176110",
+        "contentHash": "sha256:f2a39ec2b3b74461059889d984d9b0db484e9d6297d6f32962f442b066d2dff9"
+      },
+      {
+        "id": "plan-eng-review",
+        "skillVersionId": "plan-eng-review:sha256:d78a0bf99c11e21ad3948564507e3e2b1ebae31560330d140982a3ce37cc7231",
+        "contentHash": "sha256:6f928253711f6802bb8fd466fd0ad36d0b6b86fa30a96a7156b5f48dc6597253"
+      },
+      {
+        "id": "devex-engineer",
+        "skillVersionId": "devex-engineer:sha256:46938e3fef2f0d355a043f3edcd2d5b4cf19fb00aa7becc9d36d520a8371afeb",
+        "contentHash": "sha256:c60123f479a2c882b4cc12072d4850e0d24beb33820f6222df04af54ca9a13ae"
+      }
+    ],
+    "taskId": "task-f88e7753-14ed-470b-95bb-1ae55ff658a5",
+    "agentId": "agent-357517dd-9262-4764-a273-a20a66c66ba4",
+    "requirementId": "REQ-02",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "passed",
+    "attempts": 1,
+    "durationMs": 26,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T10:57:27.441Z"
+  },
+  {
+    "executionId": "task-59cc9cf4-ff43-44fe-83ff-43baf727bf69:agent-606565fe-f37b-4c76-8dea-d6b50bdc2c7c:passed",
+    "skillIds": [
+      "plan-design-review",
+      "plan-eng-review",
+      "test-writer"
+    ],
+    "skillVersions": [
+      {
+        "id": "plan-design-review",
+        "skillVersionId": "plan-design-review:sha256:ae6da2a32e70f4990dd86abdc92444af7637527a489e95cf86c0d8c58a176110",
+        "contentHash": "sha256:f2a39ec2b3b74461059889d984d9b0db484e9d6297d6f32962f442b066d2dff9"
+      },
+      {
+        "id": "plan-eng-review",
+        "skillVersionId": "plan-eng-review:sha256:d78a0bf99c11e21ad3948564507e3e2b1ebae31560330d140982a3ce37cc7231",
+        "contentHash": "sha256:6f928253711f6802bb8fd466fd0ad36d0b6b86fa30a96a7156b5f48dc6597253"
+      },
+      {
+        "id": "test-writer",
+        "skillVersionId": "test-writer:sha256:e06a68788108f0aee21deb48de8f2ce8904c63429560c8f34c35f83518776623",
+        "contentHash": "sha256:6fc56d7d343d53873b19770c53736447128cbd807e10da0aef89f4ea43c01a5c"
+      }
+    ],
+    "taskId": "task-59cc9cf4-ff43-44fe-83ff-43baf727bf69",
+    "agentId": "agent-606565fe-f37b-4c76-8dea-d6b50bdc2c7c",
+    "requirementId": "REQ-02",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "passed",
+    "attempts": 2,
+    "durationMs": 37,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T11:02:40.353Z"
+  },
+  {
+    "executionId": "task-42da7a96-3d64-4d05-936e-85492c6706c1:agent-bf779d3d-47e8-448b-ac07-c9d36ff8fcdc:passed",
+    "skillIds": [
+      "plan-design-review",
+      "plan-eng-review",
+      "test-writer"
+    ],
+    "skillVersions": [
+      {
+        "id": "plan-design-review",
+        "skillVersionId": "plan-design-review:sha256:ae6da2a32e70f4990dd86abdc92444af7637527a489e95cf86c0d8c58a176110",
+        "contentHash": "sha256:f2a39ec2b3b74461059889d984d9b0db484e9d6297d6f32962f442b066d2dff9"
+      },
+      {
+        "id": "plan-eng-review",
+        "skillVersionId": "plan-eng-review:sha256:d78a0bf99c11e21ad3948564507e3e2b1ebae31560330d140982a3ce37cc7231",
+        "contentHash": "sha256:6f928253711f6802bb8fd466fd0ad36d0b6b86fa30a96a7156b5f48dc6597253"
+      },
+      {
+        "id": "test-writer",
+        "skillVersionId": "test-writer:sha256:e06a68788108f0aee21deb48de8f2ce8904c63429560c8f34c35f83518776623",
+        "contentHash": "sha256:6fc56d7d343d53873b19770c53736447128cbd807e10da0aef89f4ea43c01a5c"
+      }
+    ],
+    "taskId": "task-42da7a96-3d64-4d05-936e-85492c6706c1",
+    "agentId": "agent-bf779d3d-47e8-448b-ac07-c9d36ff8fcdc",
+    "requirementId": "REQ-02",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "passed",
+    "attempts": 1,
+    "durationMs": 24,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T13:15:04.001Z"
+  }
+]

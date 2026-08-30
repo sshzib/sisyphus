@@ -1,0 +1,44 @@
+[
+  {
+    "executionId": "task-25af11ee-07f2-4b90-a1b0-f33319cae464:agent-f3595ba8-e879-469b-a2ef-4cf0b7e380b6:failed",
+    "skillIds": [
+      "land-and-deploy",
+      "code-reviewer",
+      "autoplan"
+    ],
+    "skillVersions": [
+      {
+        "id": "land-and-deploy",
+        "skillVersionId": "land-and-deploy:sha256:5d72ee7dfe8ddb4fd718c6b849e1251dd41cfcd84d994f92df13e194f5f9209c",
+        "contentHash": "sha256:1390dd9eace41d07b64352577f7dc7315f906e78827501c3df6284da6da9b77b"
+      },
+      {
+        "id": "code-reviewer",
+        "skillVersionId": "code-reviewer:sha256:ed52cd3e8bfe061789a98542591f8fa704b3a00617e77e28fd875ad2e27c2c39",
+        "contentHash": "sha256:02a9089c1325deaafabf38ff2b7ae68ef487f15ba67b315e87f49336b72b5b1e"
+      },
+      {
+        "id": "autoplan",
+        "skillVersionId": "autoplan:sha256:99b051573fad877b63e71e259b028134bccd98d5ae9fd6bdf483fdcae69d948c",
+        "contentHash": "sha256:037a25fd0a7ca08e29a6584843948e73e1348b5a2a6e19990477e1c8cc31b7ea"
+      }
+    ],
+    "taskId": "task-25af11ee-07f2-4b90-a1b0-f33319cae464",
+    "agentId": "agent-f3595ba8-e879-469b-a2ef-4cf0b7e380b6",
+    "requirementId": "REQ-02",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "failed",
+    "attempts": 1,
+    "durationMs": 0,
+    "evidence": "The agent branch created a verified integration conflict.",
+    "score": {
+      "total": 0,
+      "functional": 0,
+      "contractTests": 0,
+      "security": 0,
+      "requirementCompliance": 0,
+      "codeQuality": 0
+    },
+    "recordedAt": "2026-08-30T08:05:48.520Z"
+  }
+]

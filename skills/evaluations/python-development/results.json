@@ -1,0 +1,44 @@
+[
+  {
+    "executionId": "task-bc7147cb-82e2-46ff-9fd3-926168c43afb:agent-923b9fc9-9c04-43c5-877a-87791e38ba35:failed",
+    "skillIds": [
+      "code-reviewer",
+      "plan-design-review",
+      "python-development"
+    ],
+    "skillVersions": [
+      {
+        "id": "code-reviewer",
+        "skillVersionId": "code-reviewer:sha256:ed52cd3e8bfe061789a98542591f8fa704b3a00617e77e28fd875ad2e27c2c39",
+        "contentHash": "sha256:02a9089c1325deaafabf38ff2b7ae68ef487f15ba67b315e87f49336b72b5b1e"
+      },
+      {
+        "id": "plan-design-review",
+        "skillVersionId": "plan-design-review:sha256:ae6da2a32e70f4990dd86abdc92444af7637527a489e95cf86c0d8c58a176110",
+        "contentHash": "sha256:f2a39ec2b3b74461059889d984d9b0db484e9d6297d6f32962f442b066d2dff9"
+      },
+      {
+        "id": "python-development",
+        "skillVersionId": "python-development:sha256:1ba25cc000789cbd62288c602892b4c7dc15ab8969eaaf49da162acedbcf3910",
+        "contentHash": "sha256:2ed0737be106dc03f21448f0f325ee4f8cc804b6a189ae19ae96a5699b254d93"
+      }
+    ],
+    "taskId": "task-bc7147cb-82e2-46ff-9fd3-926168c43afb",
+    "agentId": "agent-923b9fc9-9c04-43c5-877a-87791e38ba35",
+    "requirementId": "REQ-04",
+    "model": "qwen/qwen3-coder",
+    "outcome": "failed",
+    "attempts": 3,
+    "durationMs": 65202,
+    "evidence": "[\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [\n      \"files\"\n    ],\n    \"message\": \"Too small: expected array to have >=1 items\"\n  }\n]",
+    "score": {
+      "total": 0,
+      "functional": 0,
+      "contractTests": 0,
+      "security": 0,
+      "requirementCompliance": 0,
+      "codeQuality": 0
+    },
+    "recordedAt": "2026-08-30T10:17:07.415Z"
+  }
+]

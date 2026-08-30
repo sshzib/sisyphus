@@ -1,0 +1,170 @@
+[
+  {
+    "executionId": "task-36b3161f-4fd0-4001-b34f-8a49def87642:agent-4b67a663-1c8f-4e6e-a9e5-f2d72b6641ae:passed",
+    "skillIds": [
+      "webapp-testing",
+      "qa-engineer",
+      "test-writer"
+    ],
+    "skillVersions": [
+      {
+        "id": "webapp-testing",
+        "skillVersionId": "webapp-testing:sha256:7ec2fe38a41464fba07176965e9ac9efbcddb2bc6eadd2ae633a2a5bce0b977b",
+        "contentHash": "sha256:0437ac12d83dde68e102f1515199dfd3a126ea23610b830c78ae6fbbecb15888"
+      },
+      {
+        "id": "qa-engineer",
+        "skillVersionId": "qa-engineer:sha256:0e95da248760891ff1e206e59fecb1aa515ee67d48309a3eb10fd9fc10a88775",
+        "contentHash": "sha256:64de3f6a2e4e139615de2d51460d023ef87953f26d2e0249df5dd477d89757ae"
+      },
+      {
+        "id": "test-writer",
+        "skillVersionId": "test-writer:sha256:e06a68788108f0aee21deb48de8f2ce8904c63429560c8f34c35f83518776623",
+        "contentHash": "sha256:6fc56d7d343d53873b19770c53736447128cbd807e10da0aef89f4ea43c01a5c"
+      }
+    ],
+    "taskId": "task-36b3161f-4fd0-4001-b34f-8a49def87642",
+    "agentId": "agent-4b67a663-1c8f-4e6e-a9e5-f2d72b6641ae",
+    "requirementId": "REQ-03",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "passed",
+    "attempts": 1,
+    "durationMs": 22,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T10:25:31.312Z"
+  },
+  {
+    "executionId": "task-f88e7753-14ed-470b-95bb-1ae55ff658a5:agent-3fff5298-5890-4256-bec1-4cc542d00a52:passed",
+    "skillIds": [
+      "webapp-testing",
+      "qa-engineer",
+      "test-writer"
+    ],
+    "skillVersions": [
+      {
+        "id": "webapp-testing",
+        "skillVersionId": "webapp-testing:sha256:7ec2fe38a41464fba07176965e9ac9efbcddb2bc6eadd2ae633a2a5bce0b977b",
+        "contentHash": "sha256:0437ac12d83dde68e102f1515199dfd3a126ea23610b830c78ae6fbbecb15888"
+      },
+      {
+        "id": "qa-engineer",
+        "skillVersionId": "qa-engineer:sha256:0e95da248760891ff1e206e59fecb1aa515ee67d48309a3eb10fd9fc10a88775",
+        "contentHash": "sha256:64de3f6a2e4e139615de2d51460d023ef87953f26d2e0249df5dd477d89757ae"
+      },
+      {
+        "id": "test-writer",
+        "skillVersionId": "test-writer:sha256:e06a68788108f0aee21deb48de8f2ce8904c63429560c8f34c35f83518776623",
+        "contentHash": "sha256:6fc56d7d343d53873b19770c53736447128cbd807e10da0aef89f4ea43c01a5c"
+      }
+    ],
+    "taskId": "task-f88e7753-14ed-470b-95bb-1ae55ff658a5",
+    "agentId": "agent-3fff5298-5890-4256-bec1-4cc542d00a52",
+    "requirementId": "REQ-03",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "passed",
+    "attempts": 2,
+    "durationMs": 26,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T10:57:27.450Z"
+  },
+  {
+    "executionId": "task-59cc9cf4-ff43-44fe-83ff-43baf727bf69:agent-dabba436-72c1-4d55-8438-d5849a383139:passed",
+    "skillIds": [
+      "webapp-testing",
+      "test-writer",
+      "qa-engineer"
+    ],
+    "skillVersions": [
+      {
+        "id": "webapp-testing",
+        "skillVersionId": "webapp-testing:sha256:7ec2fe38a41464fba07176965e9ac9efbcddb2bc6eadd2ae633a2a5bce0b977b",
+        "contentHash": "sha256:0437ac12d83dde68e102f1515199dfd3a126ea23610b830c78ae6fbbecb15888"
+      },
+      {
+        "id": "test-writer",
+        "skillVersionId": "test-writer:sha256:e06a68788108f0aee21deb48de8f2ce8904c63429560c8f34c35f83518776623",
+        "contentHash": "sha256:6fc56d7d343d53873b19770c53736447128cbd807e10da0aef89f4ea43c01a5c"
+      },
+      {
+        "id": "qa-engineer",
+        "skillVersionId": "qa-engineer:sha256:0e95da248760891ff1e206e59fecb1aa515ee67d48309a3eb10fd9fc10a88775",
+        "contentHash": "sha256:64de3f6a2e4e139615de2d51460d023ef87953f26d2e0249df5dd477d89757ae"
+      }
+    ],
+    "taskId": "task-59cc9cf4-ff43-44fe-83ff-43baf727bf69",
+    "agentId": "agent-dabba436-72c1-4d55-8438-d5849a383139",
+    "requirementId": "REQ-03",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "passed",
+    "attempts": 1,
+    "durationMs": 37,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T11:02:40.354Z"
+  },
+  {
+    "executionId": "task-42da7a96-3d64-4d05-936e-85492c6706c1:agent-8b4264ca-bdb4-4b8e-8224-89a6f03f1ad3:passed",
+    "skillIds": [
+      "webapp-testing",
+      "test-writer",
+      "qa-engineer"
+    ],
+    "skillVersions": [
+      {
+        "id": "webapp-testing",
+        "skillVersionId": "webapp-testing:sha256:7ec2fe38a41464fba07176965e9ac9efbcddb2bc6eadd2ae633a2a5bce0b977b",
+        "contentHash": "sha256:0437ac12d83dde68e102f1515199dfd3a126ea23610b830c78ae6fbbecb15888"
+      },
+      {
+        "id": "test-writer",
+        "skillVersionId": "test-writer:sha256:e06a68788108f0aee21deb48de8f2ce8904c63429560c8f34c35f83518776623",
+        "contentHash": "sha256:6fc56d7d343d53873b19770c53736447128cbd807e10da0aef89f4ea43c01a5c"
+      },
+      {
+        "id": "qa-engineer",
+        "skillVersionId": "qa-engineer:sha256:0e95da248760891ff1e206e59fecb1aa515ee67d48309a3eb10fd9fc10a88775",
+        "contentHash": "sha256:64de3f6a2e4e139615de2d51460d023ef87953f26d2e0249df5dd477d89757ae"
+      }
+    ],
+    "taskId": "task-42da7a96-3d64-4d05-936e-85492c6706c1",
+    "agentId": "agent-8b4264ca-bdb4-4b8e-8224-89a6f03f1ad3",
+    "requirementId": "REQ-03",
+    "model": "deepseek/deepseek-v4-flash",
+    "outcome": "passed",
+    "attempts": 2,
+    "durationMs": 24,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T13:15:04.002Z"
+  }
+]

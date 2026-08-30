@@ -1,0 +1,21 @@
+[
+  {
+    "id": "proposal-3217cd2063d16bab",
+    "skillId": "code-reviewer",
+    "status": "proposed",
+    "observedIssue": "Repeated verified failures were recorded while Code Review was selected (2 of 3 executions).",
+    "evidence": {
+      "executionCount": 3,
+      "failureCount": 2,
+      "failureExamples": [
+        "The agent branch created a verified integration conflict.",
+        "[\n  {\n    \"origin\": \"array\",\n    \"code\": \"too_small\",\n    \"minimum\": 1,\n    \"inclusive\": true,\n    \"path\": [\n      \"files\"\n    ],\n    \"message\": \"Too small: expected array to have >=1 items\"\n  }\n]"
+      ]
+    },
+    "suggestedImprovement": "Add an explicit verification checkpoint to the execution workflow: before completion, inspect the relevant acceptance contract and validate the affected behavior. Recent evidence: The agent branch created a verified integration conflict.",
+    "expectedImpact": "Make the recurring verification step explicit for future agents and reduce repeat failures without changing the upstream source.",
+    "confidence": "medium",
+    "createdAt": "2026-08-30T10:25:31.330Z",
+    "resolvedAt": null
+  }
+]

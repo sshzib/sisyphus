@@ -1,0 +1,1060 @@
+{
+  "version": "1.0.0",
+  "name": "openskills",
+  "description": "49 production-grade AI engineering skills. One install. Every AI agent.",
+  "repository": "https://github.com/CODE-SAURABH/OpenSkills",
+  "license": "MIT",
+  "skills": [
+    {
+      "name": "agent-memory",
+      "path": "agent-memory/SKILL.md",
+      "category": "ops",
+      "phase": "ops",
+      "description": "Session memory management, browser-based QA testing, and multi-agent coordination skill.",
+      "tags": [
+        "memory",
+        "browser",
+        "multi-agent",
+        "session",
+        "context"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "ai-engineer",
+      "path": "ai-engineer/SKILL.md",
+      "category": "ai",
+      "phase": "build",
+      "description": "Expert AI/LLM engineering guidance.",
+      "tags": [
+        "ai",
+        "llm",
+        "rag",
+        "langchain",
+        "openai",
+        "anthropic",
+        "vector-db"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "api-design",
+      "path": "api-design/SKILL.md",
+      "category": "design",
+      "phase": "build",
+      "description": "Design production-grade APIs \u2014 REST, GraphQL, gRPC, and WebSocket \u2014 with a focus on consistency, versioning, error standards, and developer experience.",
+      "tags": [
+        "api",
+        "rest",
+        "graphql",
+        "grpc",
+        "openapi",
+        "design"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "autoplan",
+      "path": "autoplan/SKILL.md",
+      "category": "planning",
+      "phase": "think",
+      "description": "Automated full review pipeline skill.",
+      "tags": [
+        "planning",
+        "pipeline",
+        "automation",
+        "review"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "backend-dev",
+      "path": "backend-dev/SKILL.md",
+      "category": "backend",
+      "phase": "build",
+      "description": "Production-grade backend development guidance \u2014 language and framework agnostic.",
+      "tags": [
+        "backend",
+        "api",
+        "database",
+        "auth",
+        "nodejs",
+        "python",
+        "go"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "benchmark",
+      "path": "benchmark/SKILL.md",
+      "category": "quality",
+      "phase": "test",
+      "description": "Performance benchmarking skill \u2014 baseline and compare page load times, Core Web Vitals, bundle sizes, and API response times.",
+      "tags": [
+        "benchmarks",
+        "performance",
+        "testing",
+        "latency"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "brand-guidelines",
+      "path": "brand-guidelines/SKILL.md",
+      "category": "design",
+      "phase": "build",
+      "description": "Apply brand voice, tone, colors, typography, and visual style consistently across any artifact.",
+      "tags": [
+        "brand",
+        "style",
+        "guidelines",
+        "identity",
+        "design"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "code-reviewer",
+      "path": "code-reviewer/SKILL.md",
+      "category": "quality",
+      "phase": "review",
+      "description": "Review code changes for bugs, security issues, performance problems, and style before shipping.",
+      "tags": [
+        "review",
+        "quality",
+        "security",
+        "bugs",
+        "pr"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "commit-message",
+      "path": "commit-message/SKILL.md",
+      "category": "git",
+      "phase": "ship",
+      "description": "Write clean Conventional Commits messages and pull request descriptions from staged changes or diffs.",
+      "tags": [
+        "git",
+        "commits",
+        "pr",
+        "conventional-commits",
+        "changelog"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "data-engineer",
+      "path": "data-engineer/SKILL.md",
+      "category": "data",
+      "phase": "build",
+      "description": "Design and build production-grade data pipelines, ETL/ELT workflows, data warehouses, and streaming architectures.",
+      "tags": [
+        "data",
+        "etl",
+        "dbt",
+        "airflow",
+        "kafka",
+        "warehouse",
+        "pipeline"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "database-architect",
+      "path": "database-architect/SKILL.md",
+      "category": "data",
+      "phase": "build",
+      "description": "Expert database architecture and design guidance \u2014 schema/data modeling, ER diagrams, indexing, query optimization, partitioning, replication and high availability, transactions and locking, connection pooling, migrations, and multi-tenancy patterns across PostgreSQL, MySQL, MongoDB, and Redis.",
+      "tags": [
+        "database",
+        "sql",
+        "postgres",
+        "mongodb",
+        "schema",
+        "indexing"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "debugger",
+      "path": "debugger/SKILL.md",
+      "category": "utility",
+      "phase": "other",
+      "description": "Systematic root-cause debugging skill.",
+      "tags": [
+        "debugger"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "design-explorer",
+      "path": "design-explorer/SKILL.md",
+      "category": "design",
+      "phase": "build",
+      "description": "Visual design exploration and design system creation skill.",
+      "tags": [
+        "design",
+        "ui",
+        "mockup",
+        "design-system",
+        "html",
+        "css"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "devex-engineer",
+      "path": "devex-engineer/SKILL.md",
+      "category": "dx",
+      "phase": "review",
+      "description": "Developer experience audit and improvement skill.",
+      "tags": [
+        "dx",
+        "developer-experience",
+        "onboarding",
+        "tthw",
+        "api",
+        "docs"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "devops-platform",
+      "path": "devops-platform/SKILL.md",
+      "category": "infra",
+      "phase": "build",
+      "description": "Production-grade DevOps and platform engineering guidance \u2014 Docker, Kubernetes, CI/CD pipelines, Terraform/IaC, GitOps, deployment strategies (rolling/blue-green/canary), monitoring and alerting, and cloud patterns across AWS/Azure/GCP.",
+      "tags": [
+        "devops",
+        "docker",
+        "kubernetes",
+        "cicd",
+        "terraform",
+        "aws",
+        "gcp",
+        "azure"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "doc-coauthoring",
+      "path": "doc-coauthoring/SKILL.md",
+      "category": "docs",
+      "phase": "plan",
+      "description": "Structured co-authoring workflow for PRDs, design docs, RFCs, decision docs, proposals, and any substantial written document.",
+      "tags": [
+        "planning",
+        "product",
+        "prd",
+        "rfc",
+        "docs"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "forward-deployment-engineer",
+      "path": "forward-deployment-engineer/SKILL.md",
+      "category": "delivery",
+      "phase": "deploy",
+      "description": "Expert guidance for Forward Deployment Engineers (FDEs) \u2014 customer-facing technical specialists who deploy, integrate, configure, and operationalize complex software systems at customer sites.",
+      "tags": [
+        "deployment",
+        "customer",
+        "integration",
+        "poc",
+        "onboarding"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "frontend-design",
+      "path": "frontend-design/SKILL.md",
+      "category": "frontend",
+      "phase": "build",
+      "description": "Guidance for distinctive, intentional visual design when building new UI or reshaping an existing one.",
+      "tags": [
+        "frontend",
+        "ui",
+        "design",
+        "react",
+        "css",
+        "typography"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "internal-comms",
+      "path": "internal-comms/SKILL.md",
+      "category": "docs",
+      "phase": "ship",
+      "description": "Write clear, well-structured internal communications \u2014 incident reports, post-mortems, launch announcements, team updates, all-hands summaries, 3P updates (Progress/Plans/Problems), project status updates, leadership briefings, and FAQs.",
+      "tags": [
+        "comms",
+        "announcements",
+        "updates",
+        "writing"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "land-and-deploy",
+      "path": "land-and-deploy/SKILL.md",
+      "category": "release",
+      "phase": "ship",
+      "description": "Merge, deploy, and verify production skill.",
+      "tags": [
+        "deploy",
+        "merge",
+        "pipeline",
+        "verification"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "mcp-builder",
+      "path": "mcp-builder/SKILL.md",
+      "category": "ai",
+      "phase": "build",
+      "description": "Build production-grade MCP (Model Context Protocol) servers that connect AI agents to external APIs, databases, and services.",
+      "tags": [
+        "mcp",
+        "connector",
+        "api",
+        "integration",
+        "tools"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "office-hours",
+      "path": "office-hours/SKILL.md",
+      "category": "planning",
+      "phase": "think",
+      "description": "Pre-code ideation and startup validation skill.",
+      "tags": [
+        "planning",
+        "product",
+        "validation",
+        "startup",
+        "yc",
+        "ideation"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "pdf",
+      "path": "pdf/SKILL.md",
+      "category": "data",
+      "phase": "build",
+      "description": "Read, extract, create, merge, split, and manipulate PDF files.",
+      "tags": [
+        "pdf",
+        "extraction",
+        "manipulation",
+        "ocr",
+        "documents"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "performance-optimizer",
+      "path": "performance-optimizer/SKILL.md",
+      "category": "performance",
+      "phase": "build",
+      "description": "Expert performance analysis and optimization guidance.",
+      "tags": [
+        "performance",
+        "optimization",
+        "profiling",
+        "latency",
+        "caching"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "plan-ceo-review",
+      "path": "plan-ceo-review/SKILL.md",
+      "category": "planning",
+      "phase": "think",
+      "description": "CEO and founder-lens strategic plan review.",
+      "tags": [
+        "planning",
+        "product",
+        "strategy",
+        "scope",
+        "founder"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "plan-design-review",
+      "path": "plan-design-review/SKILL.md",
+      "category": "planning",
+      "phase": "plan",
+      "description": "Design plan review skill \u2014 rate and improve a UI design plan before implementation.",
+      "tags": [
+        "planning",
+        "review",
+        "design",
+        "ui",
+        "ux"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "plan-eng-review",
+      "path": "plan-eng-review/SKILL.md",
+      "category": "planning",
+      "phase": "plan",
+      "description": "Engineering plan review skill \u2014 architecture, data flow, edge cases, and test plan before coding begins.",
+      "tags": [
+        "planning",
+        "review",
+        "engineering",
+        "architecture"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "pptx",
+      "path": "pptx/SKILL.md",
+      "category": "design",
+      "phase": "build",
+      "description": "Create, edit, read, and design PowerPoint presentations (.pptx).",
+      "tags": [
+        "design",
+        "slides",
+        "presentation",
+        "pitch-deck",
+        "pptx"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "product-engineer",
+      "path": "product-engineer/SKILL.md",
+      "category": "product",
+      "phase": "plan",
+      "description": "Expert product engineering guidance for senior engineers and tech leads.",
+      "tags": [
+        "product",
+        "mvp",
+        "tradeoffs",
+        "feature-planning"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "prompt-engineer",
+      "path": "prompt-engineer/SKILL.md",
+      "category": "ai",
+      "phase": "build",
+      "description": "Design, iterate, test, and version prompts for LLMs \u2014 system prompts, few-shot examples, chain-of-thought, structured output, and agentic tool-use prompts.",
+      "tags": [
+        "ai",
+        "prompt-engineering",
+        "llm",
+        "few-shot",
+        "chain-of-thought"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "qa-engineer",
+      "path": "qa-engineer/SKILL.md",
+      "category": "quality",
+      "phase": "test",
+      "description": "Live QA testing skill that finds bugs, fixes them with atomic commits, and re-verifies.",
+      "tags": [
+        "qa",
+        "testing",
+        "browser",
+        "bugs",
+        "regression"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "release-engineer",
+      "path": "release-engineer/SKILL.md",
+      "category": "release",
+      "phase": "ship",
+      "description": "Structured release and ship workflow skill.",
+      "tags": [
+        "release",
+        "ship",
+        "deploy",
+        "cicd",
+        "hotfix"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "retro-engineer",
+      "path": "retro-engineer/SKILL.md",
+      "category": "improvement",
+      "phase": "reflect",
+      "description": "Engineering retrospective skill for continuous improvement.",
+      "tags": [
+        "retro",
+        "improvement",
+        "velocity",
+        "agile",
+        "retrospective"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "safety-guardrails",
+      "path": "safety-guardrails/SKILL.md",
+      "category": "ops",
+      "phase": "build",
+      "description": "AI safety guardrails skill \u2014 warn before destructive commands, lock file edits to a specific directory, and prevent accidental damage to production systems.",
+      "tags": [
+        "safety",
+        "security",
+        "guardrails",
+        "execution",
+        "cli"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "security-engineer",
+      "path": "security-engineer/SKILL.md",
+      "category": "security",
+      "phase": "build",
+      "description": "Expert application and infrastructure security guidance.",
+      "tags": [
+        "security",
+        "owasp",
+        "auth",
+        "jwt",
+        "oauth",
+        "threat-modeling"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "skill-creator",
+      "path": "skill-creator/SKILL.md",
+      "category": "meta",
+      "phase": "reflect",
+      "description": "Create new skills, improve existing skills, and test skill quality.",
+      "tags": [
+        "skills",
+        "agent",
+        "meta",
+        "structure",
+        "quality"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "sre-canary",
+      "path": "sre-canary/SKILL.md",
+      "category": "ops",
+      "phase": "ship",
+      "description": "Post-deploy monitoring and canary verification skill.",
+      "tags": [
+        "sre",
+        "monitoring",
+        "canary",
+        "deploy",
+        "observability",
+        "rollback"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "system-design",
+      "path": "system-design/SKILL.md",
+      "category": "architecture",
+      "phase": "plan",
+      "description": "Expert system design guidance for architects and senior engineers.",
+      "tags": [
+        "architecture",
+        "system-design",
+        "scalability",
+        "microservices"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "technical-writer",
+      "path": "technical-writer/SKILL.md",
+      "category": "docs",
+      "phase": "docs",
+      "description": "Write, structure, and maintain all forms of technical documentation \u2014 READMEs, API docs, runbooks, architecture decision records (ADRs), changelogs, onboarding guides, and user manuals.",
+      "tags": [
+        "docs",
+        "readme",
+        "api-docs",
+        "runbook",
+        "adr",
+        "changelog"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "test-writer",
+      "path": "test-writer/SKILL.md",
+      "category": "quality",
+      "phase": "test",
+      "description": "Generate or extend comprehensive test suites \u2014 unit, integration, E2E, and contract tests \u2014 for any language or framework.",
+      "tags": [
+        "testing",
+        "unit-tests",
+        "integration",
+        "e2e",
+        "coverage",
+        "tdd"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "theme-factory",
+      "path": "theme-factory/SKILL.md",
+      "category": "design",
+      "phase": "build",
+      "description": "Generate and apply complete design themes \u2014 color palettes, typography pairings, and spacing systems \u2014 to any artifact.",
+      "tags": [
+        "design",
+        "style",
+        "themes",
+        "typography",
+        "colors"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "webapp-testing",
+      "path": "webapp-testing/SKILL.md",
+      "category": "quality",
+      "phase": "test",
+      "description": "Automated end-to-end web application testing using Playwright.",
+      "tags": [
+        "e2e",
+        "testing",
+        "browser",
+        "playwright",
+        "qa"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    },
+    {
+      "name": "python-development",
+      "path": "python-development/SKILL.md",
+      "category": "development",
+      "phase": "build",
+      "description": "Build and maintain production Python applications, services, libraries, and automation.",
+      "tags": ["python", "pytest", "typing", "asyncio", "fastapi", "django"],
+      "agents": ["claude-code", "cursor", "windsurf", "copilot", "kiro", "opencode", "generic"]
+    },
+    {
+      "name": "typescript-development",
+      "path": "typescript-development/SKILL.md",
+      "category": "development",
+      "phase": "build",
+      "description": "Build and maintain type-safe TypeScript applications, libraries, Node.js services, and tooling.",
+      "tags": ["typescript", "nodejs", "tsconfig", "runtime-validation", "testing", "packages"],
+      "agents": ["claude-code", "cursor", "windsurf", "copilot", "kiro", "opencode", "generic"]
+    },
+    {
+      "name": "react-development",
+      "path": "react-development/SKILL.md",
+      "category": "development",
+      "phase": "build",
+      "description": "Build and maintain accessible, production React interfaces and component systems.",
+      "tags": ["react", "hooks", "accessibility", "state-management", "ssr", "testing"],
+      "agents": ["claude-code", "cursor", "windsurf", "copilot", "kiro", "opencode", "generic"]
+    },
+    {
+      "name": "java-development",
+      "path": "java-development/SKILL.md",
+      "category": "development",
+      "phase": "build",
+      "description": "Build and maintain production Java applications, APIs, libraries, and services.",
+      "tags": ["java", "spring-boot", "maven", "gradle", "junit", "jvm"],
+      "agents": ["claude-code", "cursor", "windsurf", "copilot", "kiro", "opencode", "generic"]
+    },
+    {
+      "name": "research-agent",
+      "path": "research-agent/SKILL.md",
+      "category": "research",
+      "phase": "plan",
+      "description": "Research topics, technologies, tools, and best practices using structured, sourced investigation.",
+      "tags": ["research", "analysis", "web", "technology", "comparison"],
+      "agents": ["claude-code", "cursor", "windsurf", "copilot", "kiro", "opencode", "generic"]
+    },
+    {
+      "name": "spec-author",
+      "path": "spec-author/SKILL.md",
+      "category": "product",
+      "phase": "plan",
+      "description": "Turn product ideas, bugs, and changes into precise implementation-ready specifications.",
+      "tags": ["specification", "requirements", "product", "github-issues", "planning"],
+      "agents": ["claude-code", "cursor", "windsurf", "copilot", "kiro", "opencode", "generic"]
+    },
+    {
+      "name": "xlsx",
+      "path": "xlsx/SKILL.md",
+      "category": "data",
+      "phase": "build",
+      "description": "Create, read, edit, and analyse Excel spreadsheet files (.xlsx, .xlsm, .xltx, .csv, .tsv).",
+      "tags": [
+        "xlsx",
+        "openpyxl",
+        "pandas",
+        "spreadsheets",
+        "data"
+      ],
+      "agents": [
+        "claude-code",
+        "cursor",
+        "windsurf",
+        "copilot",
+        "kiro",
+        "opencode",
+        "generic"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+[
+  {
+    "id": "proposal-9b9c7f28d6f63072",
+    "skillId": "theme-factory",
+    "status": "proposed",
+    "observedIssue": "Repeated verified failures were recorded while Theme Factory was selected (2 of 4 executions).",
+    "evidence": {
+      "executionCount": 4,
+      "failureCount": 2,
+      "failureExamples": [
+        "The main page content must include a primary visible heading with Sisyphus; a header-only label is not sufficient.",
+        "Review evidence still found 1 unresolved requirement issue after the third implementation attempt."
+      ]
+    },
+    "suggestedImprovement": "Add an explicit verification checkpoint to the execution workflow: before completion, inspect the relevant acceptance contract and validate the affected behavior. Recent evidence: The main page content must include a primary visible heading with Sisyphus; a header-only label is not sufficient.",
+    "expectedImpact": "Make the recurring verification step explicit for future agents and reduce repeat failures without changing the upstream source.",
+    "confidence": "medium",
+    "createdAt": "2026-08-30T10:57:27.466Z",
+    "resolvedAt": null
+  }
+]

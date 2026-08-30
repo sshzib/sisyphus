@@ -1,0 +1,44 @@
+[
+  {
+    "executionId": "task-42da7a96-3d64-4d05-936e-85492c6706c1:agent-985c0c73-0a03-46f6-bfd1-035eeaa1e490:passed",
+    "skillIds": [
+      "react-development",
+      "brand-guidelines",
+      "performance-optimizer"
+    ],
+    "skillVersions": [
+      {
+        "id": "react-development",
+        "skillVersionId": "react-development:sha256:a372e2e925b34e08900883c905c67a94a53a2d1b25d0fe8b97151f8db035a4d7",
+        "contentHash": "sha256:d4138d79a226780d83a798ab6cab262666b50222474f1c148ef82da6b29823fc"
+      },
+      {
+        "id": "brand-guidelines",
+        "skillVersionId": "brand-guidelines:sha256:c55d95042de320f8d09c3ae1397d119026b2284e781e17f75ecc1f235e747000",
+        "contentHash": "sha256:5dec00d08ce7dd97bc53d583f3049e2bcfc872fe5ef1afacc6f07f9c330d6b2d"
+      },
+      {
+        "id": "performance-optimizer",
+        "skillVersionId": "performance-optimizer:sha256:9fed96ba136c3ac26f1632c892e68045c155aea519118c6782755a8d4edf1313",
+        "contentHash": "sha256:018693dd7de5087b187ffdc209e82797f767ce6982d8b733ee9325be1bc0269a"
+      }
+    ],
+    "taskId": "task-42da7a96-3d64-4d05-936e-85492c6706c1",
+    "agentId": "agent-985c0c73-0a03-46f6-bfd1-035eeaa1e490",
+    "requirementId": "REQ-01",
+    "model": "qwen/qwen3-coder",
+    "outcome": "passed",
+    "attempts": 3,
+    "durationMs": 24,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T13:15:04.000Z"
+  }
+]

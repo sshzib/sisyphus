@@ -1,0 +1,212 @@
+[
+  {
+    "executionId": "task-ff2c5fd6-935c-4731-9495-3de6da382a8f:agent-7a940f8a-021a-43f6-9958-b4b477697aee:failed",
+    "skillIds": [
+      "frontend-design",
+      "design-explorer",
+      "theme-factory"
+    ],
+    "skillVersions": [
+      {
+        "id": "frontend-design",
+        "skillVersionId": "frontend-design:sha256:9fb04f1eac7e9972f2bfeefd094d0a1f7e0813af69defbf576625cd50de1a3bb",
+        "contentHash": "sha256:ea56d5d6a8083689ca73ea8b3985e68339e8e958d8bd8e40b5ad3d6425360625"
+      },
+      {
+        "id": "design-explorer",
+        "skillVersionId": "design-explorer:sha256:4b20a597720722bbcab21cfd453206b5ddb063264df0364cf011cb58141f35c6",
+        "contentHash": "sha256:f61adb3974bba83efe9af52d80c6d1228d96128ef2d69ff3b059f592f1cc23e1"
+      },
+      {
+        "id": "theme-factory",
+        "skillVersionId": "theme-factory:sha256:5fe79d9849c029b618dc8d86ba8740e4eb91a91919a5e56ce818e5aa30cbf490",
+        "contentHash": "sha256:657fdca1c69c597707f7cb8a4afe1afd37a7b5c15edd095a4279547705707574"
+      }
+    ],
+    "taskId": "task-ff2c5fd6-935c-4731-9495-3de6da382a8f",
+    "agentId": "agent-7a940f8a-021a-43f6-9958-b4b477697aee",
+    "requirementId": "REQ-01",
+    "model": "qwen/qwen3-coder",
+    "outcome": "failed",
+    "attempts": 3,
+    "durationMs": 49308,
+    "evidence": "The main page content must include a primary visible heading with Sisyphus; a header-only label is not sufficient.",
+    "score": {
+      "total": 0,
+      "functional": 0,
+      "contractTests": 0,
+      "security": 0,
+      "requirementCompliance": 0,
+      "codeQuality": 0
+    },
+    "recordedAt": "2026-08-30T10:22:51.709Z"
+  },
+  {
+    "executionId": "task-36b3161f-4fd0-4001-b34f-8a49def87642:agent-0be396ff-f359-4583-9368-2b5f00efc3fd:passed",
+    "skillIds": [
+      "frontend-design",
+      "design-explorer",
+      "theme-factory"
+    ],
+    "skillVersions": [
+      {
+        "id": "frontend-design",
+        "skillVersionId": "frontend-design:sha256:9fb04f1eac7e9972f2bfeefd094d0a1f7e0813af69defbf576625cd50de1a3bb",
+        "contentHash": "sha256:ea56d5d6a8083689ca73ea8b3985e68339e8e958d8bd8e40b5ad3d6425360625"
+      },
+      {
+        "id": "design-explorer",
+        "skillVersionId": "design-explorer:sha256:4b20a597720722bbcab21cfd453206b5ddb063264df0364cf011cb58141f35c6",
+        "contentHash": "sha256:f61adb3974bba83efe9af52d80c6d1228d96128ef2d69ff3b059f592f1cc23e1"
+      },
+      {
+        "id": "theme-factory",
+        "skillVersionId": "theme-factory:sha256:5fe79d9849c029b618dc8d86ba8740e4eb91a91919a5e56ce818e5aa30cbf490",
+        "contentHash": "sha256:657fdca1c69c597707f7cb8a4afe1afd37a7b5c15edd095a4279547705707574"
+      }
+    ],
+    "taskId": "task-36b3161f-4fd0-4001-b34f-8a49def87642",
+    "agentId": "agent-0be396ff-f359-4583-9368-2b5f00efc3fd",
+    "requirementId": "REQ-01",
+    "model": "qwen/qwen3-coder",
+    "outcome": "passed",
+    "attempts": 3,
+    "durationMs": 22,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T10:25:31.310Z"
+  },
+  {
+    "executionId": "task-ba5a0757-ff90-4651-b39a-c0341322e274:agent-0da216a0-066d-4352-a30c-1ed2b10b425b:failed",
+    "skillIds": [
+      "frontend-design",
+      "design-explorer",
+      "theme-factory"
+    ],
+    "skillVersions": [
+      {
+        "id": "frontend-design",
+        "skillVersionId": "frontend-design:sha256:9fb04f1eac7e9972f2bfeefd094d0a1f7e0813af69defbf576625cd50de1a3bb",
+        "contentHash": "sha256:ea56d5d6a8083689ca73ea8b3985e68339e8e958d8bd8e40b5ad3d6425360625"
+      },
+      {
+        "id": "design-explorer",
+        "skillVersionId": "design-explorer:sha256:4b20a597720722bbcab21cfd453206b5ddb063264df0364cf011cb58141f35c6",
+        "contentHash": "sha256:f61adb3974bba83efe9af52d80c6d1228d96128ef2d69ff3b059f592f1cc23e1"
+      },
+      {
+        "id": "theme-factory",
+        "skillVersionId": "theme-factory:sha256:5fe79d9849c029b618dc8d86ba8740e4eb91a91919a5e56ce818e5aa30cbf490",
+        "contentHash": "sha256:657fdca1c69c597707f7cb8a4afe1afd37a7b5c15edd095a4279547705707574"
+      }
+    ],
+    "taskId": "task-ba5a0757-ff90-4651-b39a-c0341322e274",
+    "agentId": "agent-0da216a0-066d-4352-a30c-1ed2b10b425b",
+    "requirementId": "REQ-01",
+    "model": "qwen/qwen3-coder",
+    "outcome": "failed",
+    "attempts": 3,
+    "durationMs": 0,
+    "evidence": "Review evidence still found 1 unresolved requirement issue after the third implementation attempt.",
+    "score": {
+      "total": 0,
+      "functional": 0,
+      "contractTests": 0,
+      "security": 0,
+      "requirementCompliance": 0,
+      "codeQuality": 0
+    },
+    "recordedAt": "2026-08-30T10:41:03.909Z"
+  },
+  {
+    "executionId": "task-f88e7753-14ed-470b-95bb-1ae55ff658a5:agent-62d8dbae-8507-4673-900d-a4c3489aaa32:passed",
+    "skillIds": [
+      "frontend-design",
+      "design-explorer",
+      "theme-factory"
+    ],
+    "skillVersions": [
+      {
+        "id": "frontend-design",
+        "skillVersionId": "frontend-design:sha256:9fb04f1eac7e9972f2bfeefd094d0a1f7e0813af69defbf576625cd50de1a3bb",
+        "contentHash": "sha256:ea56d5d6a8083689ca73ea8b3985e68339e8e958d8bd8e40b5ad3d6425360625"
+      },
+      {
+        "id": "design-explorer",
+        "skillVersionId": "design-explorer:sha256:4b20a597720722bbcab21cfd453206b5ddb063264df0364cf011cb58141f35c6",
+        "contentHash": "sha256:f61adb3974bba83efe9af52d80c6d1228d96128ef2d69ff3b059f592f1cc23e1"
+      },
+      {
+        "id": "theme-factory",
+        "skillVersionId": "theme-factory:sha256:5fe79d9849c029b618dc8d86ba8740e4eb91a91919a5e56ce818e5aa30cbf490",
+        "contentHash": "sha256:657fdca1c69c597707f7cb8a4afe1afd37a7b5c15edd095a4279547705707574"
+      }
+    ],
+    "taskId": "task-f88e7753-14ed-470b-95bb-1ae55ff658a5",
+    "agentId": "agent-62d8dbae-8507-4673-900d-a4c3489aaa32",
+    "requirementId": "REQ-01",
+    "model": "qwen/qwen3-coder",
+    "outcome": "passed",
+    "attempts": 2,
+    "durationMs": 26,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T10:57:27.441Z"
+  },
+  {
+    "executionId": "task-59cc9cf4-ff43-44fe-83ff-43baf727bf69:agent-7d60a478-b59c-459b-882c-8971b6e35df3:passed",
+    "skillIds": [
+      "frontend-design",
+      "design-explorer",
+      "theme-factory"
+    ],
+    "skillVersions": [
+      {
+        "id": "frontend-design",
+        "skillVersionId": "frontend-design:sha256:9fb04f1eac7e9972f2bfeefd094d0a1f7e0813af69defbf576625cd50de1a3bb",
+        "contentHash": "sha256:ea56d5d6a8083689ca73ea8b3985e68339e8e958d8bd8e40b5ad3d6425360625"
+      },
+      {
+        "id": "design-explorer",
+        "skillVersionId": "design-explorer:sha256:4b20a597720722bbcab21cfd453206b5ddb063264df0364cf011cb58141f35c6",
+        "contentHash": "sha256:f61adb3974bba83efe9af52d80c6d1228d96128ef2d69ff3b059f592f1cc23e1"
+      },
+      {
+        "id": "theme-factory",
+        "skillVersionId": "theme-factory:sha256:5fe79d9849c029b618dc8d86ba8740e4eb91a91919a5e56ce818e5aa30cbf490",
+        "contentHash": "sha256:657fdca1c69c597707f7cb8a4afe1afd37a7b5c15edd095a4279547705707574"
+      }
+    ],
+    "taskId": "task-59cc9cf4-ff43-44fe-83ff-43baf727bf69",
+    "agentId": "agent-7d60a478-b59c-459b-882c-8971b6e35df3",
+    "requirementId": "REQ-01",
+    "model": "qwen/qwen3-coder",
+    "outcome": "passed",
+    "attempts": 1,
+    "durationMs": 37,
+    "evidence": "The integrated project passed the isolated sandbox acceptance pipeline.",
+    "score": {
+      "total": 85,
+      "functional": 100,
+      "contractTests": 50,
+      "security": 100,
+      "requirementCompliance": 100,
+      "codeQuality": 50
+    },
+    "recordedAt": "2026-08-30T11:02:40.352Z"
+  }
+]
