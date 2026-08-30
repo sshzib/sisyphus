@@ -294,6 +294,42 @@ describe("control plane tenancy", () => {
     expect(restored.skill.disposition).toBe("probation");
     expect(restored.auditEvent.actor).toBe("admin@acme.test");
   });
+
+  it("keeps engineering execution stopped until an administrator starts it", async () => {
+    const app = await testApp();
+    const stopped = await app.inject({
+      method: "GET",
+      url: "/v1/dashboard",
+      headers: bearer(demoCredentials.acmeAdmin),
+    });
+    expect(DashboardSnapshotSchema.parse(stopped.json()).engineering).toMatchObject({
+      execution: { status: "stopped", generation: 0 },
+      canManageExecution: true,
+    });
+
+    const viewer = await app.inject({
+      method: "POST",
+      url: "/v1/engineering/execution/start",
+      headers: bearer(demoCredentials.acmeViewer),
+    });
+    expect(viewer.statusCode).toBe(403);
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/v1/engineering/execution/start",
+      headers: bearer(demoCredentials.acmeAdmin),
+    });
+    expect(started.statusCode).toBe(200);
+    expect(started.json()).toMatchObject({ execution: { status: "running", generation: 1 } });
+
+    const stoppedAgain = await app.inject({
+      method: "POST",
+      url: "/v1/engineering/execution/stop",
+      headers: bearer(demoCredentials.acmeAdmin),
+    });
+    expect(stoppedAgain.statusCode).toBe(200);
+    expect(stoppedAgain.json()).toMatchObject({ execution: { status: "stopped", generation: 2 } });
+  });
 });
 
 describe("worker batch ingest", () => {

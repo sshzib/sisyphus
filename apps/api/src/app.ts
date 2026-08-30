@@ -10,6 +10,7 @@ import {
 import {
   CreateEngineeringTaskResponseSchema,
   ClearEngineeringHistoryResponseSchema,
+  EngineeringExecutionControlResponseSchema,
   DashboardQuerySchema,
   DashboardSnapshotSchema,
   EngineeringEventSummarySchema,
@@ -99,8 +100,16 @@ const InternalEngineeringTaskUpdateSchema = z
   .object({
     tenantId: z.string().trim().min(1).max(160),
     leaseId: z.string().uuid(),
+    executionGeneration: z.number().int().nonnegative(),
     operation: EngineeringOperationSummarySchema,
     events: z.array(EngineeringEventSummarySchema).max(100),
+  })
+  .strict();
+const InternalEngineeringExecutionPermitSchema = z
+  .object({
+    tenantId: z.string().trim().min(1).max(160),
+    leaseId: z.string().uuid(),
+    executionGeneration: z.number().int().nonnegative(),
   })
   .strict();
 const InternalEngineeringSkillSelectionSchema = z
@@ -225,7 +234,10 @@ async function tenantDashboard(input: {
   }
   return DashboardSnapshotSchema.parse({
     ...snapshot,
-    engineering: await input.engineeringTaskStore.dashboard(auth.tenantId),
+    engineering: await input.engineeringTaskStore.dashboard({
+      tenantId: auth.tenantId,
+      canManageExecution: auth.kind === "user" && auth.role === "admin",
+    }),
   });
 }
 
@@ -242,6 +254,31 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   const repository = options.repository ?? createInMemoryRepository();
   const engineeringTaskStore =
     options.engineeringTaskStore ?? new InMemoryEngineeringTaskStore();
+  const manageEngineeringExecution = async (
+    status: "running" | "stopped",
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    if (auth.kind !== "user" || auth.role !== "admin") {
+      sendApiError({
+        request,
+        reply,
+        status: 403,
+        error: "forbidden",
+        message: "Only tenant administrators can start or stop engineering execution.",
+      });
+      return;
+    }
+    const execution = await engineeringTaskStore.setExecution({
+      tenantId: auth.tenantId,
+      actor: auth.subjectId,
+      status,
+      now: clock(),
+    });
+    return reply.send(EngineeringExecutionControlResponseSchema.parse({ execution }));
+  };
   const skillRegistry =
     options.skillRegistry ??
     new FileSkillRegistry(fileURLToPath(new URL("../../../skills", import.meta.url)));
@@ -317,6 +354,14 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       return reply.send(snapshot);
     }
   });
+
+  app.post("/v1/engineering/execution/start", async (request, reply) =>
+    manageEngineeringExecution("running", request, reply),
+  );
+
+  app.post("/v1/engineering/execution/stop", async (request, reply) =>
+    manageEngineeringExecution("stopped", request, reply),
+  );
 
   app.post("/v1/engineering/tasks", async (request, reply) => {
     const auth = requireAuthentication(request, reply);
@@ -422,10 +467,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
         return;
       }
       const updated = await engineeringTaskStore.updateLeasedTask({
-        tenantId: body.data.tenantId,
-        taskId: taskId.data,
-        leaseId: body.data.leaseId,
-        operation: body.data.operation,
+      tenantId: body.data.tenantId,
+      taskId: taskId.data,
+      leaseId: body.data.leaseId,
+      executionGeneration: body.data.executionGeneration,
+      operation: body.data.operation,
         events: body.data.events,
         now: clock(),
       });
@@ -440,6 +486,37 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
         return;
       }
       return reply.send({ updated: true });
+    },
+  );
+
+  app.post(
+    "/v1/internal/engineering/tasks/:taskId/permit",
+    async (request, reply) => {
+      if (
+        !requireOrchestratorCredential({
+          request,
+          reply,
+          configuredToken: options.orchestratorToken,
+        })
+      ) {
+        return;
+      }
+      const taskId = z.string().trim().min(1).max(160).safeParse(
+        (request.params as { taskId?: unknown }).taskId,
+      );
+      const body = InternalEngineeringExecutionPermitSchema.safeParse(request.body);
+      if (!taskId.success || !body.success) {
+        validationFailure(request, reply, "The engineering execution permit is invalid.");
+        return;
+      }
+      const allowed = await engineeringTaskStore.permitsExecution({
+        tenantId: body.data.tenantId,
+        taskId: taskId.data,
+        leaseId: body.data.leaseId,
+        executionGeneration: body.data.executionGeneration,
+        now: clock(),
+      });
+      return reply.send({ allowed });
     },
   );
 

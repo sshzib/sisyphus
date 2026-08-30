@@ -672,8 +672,29 @@ export type ClearEngineeringHistoryResponse = z.infer<
   typeof ClearEngineeringHistoryResponseSchema
 >;
 
+export const EngineeringExecutionStateSchema = z
+  .object({
+    status: z.enum(["running", "stopped"]),
+    generation: z.number().int().nonnegative(),
+    changedAt: z.string().datetime(),
+    changedBy: z.string().trim().min(1).max(160),
+  })
+  .strict();
+export type EngineeringExecutionState = z.infer<
+  typeof EngineeringExecutionStateSchema
+>;
+
+export const EngineeringExecutionControlResponseSchema = z
+  .object({ execution: EngineeringExecutionStateSchema })
+  .strict();
+export type EngineeringExecutionControlResponse = z.infer<
+  typeof EngineeringExecutionControlResponseSchema
+>;
+
 export const EngineeringDashboardSchema = z
   .object({
+    execution: EngineeringExecutionStateSchema,
+    canManageExecution: z.boolean(),
     operations: z.array(EngineeringOperationSummarySchema).max(20),
     events: z.array(EngineeringEventSummarySchema).max(100),
   })
@@ -692,7 +713,17 @@ export const DashboardSnapshotSchema = z
       .strict(),
     overview: OverviewSchema,
     operations: z.array(OperationSummarySchema).default([]),
-    engineering: EngineeringDashboardSchema.default({ operations: [], events: [] }),
+    engineering: EngineeringDashboardSchema.default({
+      execution: {
+        status: "stopped",
+        generation: 0,
+        changedAt: "1970-01-01T00:00:00.000Z",
+        changedBy: "system",
+      },
+      canManageExecution: false,
+      operations: [],
+      events: [],
+    }),
     runs: z.array(RunSummarySchema),
     agents: z.array(AgentSummarySchema),
     skills: z.array(SkillSummarySchema),

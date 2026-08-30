@@ -32,6 +32,13 @@ export type ProjectExecution = {
   readonly result: ExecutionResult | undefined;
 };
 
+export class EngineeringExecutionStoppedError extends Error {
+  public constructor() {
+    super("Engineering execution was stopped by a tenant administrator.");
+    this.name = "EngineeringExecutionStoppedError";
+  }
+}
+
 export interface ProjectExecutor {
   readonly backend: ExecutionBackend;
 
@@ -40,6 +47,7 @@ export interface ProjectExecutor {
     readonly integrationCommit: string;
     readonly workspace: string;
     readonly expectedPlan: "package" | "static-site";
+    readonly shouldContinue?: () => Promise<boolean>;
     readonly onExecutionStarted?: (input: {
       readonly backend: ExecutionBackend;
       readonly executionId: string;

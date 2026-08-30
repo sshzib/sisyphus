@@ -12,11 +12,13 @@ const LeaseSchema = z
     taskId: z.string().trim().min(1),
     request: z.string().trim().min(20).max(4_000),
     leaseId: z.string().uuid(),
+    executionGeneration: z.number().int().nonnegative(),
     operation: EngineeringOperationSummarySchema,
   })
   .strict();
 const LeaseResponseSchema = z.object({ task: LeaseSchema.nullable() }).strict();
 const UpdateResponseSchema = z.object({ updated: z.literal(true) }).strict();
+const ExecutionPermitResponseSchema = z.object({ allowed: z.boolean() }).strict();
 const SelectedSkillSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9-]+$/u),
@@ -95,6 +97,7 @@ export class ControlPlaneClient {
     tenantId: string;
     taskId: string;
     leaseId: string;
+    executionGeneration: number;
     operation: EngineeringOperationSummary;
     events: readonly EngineeringEventSummary[];
   }): Promise<void> {
@@ -103,11 +106,30 @@ export class ControlPlaneClient {
       body: {
         tenantId: input.tenantId,
         leaseId: input.leaseId,
+        executionGeneration: input.executionGeneration,
         operation: EngineeringOperationSummarySchema.parse(input.operation),
         events: input.events.map((event) => EngineeringEventSummarySchema.parse(event)),
       },
       schema: UpdateResponseSchema,
     });
+  }
+
+  public async permitsExecution(input: {
+    tenantId: string;
+    taskId: string;
+    leaseId: string;
+    executionGeneration: number;
+  }): Promise<boolean> {
+    const response = await this.#request({
+      path: `/v1/internal/engineering/tasks/${encodeURIComponent(input.taskId)}/permit`,
+      body: {
+        tenantId: input.tenantId,
+        leaseId: input.leaseId,
+        executionGeneration: input.executionGeneration,
+      },
+      schema: ExecutionPermitResponseSchema,
+    });
+    return response.allowed;
   }
 
   public async selectSkills(input: {

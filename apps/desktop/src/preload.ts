@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
   CreateEngineeringTaskResponseSchema,
+  ClearEngineeringHistoryResponseSchema,
+  EngineeringExecutionControlResponseSchema,
   CreateCustomSkillSchema,
   DashboardQuerySchema,
   DashboardSnapshotSchema,
@@ -40,6 +42,9 @@ export interface SisyphusDesktopApi {
   createEngineeringTask(input: { request: string }): Promise<
     ReturnType<typeof CreateEngineeringTaskResponseSchema.parse>
   >;
+  clearEngineeringHistory(): Promise<ReturnType<typeof ClearEngineeringHistoryResponseSchema.parse>>;
+  startEngineeringExecution(): Promise<ReturnType<typeof EngineeringExecutionControlResponseSchema.parse>>;
+  stopEngineeringExecution(): Promise<ReturnType<typeof EngineeringExecutionControlResponseSchema.parse>>;
   listSkillRegistry(): Promise<ReturnType<typeof SkillRegistryListResponseSchema.parse>>;
   getSkillRegistryDetail(skillId: string): Promise<ReturnType<typeof SkillRegistryDetailResponseSchema.parse>>;
   syncSkillRegistry(): Promise<ReturnType<typeof SkillRegistrySyncResponseSchema.parse>>;
@@ -94,6 +99,18 @@ const desktopApi: SisyphusDesktopApi = {
       EngineeringTaskSubmissionSchema.parse(input),
     );
     return CreateEngineeringTaskResponseSchema.parse(response);
+  },
+  async clearEngineeringHistory() {
+    const response: unknown = await ipcRenderer.invoke(desktopChannels.clearEngineeringHistory);
+    return ClearEngineeringHistoryResponseSchema.parse(response);
+  },
+  async startEngineeringExecution() {
+    const response: unknown = await ipcRenderer.invoke(desktopChannels.startEngineeringExecution);
+    return EngineeringExecutionControlResponseSchema.parse(response);
+  },
+  async stopEngineeringExecution() {
+    const response: unknown = await ipcRenderer.invoke(desktopChannels.stopEngineeringExecution);
+    return EngineeringExecutionControlResponseSchema.parse(response);
   },
   async listSkillRegistry() {
     const response: unknown = await ipcRenderer.invoke(desktopChannels.skillRegistryList);

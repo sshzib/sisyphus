@@ -34,6 +34,20 @@ export function createDemoDataClient(): SisyphusDataClient {
         undefined,
       );
     },
+    async startEngineeringExecution() {
+      throw new SisyphusApiError(
+        "Engineering execution controls require the live control plane.",
+        503,
+        undefined,
+      );
+    },
+    async stopEngineeringExecution() {
+      throw new SisyphusApiError(
+        "Engineering execution controls require the live control plane.",
+        503,
+        undefined,
+      );
+    },
     async restoreSkill(skillVersionId, input) {
       const skill = snapshot.skills.find(
         (candidate) => candidate.skillVersionId === skillVersionId,

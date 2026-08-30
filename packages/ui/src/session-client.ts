@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   ApiErrorSchema,
   ClearEngineeringHistoryResponseSchema,
+  EngineeringExecutionControlResponseSchema,
   CreateEngineeringTaskResponseSchema,
   CreateCustomSkillSchema,
   DashboardSnapshotSchema,
@@ -87,6 +88,20 @@ export function createSessionDataClient(input: {
         path: "/api/engineering/tasks/history",
         schema: ClearEngineeringHistoryResponseSchema,
         method: "DELETE",
+      });
+    },
+    async startEngineeringExecution() {
+      return request({
+        path: "/api/engineering/execution/start",
+        schema: EngineeringExecutionControlResponseSchema,
+        method: "POST",
+      });
+    },
+    async stopEngineeringExecution() {
+      return request({
+        path: "/api/engineering/execution/stop",
+        schema: EngineeringExecutionControlResponseSchema,
+        method: "POST",
       });
     },
     async restoreSkill(skillVersionId, restoreInput) {

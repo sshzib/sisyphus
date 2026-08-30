@@ -69,6 +69,7 @@ export class EngineeringOrchestrator {
   }
 
   async #runTask(task: LeasedEngineeringTask): Promise<void> {
+    if (!(await this.#isExecutionPermitted(task))) return;
     if (this.#openRouter === undefined) {
       await this.#runLegacyTask(task);
       return;
@@ -78,6 +79,7 @@ export class EngineeringOrchestrator {
       workspaces: this.#workspaces,
       openRouter: this.#openRouter,
       executor: this.#executor,
+      isExecutionPermitted: () => this.#isExecutionPermitted(task),
       publish: async (nextTask, operation, events) => this.#publish(nextTask, operation, events),
       recordSkillOutcome: async (input) => this.#recordSkillOutcome(input),
     }).run(task);
@@ -520,8 +522,18 @@ export class EngineeringOrchestrator {
       tenantId: task.tenantId,
       taskId: task.taskId,
       leaseId: task.leaseId,
+      executionGeneration: task.executionGeneration,
       operation,
       events,
+    });
+  }
+
+  async #isExecutionPermitted(task: LeasedEngineeringTask): Promise<boolean> {
+    return this.#controlPlane.permitsExecution({
+      tenantId: task.tenantId,
+      taskId: task.taskId,
+      leaseId: task.leaseId,
+      executionGeneration: task.executionGeneration,
     });
   }
 }

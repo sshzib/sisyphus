@@ -20,6 +20,9 @@ function dataClient(): SisyphusDataClient {
     getDashboard: (query) => window.sisyphusDesktop.getDashboard(query),
     createEngineeringTask: (input) =>
       window.sisyphusDesktop.createEngineeringTask(input),
+    clearEngineeringHistory: () => window.sisyphusDesktop.clearEngineeringHistory(),
+    startEngineeringExecution: () => window.sisyphusDesktop.startEngineeringExecution(),
+    stopEngineeringExecution: () => window.sisyphusDesktop.stopEngineeringExecution(),
     listSkillRegistry: () => window.sisyphusDesktop.listSkillRegistry(),
     getSkillRegistryDetail: (skillId) => window.sisyphusDesktop.getSkillRegistryDetail(skillId),
     syncSkillRegistry: () => window.sisyphusDesktop.syncSkillRegistry(),

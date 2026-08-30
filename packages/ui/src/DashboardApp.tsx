@@ -43,6 +43,8 @@ export function DashboardApp({ client, hostContext }: DashboardAppProps) {
   const [submittingTask, setSubmittingTask] = useState(false);
   const [clearingPromptHistory, setClearingPromptHistory] = useState(false);
   const [promptHistoryMessage, setPromptHistoryMessage] = useState<string>();
+  const [changingExecution, setChangingExecution] = useState(false);
+  const [executionMessage, setExecutionMessage] = useState<string>();
   const [view, setView] = useState<"overview" | "skills">("overview");
   const [theme, setTheme] = useState<AppTheme>("dark");
 
@@ -115,6 +117,29 @@ export function DashboardApp({ client, hostContext }: DashboardAppProps) {
       );
     } finally {
       setClearingPromptHistory(false);
+    }
+  }, [client]);
+
+  const changeExecution = useCallback(async (next: "running" | "stopped") => {
+    setChangingExecution(true);
+    setExecutionMessage(undefined);
+    try {
+      const response = next === "running"
+        ? await client.startEngineeringExecution()
+        : await client.stopEngineeringExecution();
+      const nextSnapshot = await client.getDashboard({});
+      setSnapshot(nextSnapshot);
+      setExecutionMessage(
+        response.execution.status === "running"
+          ? "Execution started. The orchestrator can now lease queued tasks."
+          : "Execution stopped. Active sandbox builds receive a cancellation request on their next check.",
+      );
+    } catch (reason: unknown) {
+      setExecutionMessage(
+        reason instanceof Error ? reason.message : "Engineering execution could not be updated.",
+      );
+    } finally {
+      setChangingExecution(false);
     }
   }, [client]);
 
@@ -252,6 +277,9 @@ export function DashboardApp({ client, hostContext }: DashboardAppProps) {
             onClearPromptHistory={() => void clearPromptHistory()}
             clearingPromptHistory={clearingPromptHistory}
             promptHistoryMessage={promptHistoryMessage}
+            changingExecution={changingExecution}
+            executionMessage={executionMessage}
+            onExecutionChange={(next) => void changeExecution(next)}
           />
         )}
         </>}
@@ -272,6 +300,9 @@ function Overview(input: {
   readonly onClearPromptHistory: () => void;
   readonly clearingPromptHistory: boolean;
   readonly promptHistoryMessage: string | undefined;
+  readonly changingExecution: boolean;
+  readonly executionMessage: string | undefined;
+  readonly onExecutionChange: (next: "running" | "stopped") => void;
 }) {
   const [selectedAgent, setSelectedAgent] = useState<EngineeringAgentSelection>();
   const active = input.snapshot.operations.filter(
@@ -318,6 +349,11 @@ function Overview(input: {
           onClearPromptHistory={input.onClearPromptHistory}
           clearingPromptHistory={input.clearingPromptHistory}
           promptHistoryMessage={input.promptHistoryMessage}
+          execution={input.snapshot.engineering.execution}
+          canManageExecution={input.snapshot.engineering.canManageExecution}
+          changingExecution={input.changingExecution}
+          executionMessage={input.executionMessage}
+          onExecutionChange={input.onExecutionChange}
           selectedAgent={selectedAgent}
           onAgentSelect={(selection) => setSelectedAgent(selection)}
         />
@@ -393,6 +429,11 @@ function EngineeringWorkforcePanel(input: {
   readonly onClearPromptHistory: () => void;
   readonly clearingPromptHistory: boolean;
   readonly promptHistoryMessage: string | undefined;
+  readonly execution: DashboardSnapshot["engineering"]["execution"];
+  readonly canManageExecution: boolean;
+  readonly changingExecution: boolean;
+  readonly executionMessage: string | undefined;
+  readonly onExecutionChange: (next: "running" | "stopped") => void;
   readonly selectedAgent: EngineeringAgentSelection | undefined;
   readonly onAgentSelect: (selection: EngineeringAgentSelection | undefined) => void;
 }) {
@@ -418,6 +459,23 @@ function EngineeringWorkforcePanel(input: {
           <h2>Build request</h2>
         </div>
         <div className="engineering-panel__actions">
+          <span className={`status-badge status-badge--${input.execution.status === "running" ? "success" : "danger"}`}>
+            Execution {input.execution.status}
+          </span>
+          {input.canManageExecution ? (
+            <button
+              className="history-clear-button"
+              type="button"
+              disabled={input.changingExecution}
+              onClick={() => input.onExecutionChange(input.execution.status === "running" ? "stopped" : "running")}
+            >
+              {input.changingExecution
+                ? "Updating execution…"
+                : input.execution.status === "running"
+                  ? "Stop execution"
+                  : "Start execution"}
+            </button>
+          ) : null}
           <button
             className="live-log-button"
             type="button"
@@ -451,9 +509,12 @@ function EngineeringWorkforcePanel(input: {
           disabled={input.submittingTask}
         />
         <div className="task-draft__meta" id="sisyphus-task-draft-help">
-          <span>{input.submittingTask ? "Creating task…" : "Press Ctrl/Cmd + Enter to deploy the right specialist workforce."}</span>
+          <span>{input.submittingTask ? "Creating task…" : input.execution.status === "stopped" ? "Execution is stopped. New tasks stay queued until an administrator starts it." : "Press Ctrl/Cmd + Enter to deploy the right specialist workforce."}</span>
           <span>{input.taskDraft.length}/{maximumTaskDraftLength}</span>
         </div>
+        {input.executionMessage === undefined ? null : (
+          <p className="task-draft__message" role="status">{input.executionMessage}</p>
+        )}
         {input.taskSubmissionMessage === undefined ? null : (
           <p className="task-draft__message" role="status">{input.taskSubmissionMessage}</p>
         )}

@@ -8,6 +8,7 @@ import {
   BatchGetBuildsCommand,
   CodeBuildClient,
   StartBuildCommand,
+  StopBuildCommand,
 } from "@aws-sdk/client-codebuild";
 import {
   GetObjectCommand,
@@ -17,6 +18,7 @@ import {
 import type { OrchestratorConfiguration } from "./config.js";
 import {
   ExecutionResultSchema,
+  EngineeringExecutionStoppedError,
   type ExecutionResult,
   type ProjectExecution,
   type ProjectExecutor,
@@ -38,6 +40,7 @@ export class CodeBuildSandbox implements ProjectExecutor {
   }
 
   public async execute(input: Parameters<ProjectExecutor["execute"]>[0]): Promise<ProjectExecution> {
+    await this.#assertStillRunning(input.shouldContinue);
     const sourceDigest = await archiveWorkspace(input.workspace);
     const archivePath = sourceDigest.archivePath;
     const runId = `sandbox-${randomUUID()}`;
@@ -53,6 +56,7 @@ export class CodeBuildSandbox implements ProjectExecutor {
           Metadata: { "sisyphus-source-digest": sourceDigest.digest },
         }),
       );
+      await this.#assertStillRunning(input.shouldContinue);
       const started = await this.#codeBuild.send(
         new StartBuildCommand({
           projectName: this.configuration.projectName,
@@ -76,12 +80,23 @@ export class CodeBuildSandbox implements ProjectExecutor {
       if (buildId === undefined) {
         throw new Error("CodeBuild accepted the request without returning a build ID.");
       }
-      await input.onExecutionStarted?.({
-        backend: this.backend,
-        executionId: buildId,
-        detectedPort: null,
-      });
-      await this.#waitForCompletion(buildId);
+      try {
+        await this.#assertStillRunning(input.shouldContinue);
+      } catch (error: unknown) {
+        await this.#stopBuild(buildId);
+        throw error;
+      }
+      try {
+        await input.onExecutionStarted?.({
+          backend: this.backend,
+          executionId: buildId,
+          detectedPort: null,
+        });
+      } catch (error: unknown) {
+        await this.#stopBuild(buildId);
+        throw error;
+      }
+      await this.#waitForCompletion(buildId, input.shouldContinue);
       return {
         backend: this.backend,
         executionId: buildId,
@@ -92,15 +107,34 @@ export class CodeBuildSandbox implements ProjectExecutor {
     }
   }
 
-  async #waitForCompletion(buildId: string): Promise<void> {
+  async #waitForCompletion(
+    buildId: string,
+    shouldContinue: (() => Promise<boolean>) | undefined,
+  ): Promise<void> {
     const deadline = Date.now() + 20 * 60 * 1_000;
     while (Date.now() < deadline) {
+      try {
+        await this.#assertStillRunning(shouldContinue);
+      } catch (error: unknown) {
+        await this.#stopBuild(buildId);
+        throw error;
+      }
       const response = await this.#codeBuild.send(new BatchGetBuildsCommand({ ids: [buildId] }));
       const build = response.builds?.[0];
       if (build?.buildComplete) return;
       await wait(5_000);
     }
     throw new Error("CodeBuild did not complete before the orchestrator deadline.");
+  }
+
+  async #assertStillRunning(shouldContinue: (() => Promise<boolean>) | undefined): Promise<void> {
+    if (shouldContinue !== undefined && !(await shouldContinue())) {
+      throw new EngineeringExecutionStoppedError();
+    }
+  }
+
+  async #stopBuild(buildId: string): Promise<void> {
+    await this.#codeBuild.send(new StopBuildCommand({ id: buildId })).catch(() => undefined);
   }
 
   async #readResult(key: string): Promise<ExecutionResult | undefined> {

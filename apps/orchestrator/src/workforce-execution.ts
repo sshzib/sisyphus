@@ -14,7 +14,12 @@ import {
   type EngineeringOperationSummary,
   type EngineeringScore,
 } from "@sisyphus/ui/contracts";
-import type { ExecutionResult, ProjectExecution, ProjectExecutor } from "./execution.js";
+import {
+  EngineeringExecutionStoppedError,
+  type ExecutionResult,
+  type ProjectExecution,
+  type ProjectExecutor,
+} from "./execution.js";
 import {
   ControlPlaneClient,
   type LeasedEngineeringTask,
@@ -80,6 +85,7 @@ export class WorkforceExecution {
       readonly workspaces: WorkspaceManager;
       readonly openRouter: OpenRouterClient;
       readonly executor: ProjectExecutor;
+      readonly isExecutionPermitted: () => Promise<boolean>;
       readonly publish: (
         task: LeasedEngineeringTask,
         operation: EngineeringOperationSummary,
@@ -102,6 +108,7 @@ export class WorkforceExecution {
     let workspace: TaskWorkspace | undefined;
     let coordinator: TaskOperationCoordinator | undefined;
     try {
+      await this.#assertExecutionPermitted();
       const planned = await this.dependencies.openRouter.plan(task.request);
       const operation = EngineeringOperationSummarySchema.parse({
         ...task.operation,
@@ -281,6 +288,7 @@ export class WorkforceExecution {
         integrationCommit: integration.commitId,
         workspace: integration.workspace,
         expectedPlan: safety.executionPlan,
+        shouldContinue: () => this.dependencies.isExecutionPermitted(),
         onExecutionStarted: async ({ backend, executionId, detectedPort }) => {
           await coordinator!.transition({
             reduce: (current) => ({
@@ -307,6 +315,9 @@ export class WorkforceExecution {
       });
       await this.#recordExecutionSkillOutcomes({ task, coordinator, preparedByAgentId, result: execution.result });
     } catch (error: unknown) {
+      if (error instanceof EngineeringExecutionStoppedError) {
+        return;
+      }
       const message = error instanceof Error ? error.message : "The engineering orchestrator encountered an unknown failure.";
       if (coordinator === undefined) {
         const operation = block(
@@ -353,6 +364,7 @@ export class WorkforceExecution {
     readonly agent: EngineeringAgentSummary;
     readonly requirement: EngineeringRequirement;
   }): Promise<PreparedAssignment> {
+    await this.#assertExecutionPermitted();
     const phase = assignmentPhase(input.agent.role);
     let selectedSkills: readonly SelectedEngineeringSkill[] = [];
     let selectionFailure: string | undefined;
@@ -774,6 +786,7 @@ export class WorkforceExecution {
         ],
       });
       try {
+        await this.#assertExecutionPermitted();
         const proposal = await this.dependencies.openRouter.proposePatch({
           request: input.task.request,
           requirement: input.assignment.requirement,
@@ -1101,6 +1114,12 @@ export class WorkforceExecution {
       evidence: "Execution evidence was attributed to this agent with recorded confidence.",
       score: input.result === undefined ? rejectedBeforeSandboxScore() : scoreFromExecution(input.result),
     });
+  }
+
+  async #assertExecutionPermitted(): Promise<void> {
+    if (!(await this.dependencies.isExecutionPermitted())) {
+      throw new EngineeringExecutionStoppedError();
+    }
   }
 }
 

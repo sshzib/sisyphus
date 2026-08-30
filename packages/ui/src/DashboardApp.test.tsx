@@ -33,7 +33,12 @@ function snapshot(operations: DashboardSnapshot["operations"] = []): DashboardSn
       enforcedShare: 0,
     },
     operations,
-    engineering: { operations: [], events: [] },
+    engineering: {
+      execution: { status: "stopped", generation: 0, changedAt: "1970-01-01T00:00:00.000Z", changedBy: "system" },
+      canManageExecution: true,
+      operations: [],
+      events: [],
+    },
     runs: [],
     agents: [],
     skills: [],
@@ -53,6 +58,12 @@ function client(value: DashboardSnapshot): SisyphusDataClient {
       throw new Error("Task creation is not part of this test client.");
     }),
     clearEngineeringHistory: vi.fn(async () => ({ removedTaskCount: 0, removedEventCount: 0 })),
+    startEngineeringExecution: vi.fn(async () => ({
+      execution: { status: "running", generation: 1, changedAt: "2026-08-30T10:00:00.000Z", changedBy: "admin" },
+    })),
+    stopEngineeringExecution: vi.fn(async () => ({
+      execution: { status: "stopped", generation: 2, changedAt: "2026-08-30T10:00:00.000Z", changedBy: "admin" },
+    })),
     restoreSkill: vi.fn(async () => {
       throw new Error("The overview monitor has no mutation controls.");
     }),
@@ -209,6 +220,17 @@ describe("DashboardApp", () => {
     expect(window.localStorage.getItem("sisyphus-color-theme")).toBe("light");
   });
 
+  it("lets an administrator start stopped engineering execution", async () => {
+    const user = userEvent.setup();
+    const dataClient = client(snapshot());
+    render(<DashboardApp client={dataClient} hostContext={{ kind: "web" }} />);
+
+    await user.click(await screen.findByRole("button", { name: "Start execution" }));
+
+    expect(dataClient.startEngineeringExecution).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/Execution started\. The orchestrator can now lease queued tasks\./u)).toBeInTheDocument();
+  });
+
   it("shows provider-reported agent roles and real lifecycle states", async () => {
     render(<DashboardApp client={client(snapshot([liveOperation()]))} hostContext={{ kind: "web" }} />);
 
@@ -223,6 +245,8 @@ describe("DashboardApp", () => {
   it("shows selected skill evidence and the real engineering event log", async () => {
     const value = snapshot();
     value.engineering = {
+      execution: { status: "running", generation: 1, changedAt: "2026-08-30T10:00:00.000Z", changedBy: "admin" },
+      canManageExecution: true,
       operations: [
         {
           id: "task-sisyphus-landing",
@@ -309,7 +333,12 @@ describe("DashboardApp", () => {
 
   it("keeps the most recent completed workforce inspectable in Observed Operations", async () => {
     const value = snapshot();
-    value.engineering = { operations: [completedEngineeringOperation()], events: [] };
+    value.engineering = {
+      execution: { status: "stopped", generation: 0, changedAt: "1970-01-01T00:00:00.000Z", changedBy: "system" },
+      canManageExecution: true,
+      operations: [completedEngineeringOperation()],
+      events: [],
+    };
     const user = userEvent.setup();
     render(<DashboardApp client={client(value)} hostContext={{ kind: "web" }} />);
 
@@ -323,6 +352,8 @@ describe("DashboardApp", () => {
   it("shows the saved execution folder and deletes only old prompt logs on request", async () => {
     const value = snapshot();
     value.engineering = {
+      execution: { status: "stopped", generation: 0, changedAt: "1970-01-01T00:00:00.000Z", changedBy: "system" },
+      canManageExecution: true,
       operations: [completedEngineeringOperation()],
       events: [
         {
@@ -342,7 +373,12 @@ describe("DashboardApp", () => {
       .mockResolvedValueOnce(value)
       .mockResolvedValue({
         ...value,
-        engineering: { operations: [], events: [] },
+        engineering: {
+          execution: { status: "stopped", generation: 0, changedAt: "1970-01-01T00:00:00.000Z", changedBy: "system" },
+          canManageExecution: true,
+          operations: [],
+          events: [],
+        },
       });
     const user = userEvent.setup();
     render(<DashboardApp client={dataClient} hostContext={{ kind: "web" }} />);
@@ -409,6 +445,12 @@ describe("DashboardApp", () => {
         throw new Error("Unavailable");
       }),
       clearEngineeringHistory: vi.fn(async () => {
+        throw new Error("Unavailable");
+      }),
+      startEngineeringExecution: vi.fn(async () => {
+        throw new Error("Unavailable");
+      }),
+      stopEngineeringExecution: vi.fn(async () => {
         throw new Error("Unavailable");
       }),
       listSkillRegistry: vi.fn(async () => ({ items: [] })),

@@ -11,6 +11,12 @@ describe("InMemoryEngineeringTaskStore", () => {
       request: "Build a simple static landing page with an accessible product heading.",
       now: createdAt,
     });
+    await store.setExecution({
+      tenantId: "tenant-test",
+      actor: "admin-test",
+      status: "running",
+      now: createdAt,
+    });
     const lease = await store.lease({
       tenantId: "tenant-test",
       leaseId: "00000000-0000-4000-8000-000000000001",
@@ -26,6 +32,7 @@ describe("InMemoryEngineeringTaskStore", () => {
         tenantId: lease.tenantId,
         taskId: lease.taskId,
         leaseId: lease.leaseId,
+        executionGeneration: lease.executionGeneration,
         operation: {
           ...operation,
           status: "blocked",
@@ -62,6 +69,12 @@ describe("InMemoryEngineeringTaskStore", () => {
       request: "Build another simple static landing page with an accessible product heading.",
       now: new Date(createdAt.getTime() + 1_000),
     });
+    await store.setExecution({
+      tenantId: "tenant-test",
+      actor: "admin-test",
+      status: "running",
+      now: new Date(createdAt.getTime() + 1_500),
+    });
     const lease = await store.lease({
       tenantId: "tenant-test",
       leaseId: "00000000-0000-4000-8000-000000000003",
@@ -75,6 +88,7 @@ describe("InMemoryEngineeringTaskStore", () => {
       tenantId: lease.tenantId,
       taskId: lease.taskId,
       leaseId: lease.leaseId,
+      executionGeneration: lease.executionGeneration,
       operation: {
         ...completed,
         status: "approved",
@@ -89,8 +103,68 @@ describe("InMemoryEngineeringTaskStore", () => {
       removedTaskCount: 1,
       removedEventCount: 1,
     });
-    await expect(store.dashboard("tenant-test")).resolves.toMatchObject({
+    await expect(store.dashboard({ tenantId: "tenant-test", canManageExecution: true })).resolves.toMatchObject({
       operations: [{ id: active.id, status: "queued" }],
+    });
+  });
+
+  it("fails closed until started and fences a stopped worker lease", async () => {
+    const store = new InMemoryEngineeringTaskStore();
+    const now = new Date("2026-08-30T00:00:00.000Z");
+    const operation = await store.create({
+      tenantId: "tenant-test",
+      actor: "tester",
+      request: "Build a simple static landing page with an accessible product heading.",
+      now,
+    });
+
+    await expect(store.lease({
+      tenantId: "tenant-test",
+      leaseId: "00000000-0000-4000-8000-000000000004",
+      now,
+      leaseDurationMs: 60_000,
+    })).resolves.toBeUndefined();
+
+    await store.setExecution({
+      tenantId: "tenant-test",
+      actor: "admin-test",
+      status: "running",
+      now: new Date(now.getTime() + 1_000),
+    });
+    const lease = await store.lease({
+      tenantId: "tenant-test",
+      leaseId: "00000000-0000-4000-8000-000000000005",
+      now: new Date(now.getTime() + 2_000),
+      leaseDurationMs: 60_000,
+    });
+
+    expect(lease).toBeDefined();
+    if (lease === undefined) throw new Error("The started task was not leased.");
+    await expect(store.permitsExecution({
+      tenantId: lease.tenantId,
+      taskId: lease.taskId,
+      leaseId: lease.leaseId,
+      executionGeneration: lease.executionGeneration,
+      now: new Date(now.getTime() + 3_000),
+    })).resolves.toBe(true);
+
+    await store.setExecution({
+      tenantId: "tenant-test",
+      actor: "admin-test",
+      status: "stopped",
+      now: new Date(now.getTime() + 4_000),
+    });
+
+    await expect(store.permitsExecution({
+      tenantId: lease.tenantId,
+      taskId: lease.taskId,
+      leaseId: lease.leaseId,
+      executionGeneration: lease.executionGeneration,
+      now: new Date(now.getTime() + 5_000),
+    })).resolves.toBe(false);
+    await expect(store.dashboard({ tenantId: "tenant-test", canManageExecution: true })).resolves.toMatchObject({
+      execution: { status: "stopped" },
+      operations: [{ id: operation.id, status: "blocked" }],
     });
   });
 });

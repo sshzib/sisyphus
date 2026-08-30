@@ -5,9 +5,11 @@ import {
 } from "@sisyphus/domain";
 import {
   EngineeringDashboardSchema,
+  EngineeringExecutionStateSchema,
   EngineeringEventSummarySchema,
   EngineeringOperationSummarySchema,
   type EngineeringDashboard,
+  type EngineeringExecutionState,
   type EngineeringEventSummary,
   type EngineeringOperationSummary,
 } from "@sisyphus/ui/contracts";
@@ -18,6 +20,7 @@ export interface EngineeringTaskLease {
   readonly taskId: string;
   readonly request: string;
   readonly leaseId: string;
+  readonly executionGeneration: number;
   readonly operation: EngineeringOperationSummary;
 }
 
@@ -28,7 +31,10 @@ export interface EngineeringTaskStore {
     request: string;
     now: Date;
   }): Promise<EngineeringOperationSummary>;
-  dashboard(tenantId: string): Promise<EngineeringDashboard>;
+  dashboard(input: {
+    tenantId: string;
+    canManageExecution: boolean;
+  }): Promise<EngineeringDashboard>;
   clearHistory(input: { tenantId: string }): Promise<{ removedTaskCount: number; removedEventCount: number }>;
   lease(input: {
     tenantId: string;
@@ -40,8 +46,22 @@ export interface EngineeringTaskStore {
     tenantId: string;
     taskId: string;
     leaseId: string;
+    executionGeneration: number;
     operation: EngineeringOperationSummary;
     events: readonly EngineeringEventSummary[];
+    now: Date;
+  }): Promise<boolean>;
+  setExecution(input: {
+    tenantId: string;
+    actor: string;
+    status: EngineeringExecutionState["status"];
+    now: Date;
+  }): Promise<EngineeringExecutionState>;
+  permitsExecution(input: {
+    tenantId: string;
+    taskId: string;
+    leaseId: string;
+    executionGeneration: number;
     now: Date;
   }): Promise<boolean>;
 }
@@ -51,6 +71,7 @@ interface StoredEngineeringTask {
   operation: EngineeringOperationSummary;
   leaseId: string | undefined;
   leaseExpiresAt: number | undefined;
+  executionGeneration: number | undefined;
 }
 
 const terminalStatuses = new Set<EngineeringOperationSummary["status"]>([
@@ -58,6 +79,13 @@ const terminalStatuses = new Set<EngineeringOperationSummary["status"]>([
   "rejected",
   "blocked",
 ]);
+
+const defaultExecutionState = EngineeringExecutionStateSchema.parse({
+  status: "stopped",
+  generation: 0,
+  changedAt: "1970-01-01T00:00:00.000Z",
+  changedBy: "system",
+});
 
 function payloadDigest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(value), "utf8").digest("hex");
@@ -86,6 +114,7 @@ function initialEvent(input: {
 export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
   readonly #tasks = new Map<string, StoredEngineeringTask>();
   readonly #eventsByTenant = new Map<string, EngineeringEventSummary[]>();
+  readonly #executionByTenant = new Map<string, EngineeringExecutionState>();
 
   public constructor(private readonly journal?: EngineeringEventJournal) {}
 
@@ -115,23 +144,29 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
       operation,
       leaseId: undefined,
       leaseExpiresAt: undefined,
+      executionGeneration: undefined,
     });
     await this.#recordEvents(input.tenantId, [initialEvent({ taskId: id, occurredAt, request })]);
     return operation;
   }
 
-  public async dashboard(tenantId: string): Promise<EngineeringDashboard> {
+  public async dashboard(input: {
+    tenantId: string;
+    canManageExecution: boolean;
+  }): Promise<EngineeringDashboard> {
     const operations = [...this.#tasks.entries()]
-      .filter(([key]) => key.startsWith(`${tenantId}\u0000`))
+      .filter(([key]) => key.startsWith(`${input.tenantId}\u0000`))
       .map(([, task]) => task.operation)
       .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
     const persistedEvents = await this.journal
-      ?.recent({ tenantId, limit: 100 })
+      ?.recent({ tenantId: input.tenantId, limit: 100 })
       .catch(() => []);
     return EngineeringDashboardSchema.parse({
+      execution: this.#executionState(input.tenantId),
+      canManageExecution: input.canManageExecution,
       operations: operations.slice(0, 20),
       events: deduplicateEvents([
-        ...(this.#eventsByTenant.get(tenantId) ?? []),
+        ...(this.#eventsByTenant.get(input.tenantId) ?? []),
         ...(persistedEvents ?? []),
       ]).slice(0, 100),
     });
@@ -173,6 +208,8 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
     now: Date;
     leaseDurationMs: number;
   }): Promise<EngineeringTaskLease | undefined> {
+    const execution = this.#executionState(input.tenantId);
+    if (execution.status !== "running") return undefined;
     const now = input.now.getTime();
     const candidate = [...this.#tasks.entries()]
       .filter(([key, task]) => {
@@ -194,6 +231,7 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
       operation,
       leaseId: input.leaseId,
       leaseExpiresAt: now + input.leaseDurationMs,
+      executionGeneration: execution.generation,
     } satisfies StoredEngineeringTask;
     this.#tasks.set(key, stored);
     return {
@@ -201,6 +239,7 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
       taskId: operation.id,
       request: stored.request,
       leaseId: input.leaseId,
+      executionGeneration: execution.generation,
       operation,
     };
   }
@@ -209,6 +248,7 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
     tenantId: string;
     taskId: string;
     leaseId: string;
+    executionGeneration: number;
     operation: EngineeringOperationSummary;
     events: readonly EngineeringEventSummary[];
     now: Date;
@@ -218,8 +258,11 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
     if (
       existing === undefined ||
       existing.leaseId !== input.leaseId ||
+      existing.executionGeneration !== input.executionGeneration ||
       existing.leaseExpiresAt === undefined ||
       existing.leaseExpiresAt < input.now.getTime() ||
+      this.#executionState(input.tenantId).status !== "running" ||
+      this.#executionState(input.tenantId).generation !== input.executionGeneration ||
       input.operation.id !== input.taskId
     ) {
       return false;
@@ -236,9 +279,85 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
       leaseExpiresAt: terminalStatuses.has(operation.status)
         ? undefined
         : existing.leaseExpiresAt,
+      executionGeneration: terminalStatuses.has(operation.status)
+        ? undefined
+        : existing.executionGeneration,
     });
     await this.#recordEvents(input.tenantId, events);
     return true;
+  }
+
+  public async setExecution(input: {
+    tenantId: string;
+    actor: string;
+    status: EngineeringExecutionState["status"];
+    now: Date;
+  }): Promise<EngineeringExecutionState> {
+    const current = this.#executionState(input.tenantId);
+    const next = EngineeringExecutionStateSchema.parse({
+      status: input.status,
+      generation: current.generation + 1,
+      changedAt: input.now.toISOString(),
+      changedBy: input.actor,
+    });
+    this.#executionByTenant.set(input.tenantId, next);
+    if (next.status === "stopped") {
+      const blockedAt = input.now.toISOString();
+      const events: EngineeringEventSummary[] = [];
+      for (const [key, task] of this.#tasks.entries()) {
+        if (!key.startsWith(`${input.tenantId}\u0000`) || task.leaseId === undefined || terminalStatuses.has(task.operation.status)) {
+          continue;
+        }
+        const operation = EngineeringOperationSummarySchema.parse({
+          ...task.operation,
+          status: "blocked",
+          updatedAt: blockedAt,
+          safety: { status: "blocked", findings: task.operation.safety.findings },
+          sandbox: {
+            ...task.operation.sandbox,
+            status: "blocked",
+          },
+        });
+        this.#tasks.set(key, {
+          ...task,
+          operation,
+          leaseId: undefined,
+          leaseExpiresAt: undefined,
+          executionGeneration: undefined,
+        });
+        events.push(
+          engineeringEvent({
+            taskId: operation.id,
+            type: "WORKFLOW_BLOCKED",
+            occurredAt: blockedAt,
+            summary: "Execution was stopped by a tenant administrator; the active worker lease was cancelled.",
+            payload: { reason: "execution-stopped" },
+          }),
+        );
+      }
+      await this.#recordEvents(input.tenantId, events);
+    }
+    return next;
+  }
+
+  public async permitsExecution(input: {
+    tenantId: string;
+    taskId: string;
+    leaseId: string;
+    executionGeneration: number;
+    now: Date;
+  }): Promise<boolean> {
+    const execution = this.#executionState(input.tenantId);
+    const task = this.#tasks.get(taskKey(input.tenantId, input.taskId));
+    return (
+      execution.status === "running" &&
+      execution.generation === input.executionGeneration &&
+      task !== undefined &&
+      task.leaseId === input.leaseId &&
+      task.executionGeneration === input.executionGeneration &&
+      task.leaseExpiresAt !== undefined &&
+      task.leaseExpiresAt >= input.now.getTime()
+    );
   }
 
   async #recordEvents(tenantId: string, events: readonly EngineeringEventSummary[]): Promise<void> {
@@ -252,6 +371,10 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
       ...[...events].sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt)),
       ...(this.#eventsByTenant.get(tenantId) ?? []),
     ].slice(0, 100));
+  }
+
+  #executionState(tenantId: string): EngineeringExecutionState {
+    return this.#executionByTenant.get(tenantId) ?? defaultExecutionState;
   }
 }
 

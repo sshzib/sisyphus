@@ -26,6 +26,13 @@ export function createEmptyDashboardSnapshot(input?: {
     },
     operations: [],
     engineering: {
+      execution: {
+        status: "stopped",
+        generation: 0,
+        changedAt: "1970-01-01T00:00:00.000Z",
+        changedBy: "system",
+      },
+      canManageExecution: false,
       operations: [],
       events: [],
     },

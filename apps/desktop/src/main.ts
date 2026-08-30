@@ -23,6 +23,8 @@ import {
   DashboardSnapshotSchema,
   CreateCustomSkillSchema,
   CreateEngineeringTaskResponseSchema,
+  ClearEngineeringHistoryResponseSchema,
+  EngineeringExecutionControlResponseSchema,
   EngineeringTaskSubmissionSchema,
   HostContextSchema,
   RestoreSkillRequestSchema,
@@ -394,7 +396,7 @@ function desktopApiToken(): string | undefined {
 
 async function desktopApiRequest(input: {
   readonly path: string;
-  readonly method?: "GET" | "POST";
+  readonly method?: "GET" | "POST" | "DELETE";
   readonly body?: unknown;
 }): Promise<unknown> {
   const origin = desktopApiOrigin();
@@ -647,6 +649,36 @@ ipcMain.handle(
         method: "POST",
         body: task,
       }),
+    );
+  },
+);
+ipcMain.handle(
+  desktopChannels.clearEngineeringHistory,
+  async (event: IpcMainInvokeEvent) => {
+    assertDesktopSender(event);
+    assertDesktopAuthenticated();
+    return ClearEngineeringHistoryResponseSchema.parse(
+      await desktopApiRequest({ path: "/v1/engineering/tasks/history", method: "DELETE" }),
+    );
+  },
+);
+ipcMain.handle(
+  desktopChannels.startEngineeringExecution,
+  async (event: IpcMainInvokeEvent) => {
+    assertDesktopSender(event);
+    assertDesktopAuthenticated();
+    return EngineeringExecutionControlResponseSchema.parse(
+      await desktopApiRequest({ path: "/v1/engineering/execution/start", method: "POST" }),
+    );
+  },
+);
+ipcMain.handle(
+  desktopChannels.stopEngineeringExecution,
+  async (event: IpcMainInvokeEvent) => {
+    assertDesktopSender(event);
+    assertDesktopAuthenticated();
+    return EngineeringExecutionControlResponseSchema.parse(
+      await desktopApiRequest({ path: "/v1/engineering/execution/stop", method: "POST" }),
     );
   },
 );
