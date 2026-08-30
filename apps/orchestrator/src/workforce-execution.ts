@@ -29,6 +29,7 @@ import { OpenRouterClient } from "./openrouter.js";
 import {
   createLocalStaticFallbackPlan,
   createLocalStaticFallbackProposal,
+  createLocalStaticFallbackReviewProposal,
 } from "./local-static-fallback.js";
 import { TaskOperationCoordinator } from "./operation-coordinator.js";
 import { scanWorkspace } from "./safety-gate.js";
@@ -766,10 +767,7 @@ export class WorkforceExecution {
     readonly startAttempt?: number;
     readonly feedback?: string;
   }): Promise<AssignmentResult> {
-    if (
-      this.dependencies.executor.backend === "local-static" &&
-      input.assignment.phase === "build"
-    ) {
+    if (this.dependencies.executor.backend === "local-static") {
       return this.#runLocalStaticAssignment(input);
     }
     const startedAt = Date.now();
@@ -924,6 +922,8 @@ export class WorkforceExecution {
     readonly coordinator: TaskOperationCoordinator;
     readonly assignment: PreparedAssignment;
     readonly baseCommit?: string;
+    readonly projectContext?: readonly { readonly path: string; readonly content: string }[];
+    readonly reviewableRequirements?: readonly EngineeringRequirement[];
   }): Promise<AssignmentResult> {
     await this.#assertExecutionPermitted();
     const currentAgent = input.coordinator.current().agents.find((agent) => agent.id === input.assignment.agentId);
@@ -935,21 +935,38 @@ export class WorkforceExecution {
       model: "local-static-fallback",
       iteration: 1,
       status: "working",
-      activity: "editing-files",
-      activityDetail: `Preparing a browser-only implementation for ${input.assignment.requirement.id}.`,
+      activity: input.assignment.phase === "review" ? "analyzing-requirements" : "editing-files",
+      activityDetail:
+        input.assignment.phase === "review"
+          ? `Reviewing the integrated browser preview for ${input.assignment.requirement.id}.`
+          : `Preparing a browser-only implementation for ${input.assignment.requirement.id}.`,
       updatedAt: new Date().toISOString(),
     };
     await input.coordinator.transition({
       reduce: (current) => ({ ...replaceAgent(current, workingAgent), status: "working" }),
       events: (current) => [
-        event(current.id, "AGENT_STARTED", `${workingAgent.role} started the local static implementation for ${input.assignment.requirement.id}.`),
+        event(
+          current.id,
+          "AGENT_STARTED",
+          input.assignment.phase === "review"
+            ? `${workingAgent.role} started an evidence-based review for ${input.assignment.requirement.id}.`
+            : `${workingAgent.role} started the local static implementation for ${input.assignment.requirement.id}.`,
+        ),
       ],
     });
-    const proposal = createLocalStaticFallbackProposal({
-      request: input.task.request,
-      requirement: input.assignment.requirement,
-      iteration: workingAgent.iteration,
-    });
+    const proposal = input.assignment.phase === "review"
+      ? createLocalStaticFallbackReviewProposal({
+          request: input.task.request,
+          requirement: input.assignment.requirement,
+          role: workingAgent.role,
+          projectContext: input.projectContext ?? [],
+          reviewableRequirements: input.reviewableRequirements ?? [],
+        })
+      : createLocalStaticFallbackProposal({
+          request: input.task.request,
+          requirement: input.assignment.requirement,
+          iteration: workingAgent.iteration,
+        });
     const policyFailures = validateProposalPolicy({
       role: workingAgent.role,
       proposal,
@@ -977,11 +994,24 @@ export class WorkforceExecution {
     await input.coordinator.transition({
       reduce: (current) => replaceAgent(current, completedAgent),
       events: (current) => [
-        event(current.id, "FILE_CHANGED", `${completedAgent.role} created ${change.filesChanged.length} local static files for ${input.assignment.requirement.id}.`),
-        event(current.id, "AGENT_COMPLETED", `${completedAgent.role} completed the local static implementation.`),
+        event(
+          current.id,
+          "FILE_CHANGED",
+          `${completedAgent.role} created ${change.filesChanged.length} ${input.assignment.phase === "review" ? "review evidence" : "local static"} file${change.filesChanged.length === 1 ? "" : "s"} for ${input.assignment.requirement.id}.`,
+        ),
+        event(
+          current.id,
+          "AGENT_COMPLETED",
+          `${completedAgent.role} completed the local static ${input.assignment.phase === "review" ? "review" : "implementation"}.`,
+        ),
       ],
     });
-    return { kind: "completed", agentId: completedAgent.id, branch: change.branch };
+    return {
+      kind: "completed",
+      agentId: completedAgent.id,
+      branch: change.branch,
+      ...(proposal.verification === undefined ? {} : { verification: proposal.verification }),
+    };
   }
 
   #openRouter(): OpenRouterClient {
