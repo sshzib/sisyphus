@@ -1,0 +1,28 @@
+{
+  "name": "@sisyphus/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "test": "tsx --test src/config.test.ts src/local-static-executor.test.ts src/openrouter.test.ts src/workforce-policy.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-codebuild": "^3.888.0",
+    "@aws-sdk/client-s3": "^3.888.0",
+    "@sisyphus/catalog": "workspace:*",
+    "@sisyphus/domain": "workspace:*",
+    "@sisyphus/ui": "workspace:*",
+    "archiver": "^7.0.1",
+    "zod": "^4.1.5"
+  },
+  "devDependencies": {
+    "@types/archiver": "^6.0.3",
+    "@types/node": "^24.3.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2"
+  }
+}

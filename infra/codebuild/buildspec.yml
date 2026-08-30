@@ -1,0 +1,8 @@
+version: 0.2
+
+# Provision this content as the immutable buildspec of the dedicated
+# Sisyphus CodeBuild project. Do not permit callers to override it.
+phases:
+  build:
+    commands:
+      - node .sisyphus/runner.mjs
