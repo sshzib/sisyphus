@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const config: NextConfig = {
+  // Keep production builds from replacing the active development server's cache.
+  distDir: process.env.NODE_ENV === "production" ? ".next-build" : ".next",
   poweredByHeader: false,
   reactStrictMode: true,
   async headers() {
