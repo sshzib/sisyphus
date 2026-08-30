@@ -3,12 +3,22 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import {
   ApiErrorSchema,
-  HostedBearerCredentialSchema,
   type ApiError,
 } from "@sisyphus/ui/contracts";
-import type { HostedConfiguration } from "./hosted-auth";
+import { SupabaseAccessTokenSchema } from "./auth-input";
+import type { HostedConfiguration } from "./hosted-config";
 
 type ConfiguredHostedMode = Extract<HostedConfiguration, { kind: "configured" }>;
+
+export type ControlPlaneCredential =
+  | {
+      readonly kind: "supabase";
+      readonly token: string;
+    }
+  | {
+      readonly kind: "development-admin";
+      readonly token: "demo-admin";
+    };
 
 export type ControlPlaneResult<T> =
   | { readonly kind: "success"; readonly data: T }
@@ -36,13 +46,16 @@ function localError(input: {
 
 export async function requestControlPlane<T>(input: {
   configuration: ConfiguredHostedMode;
-  bearerToken: string;
+  credential: ControlPlaneCredential;
   path: string;
-  method?: "GET" | "POST";
+  method?: "GET" | "POST" | "DELETE";
   body?: unknown;
   parse: (payload: unknown) => T;
 }): Promise<ControlPlaneResult<T>> {
-  const credential = HostedBearerCredentialSchema.parse({ token: input.bearerToken });
+  const credential =
+    input.credential.kind === "supabase"
+      ? SupabaseAccessTokenSchema.parse(input.credential.token)
+      : input.credential.token;
   let response: Response;
   try {
     response = await fetch(`${input.configuration.apiUrl}${input.path}`, {
@@ -50,7 +63,7 @@ export async function requestControlPlane<T>(input: {
       cache: "no-store",
       redirect: "error",
       headers: {
-        Authorization: `Bearer ${credential.token}`,
+        Authorization: "Bearer " + credential,
         Accept: "application/json",
         ...(input.body === undefined ? {} : { "Content-Type": "application/json" }),
       },

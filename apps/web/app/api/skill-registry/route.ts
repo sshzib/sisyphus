@@ -1,19 +1,14 @@
-import {
-  DashboardQuerySchema,
-  DashboardSnapshotSchema,
-} from "@sisyphus/ui/contracts";
+import { SkillRegistryListResponseSchema } from "@sisyphus/ui/contracts";
 import type { NextRequest } from "next/server";
+
 import { requestControlPlane } from "../../../lib/control-plane";
 import { authenticateHostedRequest } from "../../../lib/hosted-session";
-import {
-  apiFailure,
-  controlPlaneResponse,
-} from "../../../lib/route-response";
+import { apiFailure, controlPlaneResponse } from "../../../lib/route-response";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   const authentication = await authenticateHostedRequest();
   if (authentication.kind === "unavailable") {
     return apiFailure({
@@ -29,26 +24,11 @@ export async function GET(request: NextRequest) {
       message: "An authenticated hosted session is required.",
     });
   }
-  const runtimeFilter = request.nextUrl.searchParams.get("runtime");
-  const query = DashboardQuerySchema.safeParse(
-    runtimeFilter === null ? {} : { runtime: runtimeFilter },
-  );
-  if (!query.success) {
-    return apiFailure({
-      status: 400,
-      error: "invalid_runtime",
-      message: "The runtime filter is invalid.",
-    });
-  }
-  const queryString =
-    query.data.runtime === undefined
-      ? ""
-      : `?runtime=${encodeURIComponent(query.data.runtime)}`;
   const result = await requestControlPlane({
     configuration: authentication.configuration,
     credential: authentication.credential,
-    path: `/v1/dashboard${queryString}`,
-    parse: (payload) => DashboardSnapshotSchema.parse(payload),
+    path: "/v1/skill-registry",
+    parse: (payload) => SkillRegistryListResponseSchema.parse(payload),
   });
   return controlPlaneResponse(result);
 }

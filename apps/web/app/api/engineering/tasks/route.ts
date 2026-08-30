@@ -1,28 +1,14 @@
-import {
-  RestoreSkillParamsSchema,
-  RestoreSkillRequestSchema,
-  RestoreSkillResponseSchema,
-} from "@sisyphus/ui/contracts";
+import { EngineeringTaskSubmissionSchema, CreateEngineeringTaskResponseSchema } from "@sisyphus/ui/contracts";
 import type { NextRequest } from "next/server";
-import { requestControlPlane } from "../../../../../lib/control-plane";
-import {
-  readBoundedRequestBody,
-  requestMediaType,
-} from "../../../../../lib/request-body";
-import { authenticatedMutation } from "../../../../../lib/hosted-session";
-import {
-  apiFailure,
-  controlPlaneResponse,
-} from "../../../../../lib/route-response";
+import { requestControlPlane } from "../../../../lib/control-plane";
+import { readBoundedRequestBody, requestMediaType } from "../../../../lib/request-body";
+import { authenticatedMutation } from "../../../../lib/hosted-session";
+import { apiFailure, controlPlaneResponse } from "../../../../lib/route-response";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-interface RestoreRouteContext {
-  params: Promise<{ readonly skillVersionId: string }>;
-}
-
-export async function POST(request: NextRequest, context: RestoreRouteContext) {
+export async function POST(request: NextRequest) {
   const authentication = await authenticatedMutation(request);
   if (authentication.kind === "unavailable") {
     return apiFailure({
@@ -35,7 +21,7 @@ export async function POST(request: NextRequest, context: RestoreRouteContext) {
     return apiFailure({
       status: 403,
       error: "csrf_rejected",
-      message: "The restoration request failed its origin or CSRF check.",
+      message: "The engineering request failed its origin or CSRF check.",
     });
   }
   if (authentication.kind !== "authenticated") {
@@ -48,14 +34,13 @@ export async function POST(request: NextRequest, context: RestoreRouteContext) {
   if (requestMediaType(request.headers) !== "application/json") {
     return apiFailure({
       status: 400,
-      error: "invalid_restore_request",
-      message: "The restoration request must use JSON.",
+      error: "invalid_engineering_task",
+      message: "The engineering task request must use JSON.",
     });
   }
-  const params = RestoreSkillParamsSchema.safeParse(await context.params);
   const encodedBody = await readBoundedRequestBody({
     request,
-    maximumBytes: 2_048,
+    maximumBytes: 8_192,
   });
   let rawBody: unknown;
   try {
@@ -63,21 +48,21 @@ export async function POST(request: NextRequest, context: RestoreRouteContext) {
   } catch {
     rawBody = undefined;
   }
-  const body = RestoreSkillRequestSchema.safeParse(rawBody);
-  if (!params.success || !body.success) {
+  const body = EngineeringTaskSubmissionSchema.safeParse(rawBody);
+  if (!body.success) {
     return apiFailure({
       status: 400,
-      error: "invalid_restore_request",
-      message: "A skill version and a restoration reason are required.",
+      error: "invalid_engineering_task",
+      message: "Describe the engineering task in between 20 and 4,000 characters.",
     });
   }
   const result = await requestControlPlane({
     configuration: authentication.configuration,
     credential: authentication.credential,
-    path: `/v1/skills/${encodeURIComponent(params.data.skillVersionId)}/restore`,
+    path: "/v1/engineering/tasks",
     method: "POST",
     body: body.data,
-    parse: (payload) => RestoreSkillResponseSchema.parse(payload),
+    parse: (payload) => CreateEngineeringTaskResponseSchema.parse(payload),
   });
   return controlPlaneResponse(result);
 }

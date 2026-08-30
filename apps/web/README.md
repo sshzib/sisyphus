@@ -1,51 +1,128 @@
-# Hosted dashboard
+# Configure hosted user authentication
 
-The hosted dashboard has demo and authenticated modes. If all hosted-auth settings are absent, the app uses labeled sample data from a `Demo workspace`. If only some settings are present or any setting is invalid, the app refuses the partial setup.
+The hosted dashboard uses Supabase Auth for human users. Next.js keeps the user
+session in Supabase SSR cookies and sends dashboard requests through the
+same-origin proxy. The Fastify API verifies each Supabase access token before it
+creates a tenant-scoped `AuthContext`.
 
-## Connect a control plane
+The dashboard does not accept tenant access tokens from users. Worker and device
+tokens continue to use the existing control-plane credential resolver.
 
-Set these server-only variables:
+## Configure the Supabase project
 
-- `SISYPHUS_WEB_API_URL` is the control-plane base URL.
-- `SISYPHUS_WEB_ORIGIN` is the exact public origin of this Next.js app.
-- `SISYPHUS_WEB_SESSION_KEY` is a base64-encoded 32-byte random key.
+In the Supabase dashboard, open **Authentication > URL Configuration**.
 
-Generate a session key with Node.js:
+1. Set **Site URL** to `http://localhost:3000` for local development.
+2. Add `http://localhost:3000/auth/complete` to **Redirect URLs**.
+3. Keep email sign-up enabled.
 
-```sh
-node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"
+The custom email hook creates signed-token links to `/auth/confirm`. Signup
+links establish the session and open the dashboard. Recovery links establish a
+recovery session and continue directly to `/auth/update-password`.
+
+## Configure branded email delivery
+
+Supabase's Send Email Hook calls `supabase/functions/send-auth-email`. The
+function verifies the Standard Webhooks signature, then sends these published
+Resend template aliases:
+
+| Auth action | Resend template | Variables |
+| --- | --- | --- |
+| Signup | `email-verification` | `name`, `verification_code`, `verification_url` |
+| Signup | `welcome-email` | `name`, `dashboard_url`, `unsubscribe_url`, `privacy_url` |
+| Recovery | `password-reset` | `name`, `reset_url` |
+
+Deploy the function with JWT verification disabled, as configured in
+`supabase/config.toml`. Set these Edge Function secrets in Supabase:
+
+```dotenv
+RESEND_API_KEY=re_replace_me
+SEND_EMAIL_HOOK_SECRET=v1,whsec_replace_me
+SISYPHUS_WEB_ORIGIN=http://localhost:3000
+SISYPHUS_AUTH_EMAIL_FROM=Sisyphus Ai <noreply@sisyphusai.site>
+SISYPHUS_PRIVACY_URL=http://localhost:3000/privacy
+SISYPHUS_UNSUBSCRIBE_URL=http://localhost:3000/unsubscribe
 ```
 
-Production URLs must use HTTPS. Restart the app after you set the variables. Open the dashboard and enter a tenant access token in the connection form.
+In **Authentication > Hooks**, configure the **Send Email** hook with:
 
-## Session security
+```text
+https://yjwtcrmodiwhofruqzrn.supabase.co/functions/v1/send-auth-email
+```
 
-The connection form posts to the same-origin Next.js server. The server checks the configured origin, validates the token with the control plane, and encrypts the token with AES-256-GCM. The browser receives an `HttpOnly`, `SameSite=Strict` cookie. Production cookies also use `Secure` and the `__Host-` prefix.
+Use the same `SEND_EMAIL_HOOK_SECRET` in the hook and Edge Function. Keep the
+Email Provider enabled. The hook replaces SMTP delivery while enabled. This
+prototype intentionally supports the signup and recovery actions used by the
+app; do not enable magic-link, invite, email-change, or reauthentication flows
+until templates for those actions exist.
 
-Browser requests call the same-origin server proxy. The browser never receives the bearer token after the exchange. Skill restoration also requires the exact configured origin and a per-session CSRF token.
+To send and inspect all three hosted templates against Resend's delivery test
+addresses, run:
 
-Never put a bearer token or an administrator credential in a `NEXT_PUBLIC_*` variable. Next.js includes referenced public variables in browser JavaScript. Rotating `SISYPHUS_WEB_SESSION_KEY` invalidates all hosted sessions.
+```powershell
+$env:RESEND_API_KEY="re_replace_me"
+$env:SISYPHUS_AUTH_EMAIL_FROM="Sisyphus Ai <noreply@sisyphusai.site>"
+node scripts/verify-resend-auth-email.mjs
+```
 
-## Dashboard data boundaries
+## Configure the web app
 
-The hosted dashboard never receives full prompts, outputs, transcripts, tool payloads,
-or deterministic evaluator stdout and stderr. The worker stores those values in its
-encrypted local evidence vault. Cloud evidence excerpts are empty by default. A local
-or signed policy must enable `redacted-excerpts`, select the permitted sources, and set
-the maximum character count before an excerpt can appear in a cloud record.
+Create `apps/web/.env.local`:
 
-The dashboard ranks agents only within an exact comparison cohort. The cohort includes
-the runtime, runtime profile, adapter installation, runtime version, adapter version,
-full capability snapshot, attribution class, and enforcement class. A change to any
-input starts a new ranking.
+```dotenv
+SISYPHUS_WEB_API_URL=http://127.0.0.1:7330
+SISYPHUS_WEB_ORIGIN=http://localhost:3000
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_replace_me
+```
 
-Team quarantine uses the canonical skill-version ID instead. It intentionally combines
-eligible verified outcomes from different runtimes. Before the service checks the
-quarantine window, it keeps only the latest completion for each run and logical work
-item.
+The publishable key is designed for browser use. Never put a Supabase secret key
+or service-role key in a `NEXT_PUBLIC_*` variable.
 
-The authenticated dashboard depends on the control plane's PostgreSQL deployment.
-`pnpm verify` skips live migration and row-level security checks unless
-`SISYPHUS_TEST_DATABASE_URL` points to a disposable PostgreSQL database. Run that live
-suite for the target deployment before treating its migration and tenant isolation as
-verified.
+## Configure the API
+
+Set these variables in the shell that starts `@sisyphus/api`:
+
+```dotenv
+SISYPHUS_SUPABASE_URL=https://your-project.supabase.co
+SISYPHUS_SUPABASE_DEFAULT_TENANT_ID=tenant-acme
+SISYPHUS_SUPABASE_DEFAULT_ROLE=viewer
+```
+
+`SISYPHUS_SUPABASE_DEFAULT_TENANT_ID` is a prototype setting. When it is set,
+every verified Supabase user without Sisyphus claims receives that tenant and
+role. Omit the default tenant in a shared deployment. Assign
+`sisyphus_tenant_id` and `sisyphus_role` in the user's trusted
+`app_metadata` instead. Valid Sisyphus roles are `admin`, `member`, and
+`viewer`.
+
+The API ignores `user_metadata` for authorization.
+
+## Start and check the flow
+
+Start the API and the web app:
+
+```sh
+pnpm --filter @sisyphus/api dev
+pnpm --filter @sisyphus/web dev
+```
+
+Open `http://localhost:3000`. Create an account, confirm the email, and sign
+in. Then request a password reset and save a new password. The overview
+dashboard opens only after both Supabase and the Sisyphus API accept the user
+session.
+
+## Security boundaries
+
+The API validates the JWT signature, `ES256` algorithm, issuer, audience,
+expiry, and subject against the Supabase project JWKS. Tenant and role values
+come from trusted `app_metadata` or the explicit API default. The browser
+cannot submit a tenant ID or role.
+
+Browser data requests stay on the Next.js origin. State-changing proxy routes
+also require the configured origin and a CSRF token derived from the verified
+access token.
+
+The hosted dashboard never receives full prompts, outputs, transcripts, tool
+payloads, or deterministic evaluator output. The worker keeps those values in
+its encrypted local evidence vault.

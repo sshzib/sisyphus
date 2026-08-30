@@ -62,12 +62,14 @@ pnpm --filter @sisyphus/api dev
 pnpm --filter @sisyphus/web dev
 ```
 
-The hosted dashboard uses clearly labeled sample data when all three hosted settings
-are absent. To connect the real control plane, set the server-only
-`SISYPHUS_WEB_API_URL`, `SISYPHUS_WEB_ORIGIN`, and
-`SISYPHUS_WEB_SESSION_KEY` values, then enter an access token in the connection form.
-The Next.js server validates the token and keeps it in an encrypted, `HttpOnly`
-session; no bearer credential is compiled into browser JavaScript. Partial hosted
+The hosted dashboard shows connection guidance when its control-plane or Supabase
+settings are absent. It does not load sample records. Configure
+`SISYPHUS_WEB_API_URL`, `SISYPHUS_WEB_ORIGIN`,
+`NEXT_PUBLIC_SUPABASE_URL`, and
+`NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` for the web app. Configure
+`SISYPHUS_SUPABASE_URL` for the API. The Next.js server forwards the signed user
+access token, and the API verifies the token against the project's ES256 JWKS.
+Worker and device credentials keep their existing opaque-token flow. Partial hosted
 configuration fails closed. See [the hosted dashboard guide](apps/web/README.md).
 
 Electron provisions its bundled worker in one of three strict modes:
@@ -90,7 +92,7 @@ renderer process.
 Set `SISYPHUS_API_URL` and `SISYPHUS_DESKTOP_API_TOKEN` together to connect the
 renderer dashboard to a real control plane. The dashboard token remains in the
 Electron main process and reaches the renderer only through validated IPC responses.
-With both settings absent, Electron labels the dashboard as demo data.
+With both settings absent, Electron shows a control-plane connection requirement.
 
 The sample [worker policy](examples/worker-policy.json) imports an immutable canonical
 skill and matches it by prompt trigger. It disables cloud evidence excerpts. A local

@@ -1,5 +1,5 @@
 html {
-  background: var(--canvas, #0c0d0f);
+  background: var(--canvas, #0b1120);
 }
 
 body {
@@ -11,13 +11,13 @@ body {
   display: grid;
   place-items: center;
   padding: 24px;
-  background: var(--canvas, #0c0d0f);
+  background: var(--canvas, #0b1120);
 }
 
 .access-card {
   width: min(440px, 100%);
   padding: 24px;
-  background: var(--surface-1, #141517);
+  background: var(--surface-1, #111c2e);
   border: 0;
   border-radius: var(--radius-md, 8px);
 }
@@ -25,24 +25,22 @@ body {
 .access-brand {
   display: flex;
   align-items: center;
-  gap: 8px;
-  color: var(--muted-strong, #c2c5cb);
+  gap: 10px;
+  color: var(--muted-strong, #94a3b8);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
 }
 
-.access-brand::before {
-  width: 8px;
-  height: 8px;
-  background: var(--accent, #72a7ff);
-  border-radius: var(--radius-sm, 2px);
-  content: "";
+.access-logo {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
 }
 
 .access-card h1 {
   margin: 18px 0 8px;
-  color: var(--text, #f2f3f5);
+  color: var(--text, #f8fafc);
   font-size: 18px;
   font-weight: 500;
   letter-spacing: -0.01em;
@@ -51,7 +49,7 @@ body {
 
 .access-copy,
 .access-copy p {
-  color: var(--muted-strong, #c2c5cb);
+  color: var(--muted-strong, #94a3b8);
   font-size: 13px;
   line-height: 1.55;
 }
@@ -60,12 +58,47 @@ body {
   margin: 0 0 16px;
 }
 
-.access-error {
+.access-error,
+.access-feedback {
   margin-bottom: 14px !important;
   padding: 9px 10px;
-  color: var(--danger, #f07478) !important;
-  background: var(--danger-soft, #29191b);
+  color: var(--muted-strong, #94a3b8) !important;
+  background: var(--surface-2, #172337);
   border-radius: var(--radius-sm, 6px);
+}
+
+.auth-mode-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 4px;
+  background: var(--canvas, #0b1120);
+  border-radius: var(--radius-sm, 6px);
+}
+
+.auth-mode-switch.has-local-admin {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.auth-mode-switch button,
+.hosted-account button {
+  color: var(--muted-strong, #94a3b8);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm, 6px);
+  cursor: pointer;
+  font: inherit;
+}
+
+.auth-mode-switch button {
+  height: 32px;
+  font-size: 12px;
+}
+
+.auth-mode-switch button.is-active {
+  color: var(--text, #f8fafc);
+  background: var(--surface-2, #172337);
 }
 
 .access-form,
@@ -80,7 +113,7 @@ body {
 
 .access-form label {
   gap: 6px;
-  color: var(--text, #f2f3f5);
+  color: var(--text, #f8fafc);
   font-size: 12px;
   font-weight: 500;
 }
@@ -88,27 +121,82 @@ body {
 .access-form input {
   height: 34px;
   padding: 0 10px;
-  color: var(--text, #f2f3f5);
-  background: var(--surface-2, #101113);
+  color: var(--text, #f8fafc);
+  background: var(--surface-2, #172337);
   border: 0;
   border-radius: var(--radius-sm, 6px);
   font: inherit;
 }
 
 .access-form input:focus-visible {
-  outline: 2px solid var(--accent, #72a7ff);
+  outline: 2px solid var(--accent, #6366f1);
   outline-offset: 2px;
 }
 
 .access-form button {
   height: 34px;
-  color: #08111e;
-  background: var(--accent, #72a7ff);
+  color: #f8fafc;
+  background: var(--accent, #6366f1);
   border: 0;
   border-radius: var(--radius-sm, 6px);
   cursor: pointer;
   font-size: 12px;
   font-weight: 500;
+  transition: background-color 140ms ease, transform 140ms ease;
+}
+
+.access-form button:hover {
+  background: var(--accent-hover, #818cf8);
+  transform: translateY(-1px);
+}
+
+.access-form button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+  transform: none;
+}
+
+.access-form .auth-text-button {
+  align-self: flex-start;
+  height: auto;
+  padding: 0;
+  color: var(--ai, #22d3ee);
+  background: transparent;
+  font-weight: 500;
+}
+
+.access-form .auth-text-button:hover {
+  color: var(--accent-hover, #818cf8);
+  background: transparent;
+  transform: none;
+}
+
+.hosted-dashboard {
+  min-height: 100vh;
+}
+
+.hosted-account {
+  position: fixed;
+  z-index: 20;
+  top: 12px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 6px 5px 10px;
+  color: var(--muted, #64748b);
+  background: var(--surface-1, #111c2e);
+  border-radius: var(--radius-sm, 6px);
+  font-size: 11px;
+}
+
+.hosted-account button {
+  padding: 5px 7px;
+}
+
+.hosted-account button:hover {
+  color: var(--text, #f8fafc);
+  background: var(--surface-2, #172337);
 }
 
 @media (max-width: 480px) {
@@ -118,5 +206,9 @@ body {
 
   .access-card {
     padding: 20px;
+  }
+
+  .hosted-account span {
+    display: none;
   }
 }
