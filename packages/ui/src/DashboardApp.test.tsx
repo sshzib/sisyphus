@@ -3,41 +3,120 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DashboardApp } from "./DashboardApp.js";
-import type { DashboardSnapshot } from "./contracts.js";
+import type {
+  DashboardSnapshot,
+  EngineeringOperationSummary,
+} from "./contracts.js";
 import type { SisyphusDataClient } from "./data-client.js";
 
 afterEach(() => {
   cleanup();
-  window.localStorage.clear();
 });
 
-function snapshot(operations: DashboardSnapshot["operations"] = []): DashboardSnapshot {
+const changedAt = "2026-08-30T10:00:00.000Z";
+
+function engineeringOperation(): EngineeringOperationSummary {
   return {
-    generatedAt: "2026-08-30T10:00:00.000Z",
-    workspace: {
-      id: "tenant-local",
-      name: "Sisyphus Local",
-      environment: "Development",
-    },
+    id: "task-spotify-landing",
+    requestSummary: "Build a Spotify landing page with a polished creator signup flow.",
+    status: "working",
+    createdAt: "2026-08-30T09:55:00.000Z",
+    updatedAt: changedAt,
+    requirements: [
+      {
+        id: "REQ-01",
+        title: "Creator signup experience",
+        acceptanceCriteria: ["The page supports a clear signup journey."],
+        status: "in-progress",
+        ownerAgentId: "agent-frontend",
+      },
+    ],
+    agents: [
+      {
+        id: "agent-frontend",
+        role: "frontend engineer",
+        model: "GLM 5.2",
+        requirementIds: ["REQ-01"],
+        branch: "task/spotify/frontend/attempt-1",
+        iteration: 1,
+        status: "working",
+        activity: "editing-files",
+        activityDetail: "Building the responsive creator signup surface.",
+        selectedSkills: [],
+        score: null,
+        filesChanged: ["apps/web/app/page.tsx", "styles.css"],
+        commitId: null,
+        updatedAt: changedAt,
+      },
+      {
+        id: "agent-designer",
+        role: "designer",
+        model: "Kimi K2",
+        requirementIds: ["REQ-01"],
+        branch: "task/spotify/designer/attempt-1",
+        iteration: 1,
+        status: "completed",
+        activity: "planning-work",
+        activityDetail: "Delivered the visual direction and interaction states.",
+        selectedSkills: [],
+        score: null,
+        filesChanged: ["design-system.md"],
+        commitId: "a".repeat(40),
+        updatedAt: changedAt,
+      },
+    ],
+    safety: { status: "running", findings: 0 },
+    sandbox: { status: "running", buildId: "local-build-1", detectedPort: 3000 },
+    evidence: [
+      {
+        requirementId: "REQ-01",
+        check: "Responsive build review",
+        outcome: "passed",
+        detail: "The primary page layout renders at the required viewports.",
+        primaryAgentId: "agent-frontend",
+        attributionConfidence: 0.96,
+      },
+    ],
+  };
+}
+
+function dashboard(operation: EngineeringOperationSummary | undefined = undefined): DashboardSnapshot {
+  return {
+    generatedAt: changedAt,
+    workspace: { id: "tenant-local", name: "Spotify Landing Page", environment: "Development" },
     overview: {
       totalRuns: 0,
       passRate: 0,
       retryRecoveryRate: 0,
       terminalFailures: 0,
       tokensSpent: 0,
-      tokenBurnComparison: {
-        kind: "unavailable",
-        reason: "no-paired-runs",
-      },
+      tokenBurnComparison: { kind: "unavailable", reason: "no-paired-runs" },
       averageLatencyMs: 0,
       enforcedShare: 0,
     },
-    operations,
+    operations: [],
     engineering: {
-      execution: { status: "stopped", backend: "local-static", generation: 0, changedAt: "1970-01-01T00:00:00.000Z", changedBy: "system" },
+      execution: {
+        status: "running",
+        backend: "local-static",
+        generation: 1,
+        changedAt,
+        changedBy: "admin",
+      },
       canManageExecution: true,
-      operations: [],
-      events: [],
+      operations: operation === undefined ? [] : [operation],
+      events: operation === undefined
+        ? []
+        : [
+            {
+              id: "event-agent-started",
+              taskId: operation.id,
+              type: "AGENT_STARTED",
+              occurredAt: changedAt,
+              summary: "The frontend specialist started the creator signup implementation.",
+              payloadDigest: "a".repeat(64),
+            },
+          ],
     },
     runs: [],
     agents: [],
@@ -45,454 +124,163 @@ function snapshot(operations: DashboardSnapshot["operations"] = []): DashboardSn
     conflicts: [],
     integrations: [],
     policies: [],
-    audit: [],
+    audit: operation === undefined
+      ? []
+      : [
+          {
+            id: "audit-evaluation-completed",
+            occurredAt: "2026-08-30T09:59:00.000Z",
+            actor: "quality-gate",
+            action: "evaluation.completed",
+            summary: "The visual regression audit completed successfully.",
+            runtime: "codex",
+          },
+        ],
     devices: [],
   };
 }
 
-function client(value: DashboardSnapshot): SisyphusDataClient {
+function dataClient(
+  value: DashboardSnapshot,
+  createdOperation: EngineeringOperationSummary = engineeringOperation(),
+): SisyphusDataClient {
   return {
     dataSource: { kind: "remote-api" },
     getDashboard: vi.fn(async () => value),
-    createEngineeringTask: vi.fn(async () => {
-      throw new Error("Task creation is not part of this test client.");
-    }),
+    createEngineeringTask: vi.fn(async () => ({ operation: createdOperation })),
     clearEngineeringHistory: vi.fn(async () => ({ removedTaskCount: 0, removedEventCount: 0 })),
     startEngineeringExecution: vi.fn(async () => ({
-      execution: { status: "running", backend: "local-static", generation: 1, changedAt: "2026-08-30T10:00:00.000Z", changedBy: "admin" },
+      execution: { status: "running", backend: "local-static", generation: 2, changedAt, changedBy: "admin" },
     })),
     stopEngineeringExecution: vi.fn(async () => ({
-      execution: { status: "stopped", backend: "local-static", generation: 2, changedAt: "2026-08-30T10:00:00.000Z", changedBy: "admin" },
+      execution: { status: "stopped", backend: "local-static", generation: 2, changedAt, changedBy: "admin" },
     })),
     setEngineeringExecutionBackend: vi.fn(async ({ backend }) => ({
-      execution: { status: "stopped", backend, generation: 1, changedAt: "2026-08-30T10:00:00.000Z", changedBy: "admin" },
+      execution: { status: "stopped", backend, generation: 2, changedAt, changedBy: "admin" },
     })),
     restoreSkill: vi.fn(async () => {
-      throw new Error("The overview monitor has no mutation controls.");
+      throw new Error("Skill restoration is not available in this test client.");
     }),
     listSkillRegistry: vi.fn(async () => ({ items: [] })),
     getSkillRegistryDetail: vi.fn(async () => {
-      throw new Error("The skill is not in this test registry.");
+      throw new Error("The requested skill does not exist.");
     }),
     syncSkillRegistry: vi.fn(async () => ({
       added: 0,
       updated: 0,
       unchanged: 0,
       total: 0,
-      syncedAt: "2026-08-30T10:00:00.000Z",
+      syncedAt: changedAt,
+    })),
+    previewSkillRegistrySync: vi.fn(async () => ({
+      added: 0,
+      updated: 0,
+      unchanged: 0,
+      total: 0,
+      localEnhancements: 0,
+      sourceRevision: "test",
     })),
     createCustomSkill: vi.fn(async () => {
-      throw new Error("Custom skills are not part of this test client.");
+      throw new Error("Custom skills are not available in this test client.");
+    }),
+    resolveSkillImprovementProposal: vi.fn(async () => {
+      throw new Error("Skill proposals are not available in this test client.");
     }),
   };
 }
 
-function liveOperation(): DashboardSnapshot["operations"][number] {
-  return {
-    id: "run-auth",
-    runId: "run-auth",
-    taskSummary: "Prompt aaaaaaaaaaaa",
-    project: "identity-service",
-    runtime: "codex",
-    profile: "local",
-    status: "active",
-    selectedSkillVersionId: null,
-    startedAt: "2026-08-30T09:59:00.000Z",
-    updatedAt: "2026-08-30T10:00:00.000Z",
-    completedAt: null,
-    agents: [
-      {
-        id: "run-auth:root-work",
-        agentId: "codex-root:session-auth",
-        parentAgentId: null,
-        kind: "root",
-        role: "orchestrator",
-        runtime: "codex",
-        profile: "local",
-        project: "identity-service",
-        workItemId: "root-work",
-        status: "active",
-        activity: "tool-requested",
-        activityDetail: "functions.exec · allowed",
-        selectedSkillVersionId: null,
-        attempts: 1,
-        startedAt: "2026-08-30T09:59:00.000Z",
-        lastSeenAt: "2026-08-30T10:00:00.000Z",
-        completedAt: null,
-      },
-      {
-        id: "run-auth:frontend-work",
-        agentId: "agent-frontend",
-        parentAgentId: "codex-root:session-auth",
-        kind: "subagent",
-        role: "frontend-agent",
-        runtime: "codex",
-        profile: "local",
-        project: "identity-service",
-        workItemId: "frontend-work",
-        status: "passed",
-        activity: "evaluation-completed",
-        activityDetail: "Evaluation pass",
-        selectedSkillVersionId: null,
-        attempts: 1,
-        startedAt: "2026-08-30T09:59:15.000Z",
-        lastSeenAt: "2026-08-30T09:59:50.000Z",
-        completedAt: "2026-08-30T09:59:50.000Z",
-      },
-    ],
-  };
-}
-
-function completedEngineeringOperation(): DashboardSnapshot["engineering"]["operations"][number] {
-  return {
-    id: "task-completed-sisyphus-landing",
-    requestSummary: "Build a completed Sisyphus landing page",
-    status: "approved",
-    createdAt: "2026-08-30T09:59:00.000Z",
-    updatedAt: "2026-08-30T10:00:00.000Z",
-    requirements: [
-      {
-        id: "REQ-01",
-        title: "Sisyphus brand landing page",
-        acceptanceCriteria: ["The visible heading includes Sisyphus."],
-        status: "completed",
-        ownerAgentId: "agent-completed-frontend",
-      },
-    ],
-    agents: [
-      {
-        id: "agent-completed-frontend",
-        role: "frontend",
-        model: "qwen/qwen3-coder",
-        requirementIds: ["REQ-01"],
-        branch: "task/agent-completed-frontend/frontend/attempt-1",
-        iteration: 1,
-        status: "completed",
-        activity: "editing-files",
-        activityDetail: "Built the completed Sisyphus landing page.",
-        selectedSkills: [],
-        score: null,
-        filesChanged: ["index.html"],
-        commitId: "a".repeat(64),
-        updatedAt: "2026-08-30T10:00:00.000Z",
-      },
-    ],
-    safety: { status: "passed", findings: 0 },
-    sandbox: { status: "passed", buildId: "local-test", detectedPort: 42123 },
-    evidence: [],
-  };
-}
-
-describe("DashboardApp", () => {
-  it("offers an editable task draft without a canned launch control", async () => {
-    const dataClient = client(snapshot());
+describe("DashboardApp workspace flow", () => {
+  it("opens on the centered build prompt with an editable composer", async () => {
     const user = userEvent.setup();
-    render(<DashboardApp client={dataClient} hostContext={{ kind: "web" }} />);
+    render(<DashboardApp client={dataClient(dashboard())} hostContext={{ kind: "web" }} />);
 
-    expect(await screen.findByRole("heading", { name: "Agent operations" })).toBeInTheDocument();
-    expect(screen.getByText("No agents are deployed")).toBeInTheDocument();
-    expect(screen.getAllByText("Overview")).toHaveLength(2);
-    expect(screen.getByRole("button", { name: "Overview" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Skills" })).toBeInTheDocument();
     expect(
-      screen.queryByText(/Create an authentication page with frontend/u),
-    ).not.toBeInTheDocument();
+      await screen.findByRole("heading", { name: "What do you want to build today?" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "New Workspace" })).toBeInTheDocument();
 
-    const taskDraft = screen.getByRole("textbox", { name: "Task draft" });
-    await user.type(taskDraft, "Build account recovery with frontend and test agents.");
+    const draft = screen.getByRole("textbox", { name: "Task draft" });
+    await user.type(draft, "Build an accessible booking site with a responsive search experience.");
 
-    expect(taskDraft).toHaveValue(
-      "Build account recovery with frontend and test agents.",
+    expect(draft).toHaveValue(
+      "Build an accessible booking site with a responsive search experience.",
     );
-    expect(dataClient.restoreSkill).not.toHaveBeenCalled();
-    expect(screen.getByRole("heading", { name: "Token burn" })).toBeInTheDocument();
-    expect(screen.getByText("Not measured")).toBeInTheDocument();
-    expect(screen.queryByText("Runs")).not.toBeInTheDocument();
-    expect(screen.queryByText("Policies")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Submit build request" })).toBeEnabled();
   });
 
-  it("switches between the dark and light command-center themes", async () => {
+  it("opens the requested processing tier menu and applies a selection", async () => {
     const user = userEvent.setup();
-    const { container } = render(<DashboardApp client={client(snapshot())} hostContext={{ kind: "web" }} />);
+    render(<DashboardApp client={dataClient(dashboard())} hostContext={{ kind: "web" }} />);
 
-    const toggle = await screen.findByRole("button", { name: "Switch to light theme" });
-    await user.click(toggle);
+    await user.click(screen.getByRole("button", { name: "Medium Tier" }));
+    await user.click(screen.getByRole("menuitem", { name: "High Tier" }));
 
-    expect(toggle).toHaveAccessibleName("Switch to dark theme");
-    expect(container.firstElementChild).toHaveClass("sisyphus-app--light");
-    expect(window.localStorage.getItem("sisyphus-color-theme")).toBe("light");
-  });
-
-  it("lets an administrator start stopped engineering execution", async () => {
-    const user = userEvent.setup();
-    const dataClient = client(snapshot());
-    render(<DashboardApp client={dataClient} hostContext={{ kind: "web" }} />);
-
-    await user.click(await screen.findByRole("button", { name: "Start execution" }));
-
-    expect(dataClient.startEngineeringExecution).toHaveBeenCalledOnce();
-    expect(await screen.findByText(/Execution started\. The orchestrator can now lease queued tasks\./u)).toBeInTheDocument();
-  });
-
-  it("lets an administrator select the local fallback before starting execution", async () => {
-    const user = userEvent.setup();
-    const value = snapshot();
-    value.engineering.execution = {
-      ...value.engineering.execution,
-      backend: "codebuild",
-    };
-    const dataClient = client(value);
-    render(<DashboardApp client={dataClient} hostContext={{ kind: "web" }} />);
-
-    await user.selectOptions(await screen.findByLabelText("Execution backend"), "local-static");
-
-    expect(dataClient.setEngineeringExecutionBackend).toHaveBeenCalledWith({ backend: "local-static" });
-    expect(await screen.findByText(/Local static fallback selected/u)).toBeInTheDocument();
-  });
-
-  it("shows provider-reported agent roles and real lifecycle states", async () => {
-    render(<DashboardApp client={client(snapshot([liveOperation()]))} hostContext={{ kind: "web" }} />);
-
-    expect(await screen.findByText("Prompt aaaaaaaaaaaa")).toBeInTheDocument();
-    expect(screen.getByText("Orchestrator")).toBeInTheDocument();
-    expect(screen.getByText("Frontend agent")).toBeInTheDocument();
-    expect(screen.getAllByText("Working").length).toBeGreaterThan(0);
-    expect(screen.getByText("Passed")).toBeInTheDocument();
-    expect(screen.getByText("functions.exec · allowed")).toBeInTheDocument();
-  });
-
-  it("shows selected skill evidence and the real engineering event log", async () => {
-    const value = snapshot();
-    value.engineering = {
-      execution: { status: "running", backend: "local-static", generation: 1, changedAt: "2026-08-30T10:00:00.000Z", changedBy: "admin" },
-      canManageExecution: true,
-      operations: [
-        {
-          id: "task-sisyphus-landing",
-          requestSummary: "Build a Sisyphus landing page",
-          status: "working",
-          createdAt: "2026-08-30T09:59:00.000Z",
-          updatedAt: "2026-08-30T10:00:00.000Z",
-          requirements: [
-            {
-              id: "REQ-01",
-              title: "Sisyphus brand landing page",
-              acceptanceCriteria: ["The visible heading includes Sisyphus."],
-              status: "in-progress",
-              ownerAgentId: "agent-frontend",
-            },
-          ],
-          agents: [
-            {
-              id: "agent-frontend",
-              role: "frontend",
-              model: "qwen/qwen3-coder",
-              requirementIds: ["REQ-01"],
-              branch: "task/agent-frontend/frontend/attempt-1",
-              iteration: 1,
-              status: "working",
-              activity: "editing-files",
-              activityDetail: "Creating the visible Sisyphus landing page.",
-              selectedSkills: [
-                {
-                  id: "frontend-design",
-                  name: "Frontend design",
-                  skillVersionId: "v1.0.0",
-                  contentHash: `sha256:${"a".repeat(64)}`,
-                },
-              ],
-              score: null,
-              filesChanged: [],
-              commitId: null,
-              updatedAt: "2026-08-30T10:00:00.000Z",
-            },
-          ],
-          safety: { status: "not-started", findings: 0 },
-          sandbox: { status: "not-started", buildId: null, detectedPort: null },
-          evidence: [],
-        },
-      ],
-      events: [
-        {
-          id: "event-agent-started",
-          taskId: "task-sisyphus-landing",
-          type: "AGENT_STARTED",
-          occurredAt: "2026-08-30T10:00:00.000Z",
-          summary: "frontend started iteration 1 for REQ-01.",
-          payloadDigest: "a".repeat(64),
-        },
-        {
-          id: "event-skills-selected",
-          taskId: "task-sisyphus-landing",
-          type: "SKILLS_SELECTED",
-          occurredAt: "2026-08-30T09:59:59.000Z",
-          summary: "frontend received 1 relevant skill instruction for REQ-01.",
-          payloadDigest: "b".repeat(64),
-        },
-      ],
-    };
-    const user = userEvent.setup();
-    render(<DashboardApp client={client(value)} hostContext={{ kind: "web" }} />);
-
-    expect(await screen.findAllByText(/Skills: Frontend design/u)).toHaveLength(2);
-    expect(screen.getByText("Active engineering workforce")).toBeInTheDocument();
-    const agentCards = screen.getAllByRole("button", { name: "Inspect Frontend" });
-    await user.click(agentCards[0]!);
-    expect(screen.getByLabelText("Frontend details")).toBeInTheDocument();
-    expect(screen.getByText("Assigned requirements")).toBeInTheDocument();
-    expect(screen.getByText("Task event context")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Close details" }));
-    expect(screen.queryByLabelText("Frontend details")).not.toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: /Live logs/u }));
-
-    expect(screen.getByRole("dialog", { name: "Live workflow logs" })).toBeInTheDocument();
-    expect(screen.getByText("frontend started iteration 1 for REQ-01.")).toBeInTheDocument();
-    expect(screen.getByText("frontend received 1 relevant skill instruction for REQ-01.")).toBeInTheDocument();
-  });
-
-  it("keeps the most recent completed workforce inspectable in Observed Operations", async () => {
-    const value = snapshot();
-    value.engineering = {
-      execution: { status: "stopped", backend: "local-static", generation: 0, changedAt: "1970-01-01T00:00:00.000Z", changedBy: "system" },
-      canManageExecution: true,
-      operations: [completedEngineeringOperation()],
-      events: [],
-    };
-    const user = userEvent.setup();
-    render(<DashboardApp client={client(value)} hostContext={{ kind: "web" }} />);
-
-    expect(await screen.findByText("Most recent engineering workforce")).toBeInTheDocument();
-    expect(screen.getByText("1 completed specialist")).toBeInTheDocument();
-    const agentCards = screen.getAllByRole("button", { name: "Inspect Frontend" });
-    await user.click(agentCards[1]!);
-    expect(screen.getByLabelText("Frontend details")).toBeInTheDocument();
-  });
-
-  it("shows the saved execution folder and deletes only old prompt logs on request", async () => {
-    const value = snapshot();
-    value.engineering = {
-      execution: { status: "stopped", backend: "local-static", generation: 0, changedAt: "1970-01-01T00:00:00.000Z", changedBy: "system" },
-      canManageExecution: true,
-      operations: [completedEngineeringOperation()],
-      events: [
-        {
-          id: "event-archive",
-          taskId: "task-completed-sisyphus-landing",
-          type: "FILE_CHANGED",
-          occurredAt: "2026-08-30T10:00:00.000Z",
-          summary: "Saved generated source to execution folder 42.",
-          payloadDigest: "c".repeat(64),
-        },
-      ],
-    };
-    const dataClient = client(value);
-    const clearHistory = vi.mocked(dataClient.clearEngineeringHistory);
-    clearHistory.mockResolvedValue({ removedTaskCount: 1, removedEventCount: 1 });
-    vi.mocked(dataClient.getDashboard)
-      .mockResolvedValueOnce(value)
-      .mockResolvedValue({
-        ...value,
-        engineering: {
-          execution: { status: "stopped", backend: "local-static", generation: 0, changedAt: "1970-01-01T00:00:00.000Z", changedBy: "system" },
-          canManageExecution: true,
-          operations: [],
-          events: [],
-        },
-      });
-    const user = userEvent.setup();
-    render(<DashboardApp client={dataClient} hostContext={{ kind: "web" }} />);
-
-    expect(await screen.findByText(/Sisyphus Executions #42/u)).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Delete old prompt logs" }));
-
-    expect(clearHistory).toHaveBeenCalledOnce();
-    expect(await screen.findByText(/1 old prompt log deleted/u)).toBeInTheDocument();
-  });
-
-  it("compares token burn only from a provider-reported run pair", async () => {
-    const measured = snapshot();
-    measured.overview.tokenBurnComparison = {
-      kind: "measured",
-      pairId: "account-recovery-comparison",
-      source: "provider-reported",
-      before: { runId: "run-before", tokens: 15_400 },
-      withSisyphus: { runId: "run-with-sisyphus", tokens: 10_200 },
-    };
-
-    render(<DashboardApp client={client(measured)} hostContext={{ kind: "web" }} />);
-
-    expect(await screen.findByText("15,400")).toBeInTheDocument();
-    expect(screen.getByText("10,200")).toBeInTheDocument();
-    expect(screen.getByText("5,200 fewer")).toBeInTheDocument();
-    expect(screen.getByText(/provider-reported token usage/u)).toBeInTheDocument();
-  });
-
-  it("states the Codex subagent observation limit instead of inventing live starts", async () => {
-    render(
-      <DashboardApp
-        client={client(snapshot())}
-        hostContext={{
-          kind: "desktop",
-          worker: {
-            kind: "online",
-            version: "0.1.0",
-            pendingUploads: 0,
-            policyMode: "cloud-managed",
-          },
-          localEvidence: { kind: "supported" },
-          adapterAccess: [{ kind: "paired", runtime: "codex" }],
-        }}
-      />,
+    expect(screen.getByRole("button", { name: "High Tier" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
     );
+  });
 
-    expect(await screen.findByText("Runtime-limited")).toBeInTheDocument();
+  it("keeps start-stop and sandbox selection controls under Automation", async () => {
+    const user = userEvent.setup();
+    const value = dashboard();
+    value.engineering.execution = { ...value.engineering.execution, status: "stopped" };
+    const client = dataClient(value);
+    render(<DashboardApp client={client} hostContext={{ kind: "web" }} />);
+
+    await user.click(screen.getByRole("button", { name: "Automation" }));
+    expect(screen.getByRole("dialog", { name: "Execution controls" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Execution backend")).toHaveValue("local-static");
+    await user.click(screen.getByRole("button", { name: "Start execution" }));
+
+    expect(client.startEngineeringExecution).toHaveBeenCalledOnce();
+  });
+
+  it("submits a prompt through the existing client and transitions to Agents Overview", async () => {
+    const user = userEvent.setup();
+    const created = engineeringOperation();
+    const client = dataClient(dashboard(), created);
+    render(<DashboardApp client={client} hostContext={{ kind: "web" }} />);
+
+    await user.type(
+      screen.getByRole("textbox", { name: "Task draft" }),
+      "Build a responsive Spotify landing page with a creator signup journey.",
+    );
+    await user.click(screen.getByRole("button", { name: "Submit build request" }));
+
+    expect(client.createEngineeringTask).toHaveBeenCalledWith({
+      request: "Build a responsive Spotify landing page with a creator signup journey.",
+    });
+    expect(await screen.findByRole("heading", { name: "Agents Overview" })).toBeInTheDocument();
+    expect(screen.getByText("Frontend Engineer")).toBeInTheDocument();
+    expect(screen.getByText("Workflow Evidence")).toBeInTheDocument();
+  });
+
+  it("shows real workflow and audit data in the full-page Live Logs view", async () => {
+    const user = userEvent.setup();
+    render(<DashboardApp client={dataClient(dashboard(engineeringOperation()))} hostContext={{ kind: "web" }} />);
+
+    await user.click(await screen.findByRole("button", { name: "Live Logs" }));
+
+    expect(await screen.findByRole("heading", { name: /Live Logs/u })).toBeInTheDocument();
     expect(
-      screen.getByText(/Codex currently identifies subagents when their stop event arrives/u),
+      screen.getByText("The visual regression audit completed successfully."),
+    ).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Search live logs" }), "visual regression");
+    expect(
+      screen.getByText("The visual regression audit completed successfully."),
     ).toBeInTheDocument();
   });
 
-  it("keeps retrying after a control-plane read fails", async () => {
-    const failingClient: SisyphusDataClient = {
-      dataSource: { kind: "remote-api" },
-      getDashboard: vi.fn(async () => {
-        throw new Error("Connection refused");
-      }),
-      restoreSkill: vi.fn(async () => {
-        throw new Error("Unavailable");
-      }),
-      createEngineeringTask: vi.fn(async () => {
-        throw new Error("Unavailable");
-      }),
-      clearEngineeringHistory: vi.fn(async () => {
-        throw new Error("Unavailable");
-      }),
-      startEngineeringExecution: vi.fn(async () => {
-        throw new Error("Unavailable");
-      }),
-      stopEngineeringExecution: vi.fn(async () => {
-        throw new Error("Unavailable");
-      }),
-      setEngineeringExecutionBackend: vi.fn(async () => {
-        throw new Error("Unavailable");
-      }),
-      listSkillRegistry: vi.fn(async () => ({ items: [] })),
-      getSkillRegistryDetail: vi.fn(async () => {
-        throw new Error("Unavailable");
-      }),
-      syncSkillRegistry: vi.fn(async () => ({
-        added: 0,
-        updated: 0,
-        unchanged: 0,
-        total: 0,
-        syncedAt: "2026-08-30T10:00:00.000Z",
-      })),
-      createCustomSkill: vi.fn(async () => {
-        throw new Error("Unavailable");
-      }),
-    };
+  it("keeps the workspace usable while the live feed reconnects", async () => {
+    const failingClient = dataClient(dashboard());
+    vi.mocked(failingClient.getDashboard).mockRejectedValue(new Error("Connection refused"));
     render(<DashboardApp client={failingClient} hostContext={{ kind: "web" }} />);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Connection refused");
-    expect(screen.getByText("The live operations backend is unavailable")).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "What do you want to build today?" }),
+    ).toBeInTheDocument();
   });
 });

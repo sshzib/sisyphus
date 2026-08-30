@@ -15,6 +15,7 @@ import type {
 } from "./contracts.js";
 import type { SisyphusDataClient } from "./data-client.js";
 import { formatTimestamp, runtimeLabel } from "./format.js";
+import { ReferenceDashboard } from "./ReferenceDashboard.js";
 import { SkillsView } from "./SkillsView.js";
 
 const dashboardRefreshMilliseconds = 2_000;
@@ -31,13 +32,16 @@ type EngineeringAgentSelection = {
 interface DashboardAppProps {
   readonly client: SisyphusDataClient;
   readonly hostContext?: HostContext;
+  readonly accountLabel?: string | undefined;
+  readonly onSignOut?: (() => void) | undefined;
   readonly readLocalEvidence?: (
     eventId: string,
   ) => Promise<{ readonly evidence: string; readonly digest: string }>;
 }
 
-export function DashboardApp({ client, hostContext }: DashboardAppProps) {
+export function DashboardApp({ client, hostContext, accountLabel, onSignOut }: DashboardAppProps) {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>();
+  const [submittedOperation, setSubmittedOperation] = useState<EngineeringOperationSummary>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
   const [taskDraft, setTaskDraft] = useState("");
@@ -63,16 +67,17 @@ export function DashboardApp({ client, hostContext }: DashboardAppProps) {
     });
   }, []);
 
-  const submitTask = useCallback(async () => {
+  const submitTask = useCallback(async (): Promise<boolean> => {
     const request = taskDraft.trim();
     if (request.length < 20) {
       setTaskSubmissionMessage("Describe the project in at least 20 characters.");
-      return;
+      return false;
     }
     setSubmittingTask(true);
     setTaskSubmissionMessage(undefined);
     try {
       const response = await client.createEngineeringTask({ request });
+      setSubmittedOperation(response.operation);
       setSnapshot((current) =>
         current === undefined
           ? current
@@ -91,10 +96,12 @@ export function DashboardApp({ client, hostContext }: DashboardAppProps) {
       );
       setTaskDraft("");
       setTaskSubmissionMessage("Task accepted. Sisyphus is waiting for the orchestrator to lease it.");
+      return true;
     } catch (reason: unknown) {
       setTaskSubmissionMessage(
         reason instanceof Error ? reason.message : "The task could not be created.",
       );
+      return false;
     } finally {
       setSubmittingTask(false);
     }
@@ -202,114 +209,27 @@ export function DashboardApp({ client, hostContext }: DashboardAppProps) {
     };
   }, [client]);
 
-  const metrics = useMemo(
-    () => operationMetrics(snapshot?.operations ?? [], snapshot?.engineering.operations ?? []),
-    [snapshot],
-  );
-  const hostKind = hostContext?.kind ?? "unmanaged";
-
   return (
-    <div className={`sisyphus-app sisyphus-app--${hostKind} sisyphus-app--${theme}`}>
-      <aside className="overview-sidebar">
-        <div className="brand-lockup">
-          <div className="sisyphus-logo brand-mark" aria-hidden="true" />
-          <div>
-            <div className="brand-name">Sisyphus</div>
-            <div className="brand-meta">
-              <span className="brand-ai-badge">AI</span>
-              <div className="brand-tagline">Workforce monitor</div>
-            </div>
-          </div>
-        </div>
-
-        <nav className="overview-nav" aria-label="Primary navigation">
-          <button className={view === "overview" ? "overview-nav__item overview-nav__item--active" : "overview-nav__item"} onClick={() => setView("overview")}><span className="overview-nav__icon" aria-hidden="true"><OverviewIcon /></span><span>Overview</span></button>
-          <button className={view === "skills" ? "overview-nav__item overview-nav__item--active" : "overview-nav__item"} onClick={() => setView("skills")}><span className="overview-nav__icon" aria-hidden="true"><SkillsIcon /></span><span>Skills</span></button>
-        </nav>
-
-        <div className="sidebar-connection">
-          <ConnectionSignal context={hostContext} dataSource={client.dataSource.kind} />
-        </div>
-      </aside>
-
-      <main className="overview-main">
-        <header className="command-bar">
-          <span className="command-bar__label">Sisyphus OS · Engineering workforce control</span>
-          <div className="command-bar__actions">
-            <button
-              className="theme-toggle"
-              type="button"
-              onClick={toggleTheme}
-              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-              aria-pressed={theme === "light"}
-              title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            >
-              <ThemeIcon theme={theme} />
-              <span>{theme === "dark" ? "Light" : "Dark"}</span>
-            </button>
-            <div className="command-bar__status" aria-live="polite">
-              <span className={error === undefined ? "status-dot status-dot--active" : "status-dot status-dot--warning"} />
-              <span>{error === undefined ? "Control plane connected" : "Connection needs attention"}</span>
-            </div>
-          </div>
-        </header>
-        <div className="overview-scroll">
-        {view === "skills" ? <SkillsView client={client} /> : <>
-        <header className="overview-header">
-          <div>
-            <span className="eyebrow">Overview</span>
-            <h1>Agent operations</h1>
-            <p>See which coding agents are working, what they are doing, and how their work finishes.</p>
-          </div>
-          <div className="refresh-signal" aria-live="polite">
-            <span className={error === undefined ? "status-dot status-dot--active" : "status-dot status-dot--warning"} />
-            <div>
-              <strong>{error === undefined ? "Live feed" : "Feed interrupted"}</strong>
-              <span>{snapshot === undefined ? "Connecting" : `Updated ${formatTimestamp(snapshot.generatedAt)}`}</span>
-            </div>
-          </div>
-        </header>
-
-        {error === undefined ? null : (
-          <div className="feed-alert" role="alert">
-            <strong>Control plane unavailable</strong>
-            <span>{error} Sisyphus will keep retrying automatically.</span>
-          </div>
-        )}
-
-        <section className="operations-metrics" aria-label="Agent operation summary">
-          <Metric label="Active operations" value={metrics.activeOperations} tone="accent" />
-          <Metric label="Agents working" value={metrics.activeAgents} tone="ai" />
-          <Metric label="Completed" value={metrics.completedOperations} tone="success" />
-          <Metric label="Needs attention" value={metrics.failedOperations} tone="danger" />
-        </section>
-
-        {loading && snapshot === undefined ? (
-          <LoadingOverview />
-        ) : snapshot === undefined ? (
-          <UnavailableOverview />
-        ) : (
-          <Overview
-            snapshot={snapshot}
-            hostContext={hostContext}
-            taskDraft={taskDraft}
-            onTaskDraftChange={setTaskDraft}
-            onTaskSubmit={() => void submitTask()}
-            taskSubmissionMessage={taskSubmissionMessage}
-            submittingTask={submittingTask}
-            onClearPromptHistory={() => void clearPromptHistory()}
-            clearingPromptHistory={clearingPromptHistory}
-            promptHistoryMessage={promptHistoryMessage}
-            changingExecution={changingExecution}
-            executionMessage={executionMessage}
-            onExecutionChange={(next) => void changeExecution(next)}
-            onExecutionBackendChange={(backend) => void changeExecutionBackend(backend)}
-          />
-        )}
-        </>}
-        </div>
-      </main>
-    </div>
+    <ReferenceDashboard
+      accountLabel={accountLabel}
+      canManageExecution={snapshot?.engineering.canManageExecution ?? false}
+      changingExecution={changingExecution}
+      client={client}
+      error={error}
+      execution={snapshot?.engineering.execution}
+      executionMessage={executionMessage}
+      loading={loading}
+      onExecutionBackendChange={(backend) => void changeExecutionBackend(backend)}
+      onExecutionChange={(next) => void changeExecution(next)}
+      onSignOut={onSignOut}
+      onTaskDraftChange={setTaskDraft}
+      onTaskSubmit={submitTask}
+      submittedOperation={submittedOperation}
+      snapshot={snapshot}
+      submittingTask={submittingTask}
+      taskDraft={taskDraft}
+      taskSubmissionMessage={taskSubmissionMessage}
+    />
   );
 }
 

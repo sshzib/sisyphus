@@ -4,8 +4,8 @@ import "@sisyphus/ui/styles.css";
 import "./web.css";
 
 export const metadata: Metadata = {
-  title: "Sisyphus · Agent operations",
-  description: "Performance, retry, and skill standing for coding agents.",
+  title: "Sisyphus AI",
+  description: "Build, monitor, and audit work performed by your AI workforce.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

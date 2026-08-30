@@ -37,15 +37,12 @@ export function HostedDashboard({ access }: { access: HostedDashboardAccess }) {
 
   return (
     <div className="hosted-dashboard">
-      <div className="hosted-account">
-        {access.accountLabel === undefined ? null : (
-          <span>{access.accountLabel}</span>
-        )}
-        <button onClick={() => void signOut()} type="button">
-          Sign out
-        </button>
-      </div>
-      <DashboardApp client={client} hostContext={{ kind: "web" }} />
+      <DashboardApp
+        accountLabel={access.accountLabel}
+        client={client}
+        hostContext={{ kind: "web" }}
+        onSignOut={() => void signOut()}
+      />
     </div>
   );
 }
