@@ -183,7 +183,7 @@ export function ReferenceDashboard(input: ReferenceDashboardProps) {
           ) : view === "logs" ? (
             <LogsScreen logs={logs} />
           ) : (
-            <div className="reference-skills"><SkillsView client={input.client} /></div>
+            <SkillsView client={input.client} />
           )}
           {view === "agents" || view === "logs" ? (
             <FloatingComposer

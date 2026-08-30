@@ -3926,3 +3926,365 @@ button.reference-avatar:hover {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Skills overview uses the same reference workspace language as Active Agents. */
+.reference-skills-screen {
+  padding-bottom: 56px;
+}
+
+.reference-skills-heading {
+  align-items: flex-start;
+}
+
+.reference-skills-heading > div:first-child {
+  display: block;
+}
+
+.reference-skills-heading > div:first-child p {
+  margin: 6px 0 0;
+  color: #85878e;
+  font-size: 13px;
+}
+
+.reference-skills-heading > div:last-child {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.reference-skills-action {
+  height: 31px;
+  padding: 0 12px;
+  color: #37383e;
+  background: #ededee;
+  border: 0;
+  border-radius: 16px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.reference-skills-action:hover {
+  color: #17181d;
+  background: #e1e1e4;
+}
+
+.reference-skills-action--primary {
+  color: #fff;
+  background: #7e11ec;
+}
+
+.reference-skills-action--primary:hover {
+  color: #fff;
+  background: #6810c8;
+  transform: translateY(-1px);
+}
+
+.reference-skill-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: -8px 0 18px;
+  padding: 10px 13px;
+  color: #5f6067;
+  background: #fff;
+  border-radius: 12px;
+  outline: 1px solid #ececef;
+  outline-offset: -1px;
+  font-size: 13px;
+}
+
+.reference-skill-notice--error {
+  color: #b64f3a;
+  background: #fff9f7;
+  outline-color: #f5d6ce;
+}
+
+.reference-skill-notice button {
+  color: inherit;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 650;
+  text-decoration: underline;
+}
+
+.reference-skill-sync-preview,
+.reference-skill-create-form {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 0 0 22px;
+  padding: 18px 21px;
+  background: #fff;
+  border-radius: 20px;
+  outline: 1px solid #ececef;
+  outline-offset: -1px;
+}
+
+.reference-skill-create-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+}
+
+.reference-skill-create-form h2,
+.reference-skill-create-form > div:last-child,
+.reference-skill-create-form > p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.reference-skill-create-form label {
+  display: grid;
+  gap: 5px;
+  color: #696a71;
+  font-size: 12px;
+}
+
+.reference-skill-create-form input,
+.reference-skill-create-form textarea {
+  min-width: 0;
+  padding: 9px 10px;
+  color: #303136;
+  background: #fbfbfc;
+  border: 0;
+  border-radius: 9px;
+  outline: 1px solid #e8e8ea;
+  font: inherit;
+  font-size: 13px;
+}
+
+.reference-skill-create-form textarea {
+  min-height: 70px;
+  resize: vertical;
+}
+
+.reference-skill-create-form > div:last-child {
+  display: flex;
+  gap: 8px;
+}
+
+.reference-skill-sync-preview span {
+  color: #7e11ec;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.reference-skill-sync-preview h2 {
+  margin: 5px 0 3px;
+  color: #292a30;
+  font-size: 17px;
+}
+
+.reference-skill-sync-preview p {
+  margin: 0;
+  color: #85878e;
+  font-size: 13px;
+}
+
+.reference-skill-sync-preview > div:last-child {
+  display: flex;
+  gap: 8px;
+}
+
+.reference-skill-sync-preview button,
+.reference-skill-create-form button {
+  min-height: 33px;
+  padding: 0 13px;
+  color: #fff;
+  background: #7e11ec;
+  border: 0;
+  border-radius: 17px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.reference-skill-sync-preview button + button,
+.reference-skill-create-form button + button {
+  color: #55565d;
+  background: #ededee;
+}
+
+.reference-skill-filters {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.reference-skill-search,
+.reference-skill-filter {
+  display: grid;
+  gap: 5px;
+  color: #85868d;
+  font-size: 11px;
+}
+
+.reference-skill-search {
+  flex: 1 1 280px;
+}
+
+.reference-skill-search input,
+.reference-skill-filter select {
+  height: 38px;
+  min-width: 126px;
+  padding: 0 12px;
+  color: #34353b;
+  background: #fff;
+  border: 0;
+  border-radius: 11px;
+  outline: 1px solid #e8e8ea;
+  outline-offset: -1px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.reference-skill-search input {
+  width: 100%;
+}
+
+.reference-skill-search input:focus,
+.reference-skill-filter select:focus {
+  outline: 2px solid #b989f8;
+  outline-offset: -1px;
+}
+
+.reference-skill-result-count {
+  margin: 0 0 14px;
+  color: #85878e;
+  font-size: 13px;
+}
+
+.reference-skill-row {
+  width: 100%;
+  color: inherit;
+  background: #fff;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background-color 150ms ease;
+}
+
+.reference-skill-row:hover {
+  background: #fbf8ff;
+}
+
+.reference-skill-row:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid #a96bf4;
+  outline-offset: -2px;
+}
+
+.reference-skill-status--active {
+  color: #36ae71;
+}
+
+.reference-skill-status--needs-improvement {
+  color: #e39a2d;
+}
+
+.reference-skill-status--draft {
+  color: #8b8d95;
+}
+
+.reference-skill-table .reference-table-footer button {
+  padding: 0;
+  color: #66686f;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+.reference-skill-table .reference-table-footer button:hover:not(:disabled) {
+  color: #24252a;
+}
+
+.reference-skill-table .reference-table-footer button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.reference-skill-usage {
+  align-self: start;
+  min-height: 0;
+}
+
+.reference-skill-coverage {
+  margin-top: 22px;
+}
+
+.reference-skills-attribution {
+  margin: 15px 2px 0;
+  color: #8a8b91;
+  font-size: 12px;
+}
+
+.reference-skill-detail .skills-header,
+.reference-skill-detail .skill-detail-layout,
+.reference-skill-detail .skill-detail-meta,
+.reference-skill-detail .skill-proposals {
+  margin-bottom: 20px;
+}
+
+.reference-skill-detail .skills-header h1,
+.reference-skill-detail .skill-performance h2,
+.reference-skill-detail .skill-instructions h2 {
+  color: #292a30;
+}
+
+.reference-skill-detail .skill-detail-meta article,
+.reference-skill-detail .skill-performance,
+.reference-skill-detail .skill-instructions,
+.reference-skill-detail .skill-proposals,
+.reference-skill-detail .skill-create-form {
+  background: #fff;
+  outline-color: #ececef;
+}
+
+@media (max-width: 640px) {
+  .reference-skills-screen {
+    padding-bottom: 56px;
+  }
+
+  .reference-skills-heading > div:last-child {
+    justify-content: flex-start;
+  }
+
+  .reference-skill-sync-preview {
+    display: grid;
+  }
+
+  .reference-skill-create-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .reference-skill-search {
+    flex-basis: 100%;
+  }
+
+  .reference-skill-filter {
+    flex: 1 1 120px;
+  }
+
+  .reference-skill-filter select {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .reference-skill-notice {
+    align-items: flex-start;
+  }
+}

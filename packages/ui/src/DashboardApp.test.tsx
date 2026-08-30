@@ -6,6 +6,7 @@ import { DashboardApp } from "./DashboardApp.js";
 import type {
   DashboardSnapshot,
   EngineeringOperationSummary,
+  SkillRegistryEntry,
 } from "./contracts.js";
 import type { SisyphusDataClient } from "./data-client.js";
 
@@ -140,9 +141,43 @@ function dashboard(operation: EngineeringOperationSummary | undefined = undefine
   };
 }
 
+function skillRegistry(count = 49): readonly SkillRegistryEntry[] {
+  return Array.from({ length: count }, (_, index) => {
+    const number = index + 1;
+    return {
+      id: `skill-${number}`,
+      name: `Skill ${String(number).padStart(2, "0")}`,
+      role: `Engineering role ${number}`,
+      description: `Specialized capability ${number} for reliable product delivery.`,
+      triggers: ["engineering"],
+      category: number % 2 === 0 ? "development" : "planning",
+      phase: number % 2 === 0 ? "implementation" : "discovery",
+      tags: ["engineering", "demo"],
+      source: "upstream",
+      baseSkillId: null,
+      status: number % 13 === 0 ? "needs-improvement" : "active",
+      version: "1.0.0",
+      contentDigest: "a".repeat(64),
+      sourceUrl: "https://github.com/CODE-SAURABH/OpenSkills",
+      license: "MIT",
+      lastSyncedAt: changedAt,
+      metrics: {
+        executions: number,
+        failures: 0,
+        successRate: number % 3 === 0 ? 100 : null,
+        averageRetries: null,
+        averageExecutionMs: null,
+        lastEvaluatedAt: number % 3 === 0 ? changedAt : null,
+        averageScore: number % 3 === 0 ? 100 : null,
+      },
+    };
+  });
+}
+
 function dataClient(
   value: DashboardSnapshot,
   createdOperation: EngineeringOperationSummary = engineeringOperation(),
+  registry: readonly SkillRegistryEntry[] = [],
 ): SisyphusDataClient {
   return {
     dataSource: { kind: "remote-api" },
@@ -161,7 +196,7 @@ function dataClient(
     restoreSkill: vi.fn(async () => {
       throw new Error("Skill restoration is not available in this test client.");
     }),
-    listSkillRegistry: vi.fn(async () => ({ items: [] })),
+    listSkillRegistry: vi.fn(async () => ({ items: registry })),
     getSkillRegistryDetail: vi.fn(async () => {
       throw new Error("The requested skill does not exist.");
     }),
@@ -291,6 +326,26 @@ describe("DashboardApp workspace flow", () => {
     expect(
       screen.getByText("The visual regression audit completed successfully."),
     ).toBeInTheDocument();
+  });
+
+  it("renders all registered skills in the Active Agents table style with pagination", async () => {
+    const user = userEvent.setup();
+    render(<DashboardApp client={dataClient(dashboard(), engineeringOperation(), skillRegistry())} hostContext={{ kind: "web" }} />);
+
+    await user.click(await screen.findByRole("button", { name: "Skills" }));
+
+    expect(await screen.findByRole("heading", { name: "Skills Overview" })).toBeInTheDocument();
+    expect(screen.getByText("49 skills")).toBeInTheDocument();
+    expect(screen.getByText("Showing 49 of 49 skills")).toBeInTheDocument();
+    expect(screen.getByText("Skill 01")).toBeInTheDocument();
+    expect(screen.queryByText("Skill 11")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Next →" }));
+    expect(screen.getByText("Skill 11")).toBeInTheDocument();
+
+    await user.type(screen.getByRole("textbox", { name: "Search skills" }), "Skill 37");
+    expect(screen.getByText("Showing 1 of 49 skills")).toBeInTheDocument();
+    expect(screen.getByText("Skill 37")).toBeInTheDocument();
   });
 
   it("keeps the workspace usable while the live feed reconnects", async () => {
