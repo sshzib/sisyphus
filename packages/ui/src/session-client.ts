@@ -1,9 +1,18 @@
 import { z } from "zod";
 import {
   ApiErrorSchema,
+  ClearEngineeringHistoryResponseSchema,
+  CreateEngineeringTaskResponseSchema,
+  CreateCustomSkillSchema,
   DashboardSnapshotSchema,
+  EngineeringTaskSubmissionSchema,
   HostedCsrfTokenSchema,
   RestoreSkillResponseSchema,
+  SkillRegistryDetailResponseSchema,
+  SkillRegistryListResponseSchema,
+  SkillRegistrySyncPreviewSchema,
+  SkillRegistrySyncResponseSchema,
+  ResolveSkillImprovementProposalSchema,
 } from "./contracts.js";
 import {
   SisyphusApiError,
@@ -22,7 +31,7 @@ export function createSessionDataClient(input: {
   async function request<T>(options: {
     path: string;
     schema: z.ZodType<T>;
-    method?: "GET" | "POST";
+    method?: "GET" | "POST" | "DELETE";
     body?: unknown;
   }): Promise<T> {
     const method = options.method ?? "GET";
@@ -31,12 +40,12 @@ export function createSessionDataClient(input: {
       credentials: "same-origin",
       cache: "no-store",
       headers:
-        method === "POST"
-          ? {
-              "Content-Type": "application/json",
+        method === "GET"
+          ? {}
+          : {
               "X-Sisyphus-CSRF": csrfToken,
-            }
-          : {},
+              ...(options.body === undefined ? {} : { "Content-Type": "application/json" }),
+            },
       ...(options.body === undefined
         ? {}
         : { body: JSON.stringify(options.body) }),
@@ -65,12 +74,50 @@ export function createSessionDataClient(input: {
         schema: DashboardSnapshotSchema,
       });
     },
+    async createEngineeringTask(input) {
+      return request({
+        path: "/api/engineering/tasks",
+        schema: CreateEngineeringTaskResponseSchema,
+        method: "POST",
+        body: EngineeringTaskSubmissionSchema.parse(input),
+      });
+    },
+    async clearEngineeringHistory() {
+      return request({
+        path: "/api/engineering/tasks/history",
+        schema: ClearEngineeringHistoryResponseSchema,
+        method: "DELETE",
+      });
+    },
     async restoreSkill(skillVersionId, restoreInput) {
       return request({
         path: `/api/skills/${encodeURIComponent(skillVersionId)}/restore`,
         schema: RestoreSkillResponseSchema,
         method: "POST",
         body: restoreInput,
+      });
+    },
+    async listSkillRegistry() {
+      return request({ path: "/api/skill-registry", schema: SkillRegistryListResponseSchema });
+    },
+    async getSkillRegistryDetail(skillId) {
+      return request({ path: `/api/skill-registry/${encodeURIComponent(skillId)}`, schema: SkillRegistryDetailResponseSchema });
+    },
+    async syncSkillRegistry() {
+      return request({ path: "/api/skill-registry/sync", schema: SkillRegistrySyncResponseSchema, method: "POST" });
+    },
+    async previewSkillRegistrySync() {
+      return request({ path: "/api/skill-registry/sync/preview", schema: SkillRegistrySyncPreviewSchema, method: "POST" });
+    },
+    async createCustomSkill(input) {
+      return request({ path: "/api/skill-registry/custom", schema: SkillRegistryDetailResponseSchema, method: "POST", body: CreateCustomSkillSchema.parse(input) });
+    },
+    async resolveSkillImprovementProposal(skillId, proposalId, input) {
+      return request({
+        path: `/api/skill-registry/${encodeURIComponent(skillId)}/proposals/${encodeURIComponent(proposalId)}`,
+        schema: SkillRegistryDetailResponseSchema,
+        method: "POST",
+        body: ResolveSkillImprovementProposalSchema.parse(input),
       });
     },
   };

@@ -448,7 +448,10 @@ function deriveOverview(selectedRuns: RunSummary[], selectedAgents: AgentSummary
       0,
     ),
     tokensSpent: totalTokens,
-    tokensAvoidedEstimate: Math.round(totalTokens * 0.143),
+    tokenBurnComparison: {
+      kind: "unavailable",
+      reason: "no-paired-runs",
+    },
     averageLatencyMs: averageLatency,
     enforcedShare:
       selectedRuns.length === 0
@@ -465,6 +468,8 @@ const baseSnapshot: DashboardSnapshot = {
     environment: "Demo workspace",
   },
   overview: deriveOverview(runs, agents),
+  operations: [],
+  engineering: { operations: [], events: [] },
   runs,
   agents,
   skills: [
@@ -741,6 +746,10 @@ export function filterDashboardSnapshot(
     generatedAt: snapshot.generatedAt,
     workspace: snapshot.workspace,
     overview: deriveOverview(selectedRuns, selectedAgents),
+    operations: snapshot.operations.filter(
+      (operation) => operation.runtime === runtime,
+    ),
+    engineering: snapshot.engineering,
     runs: selectedRuns,
     agents: selectedAgents,
     skills: snapshot.skills.filter((skill) => skill.runtime === runtime),

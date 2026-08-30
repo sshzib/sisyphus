@@ -22,8 +22,8 @@ select {
   align-items: flex-start;
   gap: 12px;
   padding: 24px;
-  color: var(--muted-strong, #c2c5cb);
-  background: var(--surface-1, #141517);
+  color: var(--muted-strong, #94a3b8);
+  background: var(--surface-1, #111c2e);
   border: 0;
   border-radius: var(--radius-md, 8px);
   font: 500 13px/1.55 system-ui, sans-serif;
@@ -32,7 +32,7 @@ select {
 
 .desktop-bootstrap::before {
   padding-left: 16px;
-  color: var(--text, #f2f3f5);
+  color: var(--text, #f8fafc);
   content: "Sisyphus";
   font-size: 12px;
   font-weight: 500;
@@ -45,11 +45,103 @@ select {
   left: 24px;
   width: 8px;
   height: 8px;
-  background: var(--accent, #72a7ff);
+  background: var(--ai-accent, #22d3ee);
   border-radius: var(--radius-sm, 2px);
   content: "";
 }
 
 .desktop-bootstrap--error {
-  color: var(--danger, #f07478);
+  color: var(--danger, #f43f5e);
+}
+
+.desktop-login-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: #0b1120;
+}
+
+.desktop-login-card {
+  width: min(420px, 100%);
+  padding: 28px;
+  color: #94a3b8;
+  background: #111c2e;
+  border-radius: 12px;
+  font: 500 13px/1.55 system-ui, sans-serif;
+}
+
+.desktop-login-brand {
+  color: #22d3ee;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.desktop-login-card h1 {
+  margin: 18px 0 8px;
+  color: #f8fafc;
+  font-size: 22px;
+}
+
+.desktop-login-card p {
+  margin: 0 0 18px;
+}
+
+.desktop-login-card form,
+.desktop-login-card label {
+  display: flex;
+  flex-direction: column;
+}
+
+.desktop-login-card form {
+  gap: 14px;
+}
+
+.desktop-login-card label {
+  gap: 6px;
+  color: #f8fafc;
+}
+
+.desktop-login-card input {
+  height: 38px;
+  padding: 0 11px;
+  color: #f8fafc;
+  background: #172337;
+  border: 0;
+  border-radius: 6px;
+  font: inherit;
+  user-select: text;
+}
+
+.desktop-login-card input:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+.desktop-login-card button {
+  height: 38px;
+  color: #f8fafc;
+  background: #6366f1;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.desktop-login-card button:hover {
+  background: #818cf8;
+}
+
+.desktop-login-card button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
+.desktop-login-feedback {
+  padding: 9px 10px;
+  color: #f43f5e;
+  background: #172337;
+  border-radius: 6px;
 }

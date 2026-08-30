@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { access } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,9 +21,13 @@ import {
   ApiErrorSchema,
   DashboardQuerySchema,
   DashboardSnapshotSchema,
+  CreateCustomSkillSchema,
+  CreateEngineeringTaskResponseSchema,
+  EngineeringTaskSubmissionSchema,
   HostContextSchema,
   RestoreSkillRequestSchema,
   RestoreSkillResponseSchema,
+  ResolveSkillImprovementProposalSchema,
   type HostContext,
 } from "@sisyphus/ui/contracts";
 import { DeviceSecretStore, type DeviceSecretCipher } from "./device-secrets.js";
@@ -38,7 +42,11 @@ import {
   resolveManagedWorkerProvisioning,
   type ParsedManagedWorkerProvisioning,
 } from "./managed-worker-provisioning.js";
-import { LocalEvidenceResponseSchema, desktopChannels } from "./ipc.js";
+import {
+  DesktopLoginCredentialsSchema,
+  LocalEvidenceResponseSchema,
+  desktopChannels,
+} from "./ipc.js";
 
 const WorkerCredentialSchema = z
   .string()
@@ -86,7 +94,9 @@ const ManagedWorkerProvisioningConfiguration =
 
 const developmentRendererUrl =
   EnvironmentSchema.SISYPHUS_DESKTOP_DEV_URL === undefined
-    ? undefined
+    ? app.isPackaged
+      ? undefined
+      : parseDevelopmentRendererUrl("http://127.0.0.1:4173")
     : parseDevelopmentRendererUrl(EnvironmentSchema.SISYPHUS_DESKTOP_DEV_URL);
 const packagedRendererUrl = new URL("../dist/index.html", import.meta.url).href;
 
@@ -97,6 +107,9 @@ let mainWindow: BrowserWindow | undefined;
 let workerRestartAttempts = 0;
 let workerRestartTimer: ReturnType<typeof setTimeout> | undefined;
 let applicationIsQuitting = false;
+const desktopDevelopmentAdminRequired =
+  !app.isPackaged && process.env.NODE_ENV !== "production";
+let desktopAuthenticated = !desktopDevelopmentAdminRequired;
 
 const WorkerHealthSchema = z
   .object({
@@ -334,8 +347,25 @@ function assertDesktopSender(event: IpcMainInvokeEvent): void {
   }
 }
 
+function safeEqual(left: string, right: string): boolean {
+  const leftBytes = Buffer.from(left, "utf8");
+  const rightBytes = Buffer.from(right, "utf8");
+  return (
+    leftBytes.length === rightBytes.length &&
+    timingSafeEqual(leftBytes, rightBytes)
+  );
+}
+
+function assertDesktopAuthenticated(): void {
+  if (!desktopAuthenticated) {
+    throw new Error("Desktop authentication is required.");
+  }
+}
+
 function desktopApiOrigin(): string | undefined {
-  const configured = EnvironmentSchema.SISYPHUS_API_URL;
+  const configured =
+    EnvironmentSchema.SISYPHUS_API_URL ??
+    (desktopDevelopmentAdminRequired ? "http://127.0.0.1:7330" : undefined);
   if (configured === undefined) return undefined;
   const endpoint = new URL(configured);
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(endpoint.hostname);
@@ -355,13 +385,20 @@ function desktopApiOrigin(): string | undefined {
   return endpoint.toString().replace(/\/$/u, "");
 }
 
+function desktopApiToken(): string | undefined {
+  return (
+    EnvironmentSchema.SISYPHUS_DESKTOP_API_TOKEN ??
+    (desktopDevelopmentAdminRequired ? "demo-admin" : undefined)
+  );
+}
+
 async function desktopApiRequest(input: {
   readonly path: string;
   readonly method?: "GET" | "POST";
   readonly body?: unknown;
 }): Promise<unknown> {
   const origin = desktopApiOrigin();
-  const token = EnvironmentSchema.SISYPHUS_DESKTOP_API_TOKEN;
+  const token = desktopApiToken();
   if (origin === undefined || token === undefined) {
     throw new Error("The desktop control-plane connection is not configured.");
   }
@@ -552,24 +589,115 @@ function createWindow(): BrowserWindow {
   return browserWindow;
 }
 
+ipcMain.handle(
+  desktopChannels.authenticationState,
+  (event: IpcMainInvokeEvent) => {
+    assertDesktopSender(event);
+    return desktopAuthenticated ? "authenticated" : "login-required";
+  },
+);
+ipcMain.handle(
+  desktopChannels.authenticate,
+  (event: IpcMainInvokeEvent, input: unknown) => {
+    assertDesktopSender(event);
+    if (!desktopDevelopmentAdminRequired) {
+      return false;
+    }
+    const credentials = DesktopLoginCredentialsSchema.parse(input);
+    desktopAuthenticated =
+      safeEqual(credentials.username, "admin") &&
+      safeEqual(credentials.password, "admin");
+    return desktopAuthenticated;
+  },
+);
 ipcMain.handle(desktopChannels.hostContext, async (event: IpcMainInvokeEvent) => {
   assertDesktopSender(event);
+  assertDesktopAuthenticated();
   return workerHostContext();
 });
 ipcMain.handle(desktopChannels.dataSource, (event: IpcMainInvokeEvent) => {
   assertDesktopSender(event);
-  return EnvironmentSchema.SISYPHUS_API_URL === undefined ? "demo" : "remote-api";
+  assertDesktopAuthenticated();
+  return desktopApiOrigin() === undefined
+    ? "unavailable"
+    : "remote-api";
 });
 ipcMain.handle(
   desktopChannels.dashboard,
   async (event: IpcMainInvokeEvent, input: unknown) => {
     assertDesktopSender(event);
+    assertDesktopAuthenticated();
     const query = DashboardQuerySchema.parse(input);
     const suffix =
       query.runtime === undefined ? "" : `?runtime=${encodeURIComponent(query.runtime)}`;
     return DashboardSnapshotSchema.parse(
       await desktopApiRequest({ path: `/v1/dashboard${suffix}` }),
     );
+  },
+);
+ipcMain.handle(
+  desktopChannels.createEngineeringTask,
+  async (event: IpcMainInvokeEvent, input: unknown) => {
+    assertDesktopSender(event);
+    assertDesktopAuthenticated();
+    const task = EngineeringTaskSubmissionSchema.parse(input);
+    return CreateEngineeringTaskResponseSchema.parse(
+      await desktopApiRequest({
+        path: "/v1/engineering/tasks",
+        method: "POST",
+        body: task,
+      }),
+    );
+  },
+);
+ipcMain.handle(desktopChannels.skillRegistryList, async (event: IpcMainInvokeEvent) => {
+  assertDesktopSender(event);
+  assertDesktopAuthenticated();
+  return desktopApiRequest({ path: "/v1/skill-registry" });
+});
+ipcMain.handle(
+  desktopChannels.skillRegistryDetail,
+  async (event: IpcMainInvokeEvent, skillId: unknown) => {
+    assertDesktopSender(event);
+    assertDesktopAuthenticated();
+    const skill = z.string().regex(/^[a-z0-9-]+$/u).parse(skillId);
+    return desktopApiRequest({ path: `/v1/skill-registry/${encodeURIComponent(skill)}` });
+  },
+);
+ipcMain.handle(desktopChannels.skillRegistrySync, async (event: IpcMainInvokeEvent) => {
+  assertDesktopSender(event);
+  assertDesktopAuthenticated();
+  return desktopApiRequest({ path: "/v1/skill-registry/sync", method: "POST" });
+});
+ipcMain.handle(desktopChannels.skillRegistrySyncPreview, async (event: IpcMainInvokeEvent) => {
+  assertDesktopSender(event);
+  assertDesktopAuthenticated();
+  return desktopApiRequest({ path: "/v1/skill-registry/sync/preview", method: "POST" });
+});
+ipcMain.handle(
+  desktopChannels.skillRegistryCustom,
+  async (event: IpcMainInvokeEvent, input: unknown) => {
+    assertDesktopSender(event);
+    assertDesktopAuthenticated();
+    return desktopApiRequest({
+      path: "/v1/skill-registry/custom",
+      method: "POST",
+      body: CreateCustomSkillSchema.parse(input),
+    });
+  },
+);
+ipcMain.handle(
+  desktopChannels.skillRegistryProposal,
+  async (event: IpcMainInvokeEvent, skillId: unknown, proposalId: unknown, input: unknown) => {
+    assertDesktopSender(event);
+    assertDesktopAuthenticated();
+    const skill = z.string().regex(/^[a-z0-9-]+$/u).parse(skillId);
+    const proposal = z.string().regex(/^proposal-[a-f0-9]{16}$/u).parse(proposalId);
+    return desktopApiRequest({
+      path: `/v1/skill-registry/${encodeURIComponent(skill)}/proposals/${encodeURIComponent(proposal)}`,
+      method: "POST",
+      body: ResolveSkillImprovementProposalSchema.parse(input),
+    });
   },
 );
 ipcMain.handle(
@@ -580,6 +708,7 @@ ipcMain.handle(
     input: unknown,
   ) => {
     assertDesktopSender(event);
+    assertDesktopAuthenticated();
     const skill = z.string().trim().min(1).max(512).parse(skillVersionId);
     const restore = RestoreSkillRequestSchema.parse(input);
     return RestoreSkillResponseSchema.parse(
@@ -595,6 +724,7 @@ ipcMain.handle(
   desktopChannels.localEvidence,
   async (event: IpcMainInvokeEvent, eventId: unknown) => {
     assertDesktopSender(event);
+    assertDesktopAuthenticated();
     return localEvidence(z.string().trim().min(1).max(512).parse(eventId));
   },
 );

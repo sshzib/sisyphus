@@ -20,6 +20,20 @@ export function createDemoDataClient(): SisyphusDataClient {
     async getDashboard(query) {
       return filterDashboardSnapshot(snapshot, query);
     },
+    async createEngineeringTask() {
+      throw new SisyphusApiError(
+        "Engineering tasks require the live control plane.",
+        503,
+        undefined,
+      );
+    },
+    async clearEngineeringHistory() {
+      throw new SisyphusApiError(
+        "Prompt-log cleanup requires the live control plane.",
+        503,
+        undefined,
+      );
+    },
     async restoreSkill(skillVersionId, input) {
       const skill = snapshot.skills.find(
         (candidate) => candidate.skillVersionId === skillVersionId,
@@ -47,5 +61,11 @@ export function createDemoDataClient(): SisyphusDataClient {
       };
       return RestoreSkillResponseSchema.parse({ skill: restoredSkill, auditEvent });
     },
+    async listSkillRegistry() { throw new Error("The Skills registry requires a live control plane."); },
+    async getSkillRegistryDetail() { throw new Error("The Skills registry requires a live control plane."); },
+    async syncSkillRegistry() { throw new Error("The Skills registry requires a live control plane."); },
+    async previewSkillRegistrySync() { throw new Error("The Skills registry requires a live control plane."); },
+    async createCustomSkill() { throw new Error("The Skills registry requires a live control plane."); },
+    async resolveSkillImprovementProposal() { throw new Error("The Skills registry requires a live control plane."); },
   };
 }

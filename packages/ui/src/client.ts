@@ -1,8 +1,17 @@
 import { z } from "zod";
 import {
   ApiErrorSchema,
+  ClearEngineeringHistoryResponseSchema,
+  CreateEngineeringTaskResponseSchema,
+  CreateCustomSkillSchema,
   DashboardSnapshotSchema,
+  EngineeringTaskSubmissionSchema,
   RestoreSkillResponseSchema,
+  SkillRegistryDetailResponseSchema,
+  SkillRegistryListResponseSchema,
+  SkillRegistrySyncPreviewSchema,
+  SkillRegistrySyncResponseSchema,
+  ResolveSkillImprovementProposalSchema,
 } from "./contracts.js";
 import {
   SisyphusApiError,
@@ -22,7 +31,7 @@ export function createHttpDataClient(input: {
   async function request<T>(options: {
     path: string;
     schema: z.ZodType<T>;
-    method?: "GET" | "POST";
+    method?: "GET" | "POST" | "DELETE";
     body?: unknown;
   }): Promise<T> {
     const response = await fetcher(`${baseUrl}${options.path}`, {
@@ -59,12 +68,50 @@ export function createHttpDataClient(input: {
         schema: DashboardSnapshotSchema,
       });
     },
+    async createEngineeringTask(input) {
+      return request({
+        path: "/v1/engineering/tasks",
+        schema: CreateEngineeringTaskResponseSchema,
+        method: "POST",
+        body: EngineeringTaskSubmissionSchema.parse(input),
+      });
+    },
+    async clearEngineeringHistory() {
+      return request({
+        path: "/v1/engineering/tasks/history",
+        schema: ClearEngineeringHistoryResponseSchema,
+        method: "DELETE",
+      });
+    },
     async restoreSkill(skillVersionId, restoreInput) {
       return request({
         path: `/v1/skills/${encodeURIComponent(skillVersionId)}/restore`,
         schema: RestoreSkillResponseSchema,
         method: "POST",
         body: restoreInput,
+      });
+    },
+    async listSkillRegistry() {
+      return request({ path: "/v1/skill-registry", schema: SkillRegistryListResponseSchema });
+    },
+    async getSkillRegistryDetail(skillId) {
+      return request({ path: `/v1/skill-registry/${encodeURIComponent(skillId)}`, schema: SkillRegistryDetailResponseSchema });
+    },
+    async syncSkillRegistry() {
+      return request({ path: "/v1/skill-registry/sync", schema: SkillRegistrySyncResponseSchema, method: "POST" });
+    },
+    async previewSkillRegistrySync() {
+      return request({ path: "/v1/skill-registry/sync/preview", schema: SkillRegistrySyncPreviewSchema, method: "POST" });
+    },
+    async createCustomSkill(input) {
+      return request({ path: "/v1/skill-registry/custom", schema: SkillRegistryDetailResponseSchema, method: "POST", body: CreateCustomSkillSchema.parse(input) });
+    },
+    async resolveSkillImprovementProposal(skillId, proposalId, input) {
+      return request({
+        path: `/v1/skill-registry/${encodeURIComponent(skillId)}/proposals/${encodeURIComponent(proposalId)}`,
+        schema: SkillRegistryDetailResponseSchema,
+        method: "POST",
+        body: ResolveSkillImprovementProposalSchema.parse(input),
       });
     },
   };

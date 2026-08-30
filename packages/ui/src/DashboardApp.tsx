@@ -1,1178 +1,1220 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-  type FormEvent,
-  type ReactNode,
-} from "react";
-import {
-  AgentRuntimeSchema,
-  type AgentRuntime,
-  type AuditEvent,
-  type Capability,
-  type DashboardSnapshot,
-  type EnforcementCoverage,
-  type EvaluationResult,
-  type HostContext,
-  type IntegrationSummary,
-  type RunSummary,
-  type SkillSummary,
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+
+import type {
+  AuditEvent,
+  DashboardSnapshot,
+  EngineeringEventSummary,
+  EngineeringOperationSummary,
+  HostContext,
+  LiveAgentStatus,
+  LiveAgentSummary,
+  OperationSummary,
+  TokenBurnComparison,
 } from "./contracts.js";
 import type { SisyphusDataClient } from "./data-client.js";
-import {
-  attributionLabel,
-  enforcementLabel,
-  formatDuration,
-  formatNumber,
-  formatPercent,
-  formatTimestamp,
-  resultLabel,
-  runtimeLabel,
-  runtimeProfileLabel,
-} from "./format.js";
+import { formatTimestamp, runtimeLabel } from "./format.js";
+import { SkillsView } from "./SkillsView.js";
 
-type Section =
-  | "overview"
-  | "runs"
-  | "agents"
-  | "skills"
-  | "conflicts"
-  | "integrations"
-  | "policies"
-  | "audit"
-  | "devices";
+const dashboardRefreshMilliseconds = 2_000;
+const maximumTaskDraftLength = 4_000;
+const themeStorageKey = "sisyphus-color-theme";
 
-interface SectionDefinition {
-  readonly id: Section;
-  readonly label: string;
-}
+type AppTheme = "dark" | "light";
 
-interface NavigationGroup {
-  readonly label: string;
-  readonly sections: readonly SectionDefinition[];
-}
-
-const navigationGroups: readonly NavigationGroup[] = [
-  {
-    label: "Monitor",
-    sections: [
-      { id: "overview", label: "Overview" },
-      { id: "runs", label: "Runs" },
-      { id: "agents", label: "Agents" },
-      { id: "skills", label: "Skills" },
-    ],
-  },
-  {
-    label: "Manage",
-    sections: [
-      { id: "conflicts", label: "Conflict matrix" },
-      { id: "integrations", label: "Integrations" },
-      { id: "policies", label: "Policies" },
-    ],
-  },
-  {
-    label: "Workspace",
-    sections: [
-      { id: "audit", label: "Audit log" },
-      { id: "devices", label: "Devices" },
-    ],
-  },
-];
-
-const sections = navigationGroups.flatMap((group) => group.sections);
-
-const runtimeOptions: AgentRuntime[] = [
-  "codex",
-  "claude-code",
-  "cursor",
-  "opencode",
-];
+type EngineeringAgentSelection = {
+  readonly taskId: string;
+  readonly agentId: string;
+};
 
 interface DashboardAppProps {
-  client: SisyphusDataClient;
-  hostContext?: HostContext;
-  readLocalEvidence?: (
+  readonly client: SisyphusDataClient;
+  readonly hostContext?: HostContext;
+  readonly readLocalEvidence?: (
     eventId: string,
   ) => Promise<{ readonly evidence: string; readonly digest: string }>;
 }
 
-export function DashboardApp({ client, hostContext, readLocalEvidence }: DashboardAppProps) {
-  const [section, setSection] = useState<Section>("overview");
-  const [runtime, setRuntime] = useState<AgentRuntime | undefined>();
+export function DashboardApp({ client, hostContext }: DashboardAppProps) {
   const [snapshot, setSnapshot] = useState<DashboardSnapshot>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>();
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
-  const [restoreTarget, setRestoreTarget] = useState<SkillSummary>();
-  const [restoreReason, setRestoreReason] = useState("");
-  const [restoring, setRestoring] = useState(false);
-  const [evidenceTarget, setEvidenceTarget] = useState<RunSummary>();
-  const [evidenceText, setEvidenceText] = useState<string>();
-  const [evidenceError, setEvidenceError] = useState<string>();
-  const [evidenceLoading, setEvidenceLoading] = useState(false);
-  const isDemo = client.dataSource.kind === "demo";
+  const [taskDraft, setTaskDraft] = useState("");
+  const [taskSubmissionMessage, setTaskSubmissionMessage] = useState<string>();
+  const [submittingTask, setSubmittingTask] = useState(false);
+  const [clearingPromptHistory, setClearingPromptHistory] = useState(false);
+  const [promptHistoryMessage, setPromptHistoryMessage] = useState<string>();
+  const [view, setView] = useState<"overview" | "skills">("overview");
+  const [theme, setTheme] = useState<AppTheme>("dark");
+
+  useEffect(() => {
+    const storedTheme = readStoredTheme();
+    if (storedTheme !== undefined) setTheme(storedTheme);
+  }, []);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((current) => {
+      const next = current === "dark" ? "light" : "dark";
+      storeTheme(next);
+      return next;
+    });
+  }, []);
+
+  const submitTask = useCallback(async () => {
+    const request = taskDraft.trim();
+    if (request.length < 20) {
+      setTaskSubmissionMessage("Describe the project in at least 20 characters.");
+      return;
+    }
+    setSubmittingTask(true);
+    setTaskSubmissionMessage(undefined);
+    try {
+      const response = await client.createEngineeringTask({ request });
+      setSnapshot((current) =>
+        current === undefined
+          ? current
+          : {
+              ...current,
+              engineering: {
+                ...current.engineering,
+                operations: [
+                  response.operation,
+                  ...current.engineering.operations.filter(
+                    (operation) => operation.id !== response.operation.id,
+                  ),
+                ].slice(0, 20),
+              },
+            },
+      );
+      setTaskDraft("");
+      setTaskSubmissionMessage("Task accepted. Sisyphus is waiting for the orchestrator to lease it.");
+    } catch (reason: unknown) {
+      setTaskSubmissionMessage(
+        reason instanceof Error ? reason.message : "The task could not be created.",
+      );
+    } finally {
+      setSubmittingTask(false);
+    }
+  }, [client, taskDraft]);
+
+  const clearPromptHistory = useCallback(async () => {
+    setClearingPromptHistory(true);
+    setPromptHistoryMessage(undefined);
+    try {
+      const result = await client.clearEngineeringHistory();
+      const nextSnapshot = await client.getDashboard({});
+      setSnapshot(nextSnapshot);
+      const removedCount = Math.max(result.removedTaskCount, result.removedEventCount);
+      setPromptHistoryMessage(
+        removedCount === 0
+          ? "There are no completed or paused prompt logs to delete."
+          : `${removedCount} old prompt log${removedCount === 1 ? "" : "s"} deleted. Saved execution folders were preserved.`,
+      );
+    } catch (reason: unknown) {
+      setPromptHistoryMessage(
+        reason instanceof Error ? reason.message : "Old prompt logs could not be deleted.",
+      );
+    } finally {
+      setClearingPromptHistory(false);
+    }
+  }, [client]);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setError(undefined);
-    void client
-      .getDashboard(runtime === undefined ? {} : { runtime })
-      .then((nextSnapshot) => {
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const scheduleRefresh = () => {
+      if (!active) return;
+      refreshTimer = setTimeout(() => void refresh(), dashboardRefreshMilliseconds);
+    };
+    const refresh = async () => {
+      try {
+        const nextSnapshot = await client.getDashboard({});
+        if (!active) return;
+        setSnapshot(nextSnapshot);
+        setError(undefined);
+      } catch (reason: unknown) {
+        if (!active) return;
+        setError(
+          reason instanceof Error
+            ? reason.message
+            : "The agent operations feed is unavailable.",
+        );
+      } finally {
         if (active) {
-          setSnapshot(nextSnapshot);
           setLoading(false);
+          scheduleRefresh();
         }
-      })
-      .catch((reason: unknown) => {
-        if (active) {
-          setError(reason instanceof Error ? reason.message : "Dashboard data is unavailable.");
-          setLoading(false);
-        }
-      });
+      }
+    };
+
+    void refresh();
     return () => {
       active = false;
+      if (refreshTimer !== undefined) clearTimeout(refreshTimer);
     };
-  }, [client, refreshKey, runtime]);
+  }, [client]);
 
-  const navigate = useCallback((nextSection: Section) => {
-    setSection(nextSection);
-    setMobileNavigationOpen(false);
-  }, []);
-
-  function updateRuntime(value: string) {
-    if (value === "all") {
-      setRuntime(undefined);
-      return;
-    }
-    const parsed = AgentRuntimeSchema.safeParse(value);
-    if (parsed.success) {
-      setRuntime(parsed.data);
-    }
-  }
-
-  async function submitRestore(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (restoreTarget === undefined || restoreReason.trim().length < 8) {
-      return;
-    }
-    setRestoring(true);
-    setError(undefined);
-    try {
-      await client.restoreSkill(restoreTarget.skillVersionId, { reason: restoreReason.trim() });
-      setRestoreTarget(undefined);
-      setRestoreReason("");
-      setRefreshKey((value) => value + 1);
-    } catch (reason: unknown) {
-      setError(reason instanceof Error ? reason.message : "The skill could not be restored.");
-    } finally {
-      setRestoring(false);
-    }
-  }
-
-  async function inspectEvidence(run: RunSummary) {
-    if (readLocalEvidence === undefined) return;
-    setEvidenceTarget(run);
-    setEvidenceText(undefined);
-    setEvidenceError(undefined);
-    setEvidenceLoading(true);
-    try {
-      const result = await readLocalEvidence(run.eventId);
-      setEvidenceText(result.evidence);
-    } catch (reason: unknown) {
-      setEvidenceError(
-        reason instanceof Error ? reason.message : "Local evidence is unavailable.",
-      );
-    } finally {
-      setEvidenceLoading(false);
-    }
-  }
-
-  const selectedSectionLabel = useMemo(
-    () => sections.find((candidate) => candidate.id === section)?.label ?? "Overview",
-    [section],
+  const metrics = useMemo(
+    () => operationMetrics(snapshot?.operations ?? [], snapshot?.engineering.operations ?? []),
+    [snapshot],
   );
+  const hostKind = hostContext?.kind ?? "unmanaged";
 
   return (
-    <div className="sisyphus-app">
-      <aside
-        className={mobileNavigationOpen ? "side-nav side-nav--open" : "side-nav"}
-        id="dashboard-navigation"
-      >
+    <div className={`sisyphus-app sisyphus-app--${hostKind} sisyphus-app--${theme}`}>
+      <aside className="overview-sidebar">
         <div className="brand-lockup">
-          <div className="brand-mark" aria-hidden="true">
-            <svg viewBox="0 0 24 24">
-              <path d="M4 19h16" />
-              <path d="m6.5 19 5-9 5 9" />
-              <circle cx="16.5" cy="6.5" r="2.5" />
-            </svg>
-          </div>
+          <div className="sisyphus-logo brand-mark" aria-hidden="true" />
           <div>
             <div className="brand-name">Sisyphus</div>
-            <div className="brand-tagline">Agent operations</div>
+            <div className="brand-meta">
+              <span className="brand-ai-badge">AI</span>
+              <div className="brand-tagline">Workforce monitor</div>
+            </div>
           </div>
         </div>
 
-        <nav className="nav-list" aria-label="Dashboard sections">
-          {navigationGroups.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <span className="nav-group__label">{group.label}</span>
-              <div className="nav-group__items">
-                {group.sections.map((item) => (
-                  <button
-                    aria-current={item.id === section ? "page" : undefined}
-                    className={item.id === section ? "nav-item nav-item--active" : "nav-item"}
-                    key={item.id}
-                    onClick={() => navigate(item.id)}
-                    type="button"
-                  >
-                    <span className="nav-glyph" aria-hidden="true">
-                      <SectionIcon section={item.id} />
-                    </span>
-                    <span>{item.label}</span>
-                    {item.id === "skills" && snapshot !== undefined ? (
-                      <span className="nav-count">
-                        {snapshot.skills.filter((skill) => skill.disposition === "quarantined").length}
-                      </span>
-                    ) : null}
-                  </button>
-                ))}
-              </div>
-            </div>
-          ))}
+        <nav className="overview-nav" aria-label="Primary navigation">
+          <button className={view === "overview" ? "overview-nav__item overview-nav__item--active" : "overview-nav__item"} onClick={() => setView("overview")}><span className="overview-nav__icon" aria-hidden="true"><OverviewIcon /></span><span>Overview</span></button>
+          <button className={view === "skills" ? "overview-nav__item overview-nav__item--active" : "overview-nav__item"} onClick={() => setView("skills")}><span className="overview-nav__icon" aria-hidden="true"><SkillsIcon /></span><span>Skills</span></button>
         </nav>
 
-        <div className="nav-footer">
-          <div className="tenant-avatar" aria-hidden="true">
-            {workspaceInitials(snapshot?.workspace.name ?? "Workspace")}
-          </div>
-          <div>
-            <strong>{snapshot?.workspace.name ?? "Workspace"}</strong>
-            <span>{snapshot?.workspace.environment ?? "Loading tenant"}</span>
-          </div>
+        <div className="sidebar-connection">
+          <ConnectionSignal context={hostContext} dataSource={client.dataSource.kind} />
         </div>
       </aside>
 
-      {mobileNavigationOpen ? (
-        <button
-          className="nav-scrim"
-          aria-label="Close navigation"
-          onClick={() => setMobileNavigationOpen(false)}
-          type="button"
-        />
-      ) : null}
-
-      <main className="main-column">
-        <header className="top-bar">
-          <div className="top-bar__title">
+      <main className="overview-main">
+        <header className="command-bar">
+          <span className="command-bar__label">Sisyphus OS · Engineering workforce control</span>
+          <div className="command-bar__actions">
             <button
-              aria-controls="dashboard-navigation"
-              aria-expanded={mobileNavigationOpen}
-              className="menu-button"
+              className="theme-toggle"
               type="button"
-              aria-label="Open navigation"
-              onClick={() => setMobileNavigationOpen(true)}
+              onClick={toggleTheme}
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              aria-pressed={theme === "light"}
+              title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
             >
-              <span />
-              <span />
-              <span />
+              <ThemeIcon theme={theme} />
+              <span>{theme === "dark" ? "Light" : "Dark"}</span>
             </button>
-            <div className="top-bar__heading">
-              <span className="top-bar__icon" aria-hidden="true">
-                <SectionIcon section={section} />
-              </span>
-              <div>
-                <h1>{selectedSectionLabel}</h1>
-              </div>
+            <div className="command-bar__status" aria-live="polite">
+              <span className={error === undefined ? "status-dot status-dot--active" : "status-dot status-dot--warning"} />
+              <span>{error === undefined ? "Control plane connected" : "Connection needs attention"}</span>
             </div>
           </div>
-
-          <div className="top-bar__controls">
-            <HostStatus context={hostContext} dataSource={client.dataSource} />
-            <label className="runtime-filter">
-              <span>Runtime</span>
-              <select
-                aria-label="Runtime"
-                value={runtime ?? "all"}
-                onChange={(event) => updateRuntime(event.currentTarget.value)}
-              >
-                <option value="all">All comparable cohorts</option>
-                {runtimeOptions.map((option) => (
-                  <option value={option} key={option}>
-                    {runtimeLabel(option)}
-                  </option>
-                ))}
-              </select>
-            </label>
+        </header>
+        <div className="overview-scroll">
+        {view === "skills" ? <SkillsView client={client} /> : <>
+        <header className="overview-header">
+          <div>
+            <span className="eyebrow">Overview</span>
+            <h1>Agent operations</h1>
+            <p>See which coding agents are working, what they are doing, and how their work finishes.</p>
+          </div>
+          <div className="refresh-signal" aria-live="polite">
+            <span className={error === undefined ? "status-dot status-dot--active" : "status-dot status-dot--warning"} />
+            <div>
+              <strong>{error === undefined ? "Live feed" : "Feed interrupted"}</strong>
+              <span>{snapshot === undefined ? "Connecting" : `Updated ${formatTimestamp(snapshot.generatedAt)}`}</span>
+            </div>
           </div>
         </header>
 
-        <div className="content-area">
-          {isDemo ? (
-            <div className="demo-notice" role="note">
-              <strong>Demo data</strong>
-              <span>
-                {hostContext?.kind === "desktop"
-                  ? "Dashboard uses sample records. Worker status is shown above."
-                  : "No runtime or cloud service is connected."}
-              </span>
-            </div>
-          ) : null}
-          {error === undefined ? null : (
-            <div className="error-banner" role="alert">
-              <span>{error}</span>
-              <button type="button" onClick={() => setRefreshKey((value) => value + 1)}>
-                Retry
-              </button>
-            </div>
-          )}
+        {error === undefined ? null : (
+          <div className="feed-alert" role="alert">
+            <strong>Control plane unavailable</strong>
+            <span>{error} Sisyphus will keep retrying automatically.</span>
+          </div>
+        )}
 
-          {loading || snapshot === undefined ? (
-            <LoadingState />
-          ) : (
-            <DashboardSection
-              section={section}
-              snapshot={snapshot}
-              runtime={runtime}
-              onNavigate={navigate}
-              onRestore={setRestoreTarget}
-              hostContext={hostContext}
-              {...(
-                hostContext?.kind === "desktop" &&
-                hostContext.localEvidence.kind === "supported" &&
-                readLocalEvidence !== undefined
-                  ? { onInspectEvidence: (run: RunSummary) => void inspectEvidence(run) }
-                  : {}
-              )}
-            />
-          )}
+        <section className="operations-metrics" aria-label="Agent operation summary">
+          <Metric label="Active operations" value={metrics.activeOperations} tone="accent" />
+          <Metric label="Agents working" value={metrics.activeAgents} tone="ai" />
+          <Metric label="Completed" value={metrics.completedOperations} tone="success" />
+          <Metric label="Needs attention" value={metrics.failedOperations} tone="danger" />
+        </section>
+
+        {loading && snapshot === undefined ? (
+          <LoadingOverview />
+        ) : snapshot === undefined ? (
+          <UnavailableOverview />
+        ) : (
+          <Overview
+            snapshot={snapshot}
+            hostContext={hostContext}
+            taskDraft={taskDraft}
+            onTaskDraftChange={setTaskDraft}
+            onTaskSubmit={() => void submitTask()}
+            taskSubmissionMessage={taskSubmissionMessage}
+            submittingTask={submittingTask}
+            onClearPromptHistory={() => void clearPromptHistory()}
+            clearingPromptHistory={clearingPromptHistory}
+            promptHistoryMessage={promptHistoryMessage}
+          />
+        )}
+        </>}
         </div>
       </main>
-
-      {restoreTarget === undefined ? null : (
-        <div className="modal-layer" role="presentation">
-          <div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="restore-title">
-            <div className="modal-card__heading">
-              <div>
-                <h2 id="restore-title">Restore {restoreTarget.name}</h2>
-              </div>
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="Close restore dialog"
-                onClick={() => setRestoreTarget(undefined)}
-              >
-                ×
-              </button>
-            </div>
-            <p className="modal-copy">
-              This version will enter probation. Its previous evaluations and quarantine history stay intact.
-            </p>
-            <form onSubmit={(event) => void submitRestore(event)}>
-              <label className="field-stack">
-                <span>Reason for restoration</span>
-                <textarea
-                  autoFocus
-                  minLength={8}
-                  maxLength={500}
-                  required
-                  value={restoreReason}
-                  onChange={(event) => setRestoreReason(event.currentTarget.value)}
-                  placeholder="Describe what changed or why this version is safe to retry."
-                />
-              </label>
-              <div className="modal-actions">
-                <button
-                  className="button button--ghost"
-                  type="button"
-                  onClick={() => setRestoreTarget(undefined)}
-                >
-                  Cancel
-                </button>
-                <button className="button button--primary" type="submit" disabled={restoring}>
-                  {restoring ? "Restoring…" : "Restore to probation"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {evidenceTarget === undefined ? null : (
-        <div className="modal-layer" role="presentation">
-          <div className="modal-card modal-card--evidence" role="dialog" aria-modal="true" aria-labelledby="evidence-title">
-            <div className="modal-card__heading">
-              <div>
-                <h2 id="evidence-title">{evidenceTarget.agentName} · {evidenceTarget.project}</h2>
-              </div>
-              <button
-                className="icon-button"
-                type="button"
-                aria-label="Close evidence dialog"
-                onClick={() => setEvidenceTarget(undefined)}
-              >
-                ×
-              </button>
-            </div>
-            {evidenceLoading ? <p className="modal-copy">Decrypting local evidence…</p> : null}
-            {evidenceError === undefined ? null : <p className="error-banner">{evidenceError}</p>}
-            {evidenceText === undefined ? null : <pre className="evidence-viewer">{evidenceText}</pre>}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
-function HostStatus({
-  context,
-  dataSource,
-}: {
-  context: HostContext | undefined;
-  dataSource: SisyphusDataClient["dataSource"];
+function Overview(input: {
+  readonly snapshot: DashboardSnapshot;
+  readonly hostContext: HostContext | undefined;
+  readonly taskDraft: string;
+  readonly onTaskDraftChange: (value: string) => void;
+  readonly onTaskSubmit: () => void;
+  readonly taskSubmissionMessage: string | undefined;
+  readonly submittingTask: boolean;
+  readonly onClearPromptHistory: () => void;
+  readonly clearingPromptHistory: boolean;
+  readonly promptHistoryMessage: string | undefined;
 }) {
-  if (dataSource.kind === "demo" && context?.kind !== "desktop") {
-    return <span className="host-pill host-pill--warning"><span className="status-dot status-dot--warning" />Sample data</span>;
-  }
-  if (context === undefined) {
-    return <span className="host-pill host-pill--warning"><span className="status-dot status-dot--warning" />Connection unknown</span>;
-  }
-  if (context.kind === "web") {
-    return dataSource.kind === "authenticated-session" ? (
-      <span className="host-pill"><span className="status-dot status-dot--good" />Authenticated session</span>
-    ) : (
-      <span className="host-pill">Web dashboard</span>
-    );
-  }
-  if (context.worker.kind === "offline") {
-    return (
-      <span className="host-pill host-pill--warning" title={context.worker.reason}>
-        <span className="status-dot status-dot--warning" />Worker offline
-      </span>
-    );
-  }
-  const setupRequired = context.adapterAccess.find(
-    (access) => access.kind === "setup-required",
+  const [selectedAgent, setSelectedAgent] = useState<EngineeringAgentSelection>();
+  const active = input.snapshot.operations.filter(
+    (operation) => operation.status === "active" || operation.status === "retrying",
   );
-  if (setupRequired?.kind === "setup-required") {
-    return (
-      <span className="host-pill host-pill--warning" title={setupRequired.reason}>
-        <span className="status-dot status-dot--warning" />Worker online · adapter setup needed
-      </span>
-    );
-  }
-  if (context.worker.policyMode === "offline-default") {
-    return (
-      <span className="host-pill host-pill--warning">
-        <span className="status-dot status-dot--warning" />Worker online · offline defaults
-      </span>
-    );
-  }
-  if (context.worker.policyMode === "local-policy") {
-    return (
-      <span className="host-pill">
-        <span className="status-dot status-dot--good" />Worker online · local policy
-      </span>
-    );
-  }
-  if (context.worker.policyMode === "external") {
-    return (
-      <span className="host-pill host-pill--warning">
-        <span className="status-dot status-dot--warning" />Worker online · external policy unverified
-      </span>
-    );
-  }
-  return (
-    <span className="host-pill">
-      <span className="status-dot status-dot--good" />
-      Worker {context.worker.version} · cloud managed · {context.worker.pendingUploads} pending
-    </span>
+  const completed = input.snapshot.operations.filter(
+    (operation) => operation.status !== "active" && operation.status !== "retrying",
   );
-}
-
-function SectionIcon({ section }: { readonly section: Section }) {
-  let paths: ReactNode;
-  switch (section) {
-    case "overview":
-      paths = (
-        <>
-          <rect x="3" y="3" width="7" height="7" rx="1" />
-          <rect x="14" y="3" width="7" height="4" rx="1" />
-          <rect x="14" y="11" width="7" height="10" rx="1" />
-          <rect x="3" y="14" width="7" height="7" rx="1" />
-        </>
-      );
-      break;
-    case "runs":
-      paths = (
-        <>
-          <circle cx="12" cy="12" r="9" />
-          <path d="m10 8 6 4-6 4Z" />
-        </>
-      );
-      break;
-    case "agents":
-      paths = (
-        <>
-          <circle cx="9" cy="8" r="3" />
-          <path d="M3.5 19a5.5 5.5 0 0 1 11 0" />
-          <circle cx="17" cy="9" r="2" />
-          <path d="M15.5 14.5A4 4 0 0 1 21 18" />
-        </>
-      );
-      break;
-    case "skills":
-      paths = (
-        <>
-          <path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4Z" />
-          <path d="m18.5 14 .7 2.1 2.1.7-2.1.7-.7 2.1-.7-2.1-2.1-.7 2.1-.7Z" />
-          <path d="m6 15 .8 2.2L9 18l-2.2.8L6 21l-.8-2.2L3 18l2.2-.8Z" />
-        </>
-      );
-      break;
-    case "conflicts":
-      paths = (
-        <>
-          <circle cx="6" cy="5" r="2" />
-          <circle cx="18" cy="19" r="2" />
-          <circle cx="6" cy="19" r="2" />
-          <path d="M8 5h2a4 4 0 0 1 4 4v6a4 4 0 0 0 4 4" />
-          <path d="M6 7v10" />
-        </>
-      );
-      break;
-    case "integrations":
-      paths = (
-        <>
-          <path d="M8 3v5M16 3v5" />
-          <path d="M5 8h14v2a7 7 0 0 1-7 7v4" />
-        </>
-      );
-      break;
-    case "policies":
-      paths = (
-        <>
-          <path d="M12 3 20 6v5c0 5-3.4 8.3-8 10-4.6-1.7-8-5-8-10V6Z" />
-          <path d="m8.5 12 2.2 2.2 4.8-5" />
-        </>
-      );
-      break;
-    case "audit":
-      paths = (
-        <>
-          <path d="M8 6h12M8 12h12M8 18h8" />
-          <circle cx="4" cy="6" r="1" />
-          <circle cx="4" cy="12" r="1" />
-          <circle cx="4" cy="18" r="1" />
-        </>
-      );
-      break;
-    case "devices":
-      paths = (
-        <>
-          <rect x="3" y="4" width="18" height="13" rx="2" />
-          <path d="M8 21h8M12 17v4" />
-        </>
-      );
-      break;
-    default: {
-      const exhaustive: never = section;
-      return exhaustive;
-    }
-  }
+  const activeEngineeringOperations = input.snapshot.engineering.operations.filter((operation) =>
+    isActiveEngineeringStatus(operation.status),
+  );
+  const mostRecentEngineeringOperation = [...input.snapshot.engineering.operations].sort(
+    (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+  )[0];
+  const observedEngineeringOperations =
+    activeEngineeringOperations.length > 0
+      ? activeEngineeringOperations
+      : mostRecentEngineeringOperation === undefined
+        ? []
+        : [mostRecentEngineeringOperation];
+  const observedEngineeringAgents = observedEngineeringOperations.flatMap((operation) =>
+    operation.agents.map((agent) => ({ operation, agent })),
+  );
+  const recentAudit = input.snapshot.audit
+    .filter(
+      (event) =>
+        event.action === "event.ingested" ||
+        event.action === "retry.issued" ||
+        event.action === "evaluation.completed",
+    )
+    .slice(0, 6);
 
   return (
-    <svg
-      className="section-icon"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      focusable="false"
-    >
-      {paths}
-    </svg>
-  );
-}
-
-function LoadingState() {
-  return (
-    <div className="loading-grid" aria-label="Loading dashboard">
-      {Array.from({ length: 8 }, (_, index) => (
-        <div className="loading-block" key={index} />
-      ))}
-    </div>
-  );
-}
-
-function DashboardSection(input: {
-  section: Section;
-  snapshot: DashboardSnapshot;
-  runtime: AgentRuntime | undefined;
-  onNavigate: (section: Section) => void;
-  onRestore: (skill: SkillSummary) => void;
-  hostContext: HostContext | undefined;
-  onInspectEvidence?: (run: RunSummary) => void;
-}) {
-  switch (input.section) {
-    case "overview":
-      return <OverviewView snapshot={input.snapshot} runtime={input.runtime} onNavigate={input.onNavigate} />;
-    case "runs":
-      return (
-        <RunsView
-          runs={input.snapshot.runs}
-          {...(input.onInspectEvidence === undefined
-            ? {}
-            : { onInspectEvidence: input.onInspectEvidence })}
+    <div className="overview-content">
+      <div className="overview-primary">
+        <EngineeringWorkforcePanel
+          events={input.snapshot.engineering.events}
+          operations={input.snapshot.engineering.operations}
+          taskDraft={input.taskDraft}
+          onTaskDraftChange={input.onTaskDraftChange}
+          onTaskSubmit={input.onTaskSubmit}
+          taskSubmissionMessage={input.taskSubmissionMessage}
+          submittingTask={input.submittingTask}
+          onClearPromptHistory={input.onClearPromptHistory}
+          clearingPromptHistory={input.clearingPromptHistory}
+          promptHistoryMessage={input.promptHistoryMessage}
+          selectedAgent={selectedAgent}
+          onAgentSelect={(selection) => setSelectedAgent(selection)}
         />
-      );
-    case "agents":
-      return <AgentsView snapshot={input.snapshot} />;
-    case "skills":
-      return <SkillsView skills={input.snapshot.skills} onRestore={input.onRestore} />;
-    case "conflicts":
-      return <ConflictsView conflicts={input.snapshot.conflicts} />;
-    case "integrations":
-      return (
-        <IntegrationsView
-          integrations={input.snapshot.integrations}
-          hostContext={input.hostContext}
-        />
-      );
-    case "policies":
-      return <PoliciesView snapshot={input.snapshot} />;
-    case "audit":
-      return <AuditView events={input.snapshot.audit} />;
-    case "devices":
-      return <DevicesView snapshot={input.snapshot} />;
-    default: {
-      const exhaustive: never = input.section;
-      return exhaustive;
-    }
-  }
-}
 
-function OverviewView(input: {
-  snapshot: DashboardSnapshot;
-  runtime: AgentRuntime | undefined;
-  onNavigate: (section: Section) => void;
-}) {
-  const { overview } = input.snapshot;
-  const recentFailures = input.snapshot.runs.filter(
-    (run) => run.result === "terminal-failure" || run.result === "retryable-failure",
-  );
-  const healthyIntegrations = input.snapshot.integrations.filter(
-    (integration) => integration.status === "healthy",
-  ).length;
-  return (
-    <div className="view-stack">
-      <section className="summary-strip">
-        <div>
-          <h2>{input.runtime === undefined ? "Comparable runtime cohorts" : runtimeLabel(input.runtime)}</h2>
-          <p>
-            Rankings use matching attribution and enforcement coverage. Estimated token savings stay labeled.
-          </p>
-        </div>
-        <div className="summary-strip__signal">
-          <span className="signal-value">{formatPercent(overview.enforcedShare)}</span>
-          <span>fully enforced</span>
-        </div>
-      </section>
-
-      <section className="metric-grid" aria-label="Performance summary">
-        <MetricCard label="Runs" value={formatNumber(overview.totalRuns)} note="All completed attempts" tone="neutral" />
-        <MetricCard label="Pass rate" value={formatPercent(overview.passRate)} note="Conclusive evaluations" tone="good" />
-        <MetricCard label="Retry recovery" value={formatPercent(overview.retryRecoveryRate)} note="Passed after feedback" tone="good" />
-        <MetricCard label="Terminal failures" value={formatNumber(overview.terminalFailures)} note="Verified standing events" tone="bad" />
-        <MetricCard label="Tokens spent" value={formatNumber(overview.tokensSpent)} note="Reported and estimated" tone="neutral" />
-        <MetricCard label="Tokens avoided" value={`≈${formatNumber(overview.tokensAvoidedEstimate)}`} note="Estimated, not measured" tone="accent" />
-      </section>
-
-      <div className="overview-grid">
-        <Panel
-          title="Latest runs"
-          action={<button type="button" className="text-button" onClick={() => input.onNavigate("runs")}>View all</button>}
-        >
-          <div className="run-feed">
-            {input.snapshot.runs.slice(0, 5).map((run) => (
-              <RunFeedRow run={run} key={run.id} />
-            ))}
-          </div>
-        </Panel>
-
-        <Panel
-          title="Runtime coverage"
-          action={<button type="button" className="text-button" onClick={() => input.onNavigate("integrations")}>Inspect</button>}
-        >
-          <div className="coverage-summary">
-            <div
-              className="coverage-score"
-              aria-label={`${healthyIntegrations} of ${input.snapshot.integrations.length} integrations healthy`}
-            >
-              <div className="coverage-score__value">
-                <span>{healthyIntegrations}/{input.snapshot.integrations.length}</span>
-                <small>healthy</small>
-              </div>
-              <div className="coverage-score__bar" aria-hidden="true">
-                <span
-                  style={{
-                    width: `${(healthyIntegrations / Math.max(input.snapshot.integrations.length, 1)) * 100}%`,
-                  }}
-                />
-              </div>
+        <section className="operations-panel">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">Runtime telemetry</span>
+              <h2>Observed operations</h2>
             </div>
-            <div className="coverage-list">
-              {input.snapshot.integrations.map((integration) => (
-                <div key={integration.id}>
-                  <RuntimeMark runtime={integration.runtime} />
-                  <span>{runtimeLabel(integration.runtime)} · {integration.scope}</span>
-                  <StatusBadge value={integration.status} />
+            <span className="panel-count">{active.length + activeEngineeringOperations.flatMap((operation) => operation.agents).length} active</span>
+          </div>
+
+          {active.length === 0 && observedEngineeringAgents.length === 0 ? (
+            <EmptyOperations context={input.hostContext} />
+          ) : (
+            <>
+              {observedEngineeringAgents.length === 0 ? null : (
+                <EngineeringWorkforceObservatory
+                  events={input.snapshot.engineering.events}
+                  operations={observedEngineeringOperations}
+                  mode={activeEngineeringOperations.length > 0 ? "live" : "recent"}
+                  selectedAgent={selectedAgent}
+                  onAgentSelect={(selection) => setSelectedAgent(selection)}
+                />
+              )}
+              {active.length === 0 ? null : (
+                <div className="operation-list">
+                  {active.map((operation) => (
+                    <OperationCard operation={operation} key={operation.id} />
+                  ))}
                 </div>
+              )}
+            </>
+          )}
+        </section>
+
+        {completed.length === 0 ? null : (
+          <section className="operations-panel operations-panel--completed">
+            <div className="panel-heading">
+              <div>
+                <span className="panel-kicker">Recent outcomes</span>
+                <h2>Completed operations</h2>
+              </div>
+              <span className="panel-count">{completed.length} recorded</span>
+            </div>
+            <div className="operation-list">
+              {completed.slice(0, 5).map((operation) => (
+                <OperationCard operation={operation} key={operation.id} />
               ))}
             </div>
-          </div>
-        </Panel>
+          </section>
+        )}
       </div>
 
-      {recentFailures.length === 0 ? null : (
-        <Panel title="Needs attention">
-          <div className="attention-grid">
-            {recentFailures.slice(0, 3).map((run) => (
-              <article key={run.id} className="attention-card">
-                <div className="attention-card__top">
-                  <ResultBadge result={run.result} />
-                  <span>{formatTimestamp(run.occurredAt)}</span>
-                </div>
-                <h3>{run.agentName} · {run.project}</h3>
-                <p>{run.findings[0] ?? "The evaluation did not pass."}</p>
-                <div className="attention-card__meta">
-                  <span>{run.skillName ?? "No managed skill"}</span>
-                  <CoverageBadge coverage={run.enforcement} />
-                </div>
-              </article>
-            ))}
-          </div>
-        </Panel>
-      )}
+      <aside className="overview-rail">
+        <TokenBurnPanel comparison={input.snapshot.overview.tokenBurnComparison} />
+        <ObservationPanel snapshot={input.snapshot} context={input.hostContext} />
+        <ActivityPanel events={recentAudit} />
+      </aside>
     </div>
   );
 }
 
-function MetricCard(input: {
-  label: string;
-  value: string;
-  note: string;
-  tone: "neutral" | "good" | "bad" | "accent";
+function EngineeringWorkforcePanel(input: {
+  readonly events: readonly EngineeringEventSummary[];
+  readonly operations: readonly EngineeringOperationSummary[];
+  readonly taskDraft: string;
+  readonly onTaskDraftChange: (value: string) => void;
+  readonly onTaskSubmit: () => void;
+  readonly taskSubmissionMessage: string | undefined;
+  readonly submittingTask: boolean;
+  readonly onClearPromptHistory: () => void;
+  readonly clearingPromptHistory: boolean;
+  readonly promptHistoryMessage: string | undefined;
+  readonly selectedAgent: EngineeringAgentSelection | undefined;
+  readonly onAgentSelect: (selection: EngineeringAgentSelection | undefined) => void;
 }) {
+  const [liveLogsOpen, setLiveLogsOpen] = useState(false);
+  const active = input.operations.filter((operation) =>
+    ["queued", "planning", "working", "integrating", "safety-review", "sandbox-running", "retrying"].includes(
+      operation.status,
+    ),
+  );
+  const onTaskKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+      event.preventDefault();
+      input.onTaskSubmit();
+    }
+  };
+
   return (
-    <article className={`metric-card metric-card--${input.tone}`}>
-      <span className="metric-card__label">{input.label}</span>
-      <strong>{input.value}</strong>
-      <span className="metric-card__note">{input.note}</span>
+    <>
+    <section className="operations-panel engineering-panel">
+      <div className="panel-heading">
+        <div>
+          <span className="panel-kicker">AI engineering HR</span>
+          <h2>Build request</h2>
+        </div>
+        <div className="engineering-panel__actions">
+          <button
+            className="live-log-button"
+            type="button"
+            onClick={() => setLiveLogsOpen(true)}
+          >
+            Live logs <span>{input.events.length}</span>
+          </button>
+          <button
+            className="history-clear-button"
+            type="button"
+            disabled={input.clearingPromptHistory}
+            onClick={input.onClearPromptHistory}
+          >
+            {input.clearingPromptHistory ? "Deleting logs…" : "Delete old prompt logs"}
+          </button>
+          <span className="panel-count">{active.length} active</span>
+        </div>
+      </div>
+      <div className="task-draft">
+        <label htmlFor="sisyphus-task-draft">Describe the software you want built</label>
+        <textarea
+          id="sisyphus-task-draft"
+          aria-label="Task draft"
+          value={input.taskDraft}
+          maxLength={maximumTaskDraftLength}
+          rows={4}
+          placeholder="Build a modern authentication web app with login, registration, protected dashboard, backend API, database persistence, validation and tests…"
+          aria-describedby="sisyphus-task-draft-help"
+          onChange={(event) => input.onTaskDraftChange(event.currentTarget.value)}
+          onKeyDown={onTaskKeyDown}
+          disabled={input.submittingTask}
+        />
+        <div className="task-draft__meta" id="sisyphus-task-draft-help">
+          <span>{input.submittingTask ? "Creating task…" : "Press Ctrl/Cmd + Enter to deploy the right specialist workforce."}</span>
+          <span>{input.taskDraft.length}/{maximumTaskDraftLength}</span>
+        </div>
+        {input.taskSubmissionMessage === undefined ? null : (
+          <p className="task-draft__message" role="status">{input.taskSubmissionMessage}</p>
+        )}
+      </div>
+
+      {input.operations.length === 0 ? (
+        <p className="engineering-empty">No engineering task has been created yet. Sisyphus will only show real assignments, evidence, and sandbox results.</p>
+      ) : (
+        <div className="engineering-operation-list">
+          {input.operations.map((operation) => (
+            <EngineeringOperationCard
+              events={input.events.filter((event) => event.taskId === operation.id)}
+              operation={operation}
+              key={operation.id}
+              selectedAgent={input.selectedAgent}
+              onAgentSelect={input.onAgentSelect}
+            />
+          ))}
+        </div>
+      )}
+      {input.promptHistoryMessage === undefined ? null : (
+        <p className="task-draft__message" role="status">{input.promptHistoryMessage}</p>
+      )}
+    </section>
+    {liveLogsOpen ? (
+      <LiveLogsDrawer
+        events={input.events}
+        operations={input.operations}
+        onClose={() => setLiveLogsOpen(false)}
+      />
+    ) : null}
+    </>
+  );
+}
+
+function EngineeringOperationCard(input: {
+  readonly events: readonly EngineeringEventSummary[];
+  readonly operation: EngineeringOperationSummary;
+  readonly selectedAgent: EngineeringAgentSelection | undefined;
+  readonly onAgentSelect: (selection: EngineeringAgentSelection | undefined) => void;
+}) {
+  const { operation } = input;
+  const archiveSlot = executionArchiveSlot(operation, input.events);
+  return (
+    <article className="engineering-operation-card">
+      <div className="operation-card__header">
+        <div className="operation-title">
+          <span className={`operation-pulse operation-pulse--${engineeringStatusTone(operation.status)}`} />
+          <div>
+            <h3>{operation.requestSummary}</h3>
+            <p>
+              {operation.requirements.length} requirements · Safety {operation.safety.status} · {executionLabel(operation)} {operation.sandbox.status}
+              {archiveSlot === undefined ? " · Execution folder pending" : ` · Sisyphus Executions #${archiveSlot}`}
+            </p>
+          </div>
+        </div>
+        <span className={`status-badge status-badge--${engineeringStatusTone(operation.status)}`}>
+          {engineeringStatusLabel(operation.status)}
+        </span>
+      </div>
+      <div className="engineering-agent-roster" aria-label={`Specialists assigned to ${operation.requestSummary}`}>
+        {operation.agents.map((agent) => (
+          <EngineeringAgentCard
+            agent={agent}
+            key={agent.id}
+            operation={operation}
+            selected={isSelectedEngineeringAgent(input.selectedAgent, operation.id, agent.id)}
+            onSelect={input.onAgentSelect}
+          />
+        ))}
+      </div>
+      {operation.evidence.length === 0 ? null : (
+        <div className="engineering-evidence-list">
+          {operation.evidence.slice(0, 3).map((evidence, index) => (
+            <p key={`${evidence.check}-${index}`}>
+              <strong>{evidence.check}</strong> · {evidence.detail}
+              {evidence.primaryAgentId === null ? "" : ` · Attribution ${Math.round((evidence.attributionConfidence ?? 0) * 100)}%`}
+            </p>
+          ))}
+        </div>
+      )}
+      {input.events.length === 0 ? null : (
+        <div className="engineering-event-list" aria-label={`Events for ${operation.requestSummary}`}>
+          {input.events.slice(0, 5).map((event) => <p key={event.id}>{event.type.replaceAll("_", " ")} · {event.summary}</p>)}
+        </div>
+      )}
     </article>
   );
 }
 
-function Panel(input: {
-  title: string;
-  action?: ReactNode;
-  children: ReactNode;
+function EngineeringWorkforceObservatory(input: {
+  readonly events: readonly EngineeringEventSummary[];
+  readonly operations: readonly EngineeringOperationSummary[];
+  readonly mode: "live" | "recent";
+  readonly selectedAgent: EngineeringAgentSelection | undefined;
+  readonly onAgentSelect: (selection: EngineeringAgentSelection | undefined) => void;
 }) {
+  const observedAgents = input.operations.flatMap((operation) =>
+    operation.agents.map((agent) => ({ operation, agent })),
+  );
+  const selected = input.selectedAgent === undefined
+    ? undefined
+    : observedAgents.find(({ operation, agent }) =>
+        isSelectedEngineeringAgent(input.selectedAgent, operation.id, agent.id),
+      );
   return (
-    <section className="panel">
-      <div className="panel__heading">
-        <div>
-          <h2>{input.title}</h2>
-        </div>
-        {input.action}
+    <div className="observed-engineering-workforce">
+      <div className="observed-engineering-workforce__heading">
+        <span>{input.mode === "live" ? "Active engineering workforce" : "Most recent engineering workforce"}</span>
+        <small>
+          {observedAgents.length} {input.mode === "live" ? "live" : "completed"} specialist{observedAgents.length === 1 ? "" : "s"}
+        </small>
       </div>
-      {input.children}
+      <div
+        className="observed-engineering-workforce__grid"
+        aria-label={input.mode === "live" ? "Live engineering workforce" : "Most recent engineering workforce"}
+      >
+        {observedAgents.map(({ operation, agent }) => (
+          <EngineeringAgentCard
+            agent={agent}
+            key={`${operation.id}-${agent.id}`}
+            operation={operation}
+            selected={isSelectedEngineeringAgent(input.selectedAgent, operation.id, agent.id)}
+            onSelect={input.onAgentSelect}
+          />
+        ))}
+      </div>
+      {selected === undefined ? null : (
+        <EngineeringAgentDetail
+          agent={selected.agent}
+          events={input.events.filter((event) => event.taskId === selected.operation.id)}
+          operation={selected.operation}
+          onClose={() => input.onAgentSelect(undefined)}
+        />
+      )}
+    </div>
+  );
+}
+
+function EngineeringAgentCard(input: {
+  readonly agent: EngineeringOperationSummary["agents"][number];
+  readonly operation: EngineeringOperationSummary;
+  readonly selected: boolean;
+  readonly onSelect: (selection: EngineeringAgentSelection | undefined) => void;
+}) {
+  const { agent, operation } = input;
+  return (
+    <button
+      aria-label={`Inspect ${displayRole(agent.role)}`}
+      aria-pressed={input.selected}
+      className={`engineering-agent-card engineering-agent-card--interactive${input.selected ? " engineering-agent-card--selected" : ""}`}
+      onClick={() => input.onSelect({ taskId: operation.id, agentId: agent.id })}
+      type="button"
+    >
+      <span className="engineering-agent-card__identity">
+        <strong>{displayRole(agent.role)}</strong>
+        <span>{agent.model} · Iteration {agent.iteration}</span>
+      </span>
+      <span className={`engineering-agent-card__status engineering-agent-card__status--${agent.status}`}>{agent.status.replaceAll("-", " ")}</span>
+      <span className="engineering-agent-card__activity">{agent.activityDetail}</span>
+      <span className="engineering-agent-card__skills">
+        {agent.selectedSkills.length === 0
+          ? "Skills: none selected"
+          : `Skills: ${agent.selectedSkills.map((skill) => `${skill.name} · ${compactIdentifier(skill.skillVersionId)}`).join(", ")}`}
+      </span>
+      <span className="engineering-agent-card__footer">
+        <span>{agent.filesChanged.length === 0 ? "No files changed" : `${agent.filesChanged.length} files changed`}</span>
+        <span>{agent.score === null ? "Score pending" : `Score ${Math.round(agent.score.total)}`}</span>
+      </span>
+      {agent.commitId === null ? null : <small>Commit {compactIdentifier(agent.commitId)} · {agent.branch}</small>}
+    </button>
+  );
+}
+
+function EngineeringAgentDetail(input: {
+  readonly agent: EngineeringOperationSummary["agents"][number];
+  readonly events: readonly EngineeringEventSummary[];
+  readonly operation: EngineeringOperationSummary;
+  readonly onClose: () => void;
+}) {
+  const archiveSlot = executionArchiveSlot(input.operation, input.events);
+  const requirements = input.operation.requirements.filter((requirement) =>
+    input.agent.requirementIds.includes(requirement.id),
+  );
+  const evidence = input.operation.evidence.filter(
+    (item) =>
+      item.primaryAgentId === input.agent.id ||
+      (item.requirementId !== null && input.agent.requirementIds.includes(item.requirementId)),
+  );
+  return (
+    <section className="engineering-agent-detail" aria-label={`${displayRole(input.agent.role)} details`}>
+      <div className="engineering-agent-detail__header">
+        <div>
+          <span className="panel-kicker">Selected specialist</span>
+          <h3>{displayRole(input.agent.role)}</h3>
+          <p>{input.agent.model} · Iteration {input.agent.iteration} · {input.agent.status.replaceAll("-", " ")}</p>
+        </div>
+        <button className="button--quiet" onClick={input.onClose} type="button">Close details</button>
+      </div>
+      <p className="engineering-agent-detail__activity">{input.agent.activityDetail}</p>
+      <div className="engineering-agent-detail__grid">
+        <div>
+          <h4>Assigned requirements</h4>
+          {requirements.length === 0 ? <p>No requirement metadata is available.</p> : (
+            <ul>
+              {requirements.map((requirement) => (
+                <li key={requirement.id}>
+                  <strong>{requirement.id} · {requirement.title}</strong>
+                  <span>{requirement.acceptanceCriteria.join(" · ")}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h4>Selected skills</h4>
+          {input.agent.selectedSkills.length === 0 ? <p>No skill instructions were selected.</p> : (
+            <ul>
+              {input.agent.selectedSkills.map((skill) => (
+                <li key={skill.id}><strong>{skill.name}</strong><span>{compactIdentifier(skill.skillVersionId)}</span></li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div>
+          <h4>Traceability</h4>
+          <ul>
+            <li><strong>Branch</strong><span>{input.agent.branch}</span></li>
+            <li><strong>Commit</strong><span>{input.agent.commitId === null ? "Not committed" : compactIdentifier(input.agent.commitId)}</span></li>
+            <li><strong>Files</strong><span>{input.agent.filesChanged.length === 0 ? "No files changed" : input.agent.filesChanged.join(", ")}</span></li>
+            {archiveSlot === undefined ? null : <li><strong>Execution folder</strong><span>Sisyphus Executions #{archiveSlot}</span></li>}
+            <li><strong>Score</strong><span>{input.agent.score === null ? "Pending evidence" : `${Math.round(input.agent.score.total)}/100`}</span></li>
+          </ul>
+        </div>
+      </div>
+      <div className="engineering-agent-detail__evidence">
+        <h4>Attributed evidence</h4>
+        {evidence.length === 0 ? <p>No evidence is attributed to this specialist yet.</p> : (
+          <ul>{evidence.map((item, index) => <li key={`${item.check}-${index}`}><strong>{item.check}</strong><span>{item.detail}</span></li>)}</ul>
+        )}
+      </div>
+      <div className="engineering-agent-detail__events">
+        <h4>Task event context</h4>
+        <p>These safe events belong to the task. Per-agent activity is shown above from the live assignment record.</p>
+        {input.events.length === 0 ? null : <ul>{input.events.slice(0, 4).map((event) => <li key={event.id}><strong>{event.type.replaceAll("_", " ")}</strong><span>{event.summary}</span></li>)}</ul>}
+      </div>
     </section>
   );
 }
 
-function RunFeedRow({ run }: { run: RunSummary }) {
+function LiveLogsDrawer(input: {
+  readonly events: readonly EngineeringEventSummary[];
+  readonly operations: readonly EngineeringOperationSummary[];
+  readonly onClose: () => void;
+}) {
+  const [scope, setScope] = useState<"latest" | "all">("latest");
+  const latestTaskId = input.operations[0]?.id;
+  const summaries = new Map(input.operations.map((operation) => [operation.id, operation.requestSummary]));
+  const events = [...input.events]
+    .filter((event) => scope === "all" || latestTaskId === undefined || event.taskId === latestTaskId)
+    .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
   return (
-    <article className="run-feed__row">
-      <RuntimeMark runtime={run.runtime} />
-      <div className="run-feed__identity">
-        <strong>{run.agentName}</strong>
-        <span>{run.project}</span>
+    <div className="live-log-layer" role="presentation">
+      <section className="live-log-drawer" role="dialog" aria-modal="true" aria-label="Live workflow logs">
+        <div className="live-log-drawer__header">
+          <div>
+            <span className="panel-kicker">Real control-plane events</span>
+            <h3>Live logs</h3>
+          </div>
+          <button className="live-log-close" type="button" onClick={input.onClose} aria-label="Close live logs">Close</button>
+        </div>
+        <div className="live-log-filters" aria-label="Log scope">
+          <button
+            className={scope === "latest" ? "live-log-filter live-log-filter--active" : "live-log-filter"}
+            type="button"
+            onClick={() => setScope("latest")}
+          >
+            Latest task
+          </button>
+          <button
+            className={scope === "all" ? "live-log-filter live-log-filter--active" : "live-log-filter"}
+            type="button"
+            onClick={() => setScope("all")}
+          >
+            All tasks
+          </button>
+        </div>
+        <p className="live-log-note">Safe event summaries update with the live control-plane feed. Prompts, keys, source contents, and hidden reasoning are never shown here.</p>
+        {events.length === 0 ? (
+          <p className="live-log-empty">No workflow event has been recorded for this scope yet.</p>
+        ) : (
+          <div className="live-log-list" aria-live="polite">
+            {events.map((event) => (
+              <article key={event.id}>
+                <div>
+                  <time dateTime={event.occurredAt}>{formatTimestamp(event.occurredAt)}</time>
+                  <strong>{event.type.replaceAll("_", " ")}</strong>
+                </div>
+                <p>{event.summary}</p>
+                <small>{summaries.get(event.taskId) ?? compactIdentifier(event.taskId)} · Trace {compactIdentifier(event.payloadDigest)}</small>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function OperationCard({ operation }: { readonly operation: OperationSummary }) {
+  return (
+    <article className="operation-card">
+      <div className="operation-card__header">
+        <div className="operation-title">
+          <span className={`operation-pulse operation-pulse--${statusTone(operation.status)}`} />
+          <div>
+            <h3>{operation.taskSummary}</h3>
+            <p>{operation.project} · {runtimeLabel(operation.runtime)}</p>
+          </div>
+        </div>
+        <StatusBadge status={operation.status} />
       </div>
-      <CoverageBadge coverage={run.enforcement} />
-      <ResultBadge result={run.result} />
-      <span className="run-feed__time">{formatTimestamp(run.occurredAt)}</span>
+
+      <div className="operation-meta">
+        <span>Run {compactIdentifier(operation.runId)}</span>
+        <span>{operation.selectedSkillVersionId ?? "No managed skill"}</span>
+        <span>Updated {formatTimestamp(operation.updatedAt)}</span>
+      </div>
+
+      <div className="agent-roster" aria-label={`Agents for ${operation.taskSummary}`}>
+        {operation.agents.map((agent) => (
+          <AgentCard agent={agent} key={agent.id} />
+        ))}
+      </div>
     </article>
   );
 }
 
-function RunsView({
-  runs,
-  onInspectEvidence,
-}: {
-  runs: RunSummary[];
-  onInspectEvidence?: (run: RunSummary) => void;
+function AgentCard({ agent }: { readonly agent: LiveAgentSummary }) {
+  return (
+    <article className={agent.kind === "root" ? "agent-card agent-card--root" : "agent-card agent-card--subagent"}>
+      <div className="agent-card__identity">
+        <span className="agent-avatar" aria-hidden="true">{agent.kind === "root" ? "O" : "A"}</span>
+        <div>
+          <h4>{agentRole(agent)}</h4>
+          <p>{compactIdentifier(agent.agentId)}</p>
+        </div>
+        <StatusBadge status={agent.status} compact />
+      </div>
+      <div className="agent-card__activity">
+        <span>{activityLabel(agent.activity)}</span>
+        <strong>{agent.activityDetail}</strong>
+      </div>
+      <div className="agent-card__footer">
+        <span>{agent.attempts === 1 ? "First attempt" : `Attempt ${agent.attempts}`}</span>
+        <span>{formatTimestamp(agent.lastSeenAt)}</span>
+      </div>
+    </article>
+  );
+}
+
+function TokenBurnPanel({ comparison }: { readonly comparison: TokenBurnComparison }) {
+  const measured = comparison.kind === "measured";
+  return (
+    <section className="rail-panel token-burn-panel">
+      <div className="panel-heading panel-heading--compact">
+        <div>
+          <span className="panel-kicker">Efficiency</span>
+          <h2>Token burn</h2>
+        </div>
+      </div>
+      <div className="token-burn-values">
+        <div>
+          <span>Before Sisyphus</span>
+          <strong>{measured ? formatTokenCount(comparison.before.tokens) : "—"}</strong>
+        </div>
+        <div>
+          <span>With Sisyphus</span>
+          <strong>{measured ? formatTokenCount(comparison.withSisyphus.tokens) : "—"}</strong>
+        </div>
+      </div>
+      <div className="token-burn-difference">
+        <span>Difference</span>
+        <strong>{measured ? tokenDifferenceLabel(comparison) : "Not measured"}</strong>
+      </div>
+      <p className="token-burn-note">
+        {measured
+          ? "Compared from two compatible runs using provider-reported token usage."
+          : tokenComparisonUnavailableMessage(comparison.reason)}
+      </p>
+    </section>
+  );
+}
+
+function ObservationPanel(input: {
+  readonly snapshot: DashboardSnapshot;
+  readonly context: HostContext | undefined;
+}) {
+  const codexObserved =
+    input.snapshot.integrations.some((integration) => integration.runtime === "codex") ||
+    (input.context?.kind === "desktop" &&
+      input.context.adapterAccess.some((access) => access.runtime === "codex"));
+  return (
+    <section className="rail-panel">
+      <div className="panel-heading panel-heading--compact">
+        <div>
+          <span className="panel-kicker">Coverage</span>
+          <h2>What is observable</h2>
+        </div>
+      </div>
+      <dl className="coverage-facts">
+        <div><dt>Root lifecycle</dt><dd className="fact-good">Live</dd></div>
+        <div><dt>Tool activity</dt><dd className="fact-good">Live</dd></div>
+        <div><dt>Evaluation outcome</dt><dd className="fact-good">Recorded</dd></div>
+        <div><dt>Subagent start</dt><dd className={codexObserved ? "fact-warning" : "fact-muted"}>{codexObserved ? "Runtime-limited" : "Awaiting runtime"}</dd></div>
+      </dl>
+      {codexObserved ? (
+        <p className="coverage-note">Codex currently identifies subagents when their stop event arrives. Sisyphus does not fabricate an earlier deployment state.</p>
+      ) : null}
+    </section>
+  );
+}
+
+function ActivityPanel({ events }: { readonly events: readonly AuditEvent[] }) {
+  return (
+    <section className="rail-panel">
+      <div className="panel-heading panel-heading--compact">
+        <div>
+          <span className="panel-kicker">Backend stream</span>
+          <h2>Recent activity</h2>
+        </div>
+      </div>
+      {events.length === 0 ? (
+        <p className="rail-empty">No agent events have reached the control plane yet.</p>
+      ) : (
+        <div className="activity-list">
+          {events.map((event) => (
+            <article key={event.id}>
+              <span className={`activity-dot activity-dot--${auditTone(event)}`} />
+              <div>
+                <p>{event.summary}</p>
+                <span>{formatTimestamp(event.occurredAt)}</span>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function EmptyOperations(input: {
+  readonly context: HostContext | undefined;
+}) {
+  const { context } = input;
+  const workerOnline = context?.kind === "desktop" && context.worker.kind === "online";
+  return (
+    <div className="empty-operations">
+      <div className="empty-orbit" aria-hidden="true"><span /></div>
+      <span className="panel-kicker">Waiting for a real task</span>
+      <h3>No agents are deployed</h3>
+      <p>
+        {workerOnline
+          ? "The worker is ready. Reported runtime activity will appear here automatically."
+          : "Connect the worker and control plane to receive observed runtime activity."}
+      </p>
+    </div>
+  );
+}
+
+function LoadingOverview() {
+  return (
+    <div className="overview-content" aria-label="Loading agent operations">
+      <div className="overview-primary">
+        <div className="loading-panel"><span /><span /><span /></div>
+      </div>
+      <div className="overview-rail">
+        <div className="loading-panel loading-panel--small"><span /><span /></div>
+      </div>
+    </div>
+  );
+}
+
+function UnavailableOverview() {
+  return (
+    <section className="operations-panel unavailable-panel">
+      <span className="panel-kicker">Connection required</span>
+      <h2>The live operations backend is unavailable</h2>
+      <p>Configure the control-plane URL and access token. Sisyphus will reconnect automatically.</p>
+    </section>
+  );
+}
+
+function Metric(input: {
+  readonly label: string;
+  readonly value: number;
+  readonly tone: "accent" | "ai" | "success" | "danger";
 }) {
   return (
-    <Panel title="Evaluation runs">
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr><th>Run</th><th>Agent</th><th>Skill</th><th>Coverage</th><th>Result</th><th>Score</th><th>Cost</th><th>Time</th>{onInspectEvidence === undefined ? null : <th>Evidence</th>}</tr>
-          </thead>
-          <tbody>
-            {runs.map((run) => (
-              <tr key={run.id}>
-                <td><div className="primary-cell"><strong>{run.id}</strong><span>{runtimeLabel(run.runtime)} · {runtimeProfileLabel(run.profile)} · runtime {run.runtimeVersion} · adapter {run.adapterVersion}</span></div></td>
-                <td><div className="primary-cell"><strong>{run.agentName}</strong><span>{run.project}</span></div></td>
-                <td><div className="primary-cell"><strong>{run.skillName ?? "Unmanaged"}</strong><span>{attributionLabel(run.attribution)} attribution</span></div></td>
-                <td><CoverageBadge coverage={run.enforcement} /></td>
-                <td><ResultBadge result={run.result} /></td>
-                <td><span className="score-value">{run.score === null ? "—" : run.score}</span></td>
-                <td><div className="primary-cell"><strong>{formatNumber(run.tokens)} tok</strong><span>{run.attempts} attempt{run.attempts === 1 ? "" : "s"}</span></div></td>
-                <td><div className="primary-cell"><strong>{formatTimestamp(run.occurredAt)}</strong><span>{formatDuration(run.latencyMs)}</span></div></td>
-                {onInspectEvidence === undefined ? null : (
-                  <td>
-                    <button className="button button--ghost" type="button" onClick={() => onInspectEvidence(run)}>
-                      View local
-                    </button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Panel>
+    <article className={`operation-metric operation-metric--${input.tone}`}>
+      <span>{input.label}</span>
+      <strong>{input.value}</strong>
+    </article>
   );
 }
 
-function AgentsView({ snapshot }: { snapshot: DashboardSnapshot }) {
-  const cohorts = agentCohorts(snapshot.agents);
+function StatusBadge({ status, compact = false }: { readonly status: LiveAgentStatus; readonly compact?: boolean }) {
   return (
-    <div className="view-stack">
-      {cohorts.map((cohort) => (
-        <section className="agent-cohort" key={cohort.key}>
-          <header>
-            <div>
-              <h2>{runtimeLabel(cohort.runtime)} · {runtimeProfileLabel(cohort.profile)} · runtime {cohort.runtimeVersion} · adapter {cohort.adapterVersion} · {attributionLabel(cohort.attribution)} attribution · {enforcementLabel(cohort.enforcement)}</h2>
-              <p className="agent-cohort__identity" title={cohort.comparisonCohortId}>
-                Installation {cohort.adapterInstallationId} · cohort {cohort.comparisonCohortId.slice(0, 8)}
-              </p>
-            </div>
-            <span>{cohort.agents.length} agent{cohort.agents.length === 1 ? "" : "s"}</span>
-          </header>
-          <div className="agent-grid">
-            {cohort.agents.map((agent) => (
-              <article className="agent-card" key={agent.id}>
-                <div className="agent-card__heading">
-                  <RuntimeMark runtime={agent.runtime} />
-                  <div><h2>{agent.name}</h2><span>{runtimeLabel(agent.runtime)} · {runtimeProfileLabel(agent.profile)} · {formatNumber(agent.runs)} runs · {formatNumber(agent.scoredRuns)} scored</span></div>
-                  <strong>{agent.averageScore.toFixed(1)}</strong>
-                </div>
-                <div className="performance-bar"><span style={{ width: `${agent.averageScore}%` }} /></div>
-                <div className="agent-card__metrics">
-                  <div><span>Pass rate</span><strong>{formatPercent(agent.passRate)}</strong></div>
-                  <div><span>Retry recovery</span><strong>{formatPercent(agent.retryRecoveryRate)}</strong></div>
-                  <div><span>Terminal failures</span><strong>{agent.terminalFailures}</strong></div>
-                  <div><span>Tokens</span><strong>{formatNumber(agent.tokens)}</strong></div>
-                </div>
-              </article>
-            ))}
-          </div>
-        </section>
-      ))}
-      <p className="cohort-note">Ranks restart for each installation, runtime and adapter version, capability snapshot, attribution, and enforcement cohort. Sisyphus never places observation-only results in an enforced ranking.</p>
-    </div>
+    <span className={compact ? `status-badge status-badge--${statusTone(status)} status-badge--compact` : `status-badge status-badge--${statusTone(status)}`}>
+      {statusLabel(status)}
+    </span>
   );
 }
 
-function SkillsView(input: { skills: SkillSummary[]; onRestore: (skill: SkillSummary) => void }) {
-  return (
-    <Panel title="Managed skill versions">
-      <div className="table-wrap">
-        <table>
-          <thead><tr><th>Skill version</th><th>Runtime</th><th>Standing</th><th>Verified attribution</th><th>Pass rate</th><th>Failures</th><th>Changed</th><th><span className="sr-only">Actions</span></th></tr></thead>
-          <tbody>
-            {input.skills.map((skill) => (
-              <tr key={`${skill.runtime}:${skill.skillVersionId}`}>
-                <td><div className="primary-cell"><strong>{skill.name}</strong><span>v{skill.version} · {formatNumber(skill.runs)} runs</span></div></td>
-                <td><div className="runtime-cell"><RuntimeMark runtime={skill.runtime} /><span>{runtimeLabel(skill.runtime)}</span></div></td>
-                <td><DispositionBadge disposition={skill.disposition} /></td>
-                <td><InlineMeter value={skill.verifiedAttributionRate} /></td>
-                <td><InlineMeter value={skill.passRate} /></td>
-                <td><span className={skill.terminalFailures >= 10 ? "failure-count failure-count--high" : "failure-count"}>{skill.terminalFailures}</span></td>
-                <td>{formatTimestamp(skill.lastChangedAt)}</td>
-                <td>{skill.disposition === "quarantined" ? <button className="button button--compact" type="button" onClick={() => input.onRestore(skill)}>Restore</button> : null}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Panel>
-  );
-}
-
-function ConflictsView({ conflicts }: { conflicts: DashboardSnapshot["conflicts"] }) {
-  return (
-    <div className="view-stack">
-      <section className="summary-strip summary-strip--compact">
-        <div><h2>One prompt, one managed skill</h2><p>Administrator priority wins first, trigger specificity second, stable version ID last.</p></div>
-      </section>
-      <div className="conflict-list">
-        {conflicts.map((conflict) => (
-          <article className="conflict-card" key={conflict.id}>
-            <header><div><RuntimeMark runtime={conflict.runtime} /><div><span>{runtimeLabel(conflict.runtime)} · {formatTimestamp(conflict.occurredAt)}</span><h2>{conflict.promptSummary}</h2></div></div><span className="selected-pill">Selected {conflict.selectedSkill}</span></header>
-            <div className="candidate-list">
-              {conflict.candidates.map((candidate) => (
-                <div className={candidate.selected ? "candidate candidate--selected" : "candidate"} key={candidate.skillVersionId}>
-                  <div><strong>{candidate.skillName}</strong><span>{candidate.reason}</span></div>
-                  <div className="candidate__scores"><span>Priority <strong>{candidate.priority}</strong></span><span>Specificity <strong>{candidate.specificity}</strong></span></div>
-                </div>
-              ))}
-            </div>
-          </article>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-const capabilityFields: {
-  label: string;
-  read: (integration: IntegrationSummary) => Capability;
-}[] = [
-  { label: "Prompt intercept", read: (integration) => integration.capabilities.promptInterception },
-  { label: "Skill routing", read: (integration) => integration.capabilities.skillSelectionControl },
-  { label: "Root retry", read: (integration) => integration.capabilities.rootStopContinuation },
-  { label: "Subagent retry", read: (integration) => integration.capabilities.subagentStopContinuation },
-  { label: "Tool prevention", read: (integration) => integration.capabilities.toolPrevention },
-  { label: "Tool observation", read: (integration) => integration.capabilities.toolObservation },
-  { label: "Token usage", read: (integration) => integration.capabilities.stableTokenUsage },
-  { label: "Local evidence", read: (integration) => integration.capabilities.localEvidenceAccess },
-];
-
-function IntegrationsView({
-  integrations,
-  hostContext,
-}: {
-  integrations: IntegrationSummary[];
-  hostContext: HostContext | undefined;
+function ConnectionSignal(input: {
+  readonly context: HostContext | undefined;
+  readonly dataSource: SisyphusDataClient["dataSource"]["kind"];
 }) {
-  return (
-    <div className="integration-grid">
-      {integrations.map((integration) => {
-        const access =
-          hostContext?.kind === "desktop" && integration.scope === "local"
-            ? hostContext.adapterAccess.find(
-                (candidate) => candidate.runtime === integration.runtime,
-              )
-            : undefined;
-        const effectiveStatus =
-          access?.kind === "setup-required" ? "degraded" : integration.status;
-        return (
-          <article className="integration-card" key={integration.id}>
-            <header><div className="integration-card__identity"><RuntimeMark runtime={integration.runtime} /><div><h2>{runtimeLabel(integration.runtime)}</h2><span>{integration.scope} · adapter {integration.adapterVersion}</span></div></div><StatusBadge value={effectiveStatus} /></header>
-            {access?.kind === "setup-required" ? (
-              <p className="integration-warning">{access.reason}</p>
-            ) : null}
-            <div className="integration-meta"><span>Runtime {integration.runtimeVersion}</span><span>Seen {formatTimestamp(integration.lastSeenAt)}</span></div>
-            <div className="capability-list">
-              {capabilityFields.map((field) => <CapabilityRow key={field.label} label={field.label} capability={field.read(integration)} />)}
-            </div>
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-function CapabilityRow({ label, capability }: { label: string; capability: Capability }) {
-  const detail = capability.kind === "partial" ? capability.limitation : capability.kind === "unsupported" ? capability.reason : "Supported by this adapter.";
-  return <div className="capability-row" title={detail}><span>{label}</span><CapabilityBadge capability={capability} /></div>;
-}
-
-function PoliciesView({ snapshot }: { snapshot: DashboardSnapshot }) {
-  return (
-    <div className="policy-grid">
-      {snapshot.policies.map((policy) => {
-        const matchingIntegrations = snapshot.integrations.filter((integration) => policy.runtime === null || integration.runtime === policy.runtime);
-        const gapCount = matchingIntegrations.reduce((sum, integration) => sum + policy.requiredCapabilities.filter((requirement) => integration.capabilities[requirement].kind !== "supported").length, 0);
-        return (
-          <article className="policy-card" key={policy.id}>
-            <header><div><span className={policy.enabled ? "status-dot status-dot--good" : "status-dot"} /><div><h2>{policy.name}</h2><span>{policy.runtime === null ? "All runtimes" : runtimeLabel(policy.runtime)}</span></div></div><span className={policy.enabled ? "toggle-label toggle-label--on" : "toggle-label"}>{policy.enabled ? "Active" : "Off"}</span></header>
-            <div className="policy-stats"><div><span>Pass threshold</span><strong>{policy.passThreshold}</strong></div><div><span>Retry limit</span><strong>{policy.retryLimit}</strong></div><div><span>Capability gaps</span><strong className={gapCount > 0 ? "text-danger" : ""}>{gapCount}</strong></div></div>
-            <div className="tag-row">{policy.requiredCapabilities.map((capability) => <span key={capability}>{splitIdentifier(capability)}</span>)}</div>
-            <footer>Updated {formatTimestamp(policy.updatedAt)}</footer>
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
-function AuditView({ events }: { events: AuditEvent[] }) {
-  return (
-    <Panel title="Audit log">
-      <div className="timeline">
-        {events.map((event) => (
-          <article key={event.id} className="timeline-row">
-            <span className={`timeline-marker timeline-marker--${auditTone(event)}`} />
-            <div><div className="timeline-row__meta"><strong>{splitIdentifier(event.action)}</strong><span>{formatTimestamp(event.occurredAt)}</span></div><p>{event.summary}</p><span className="timeline-row__actor">{event.actor}{event.runtime === null ? "" : ` · ${runtimeLabel(event.runtime)}`}</span></div>
-          </article>
-        ))}
-      </div>
-    </Panel>
-  );
-}
-
-function DevicesView({ snapshot }: { snapshot: DashboardSnapshot }) {
-  return (
-    <div className="device-grid">
-      {snapshot.devices.map((device) => (
-        <article className="device-card" key={device.id}>
-          <header><div className="device-icon" aria-hidden="true">{device.platform === "windows" ? "W" : device.platform === "macos" ? "M" : "L"}</div><div><h2>{device.name}</h2><span>{device.platform}</span></div><StatusBadge value={device.status} /></header>
-          <dl><div><dt>Last seen</dt><dd>{formatTimestamp(device.lastSeenAt)}</dd></div><div><dt>Sync lag</dt><dd>{device.syncLagSeconds < 60 ? `${device.syncLagSeconds}s` : `${Math.round(device.syncLagSeconds / 60)}m`}</dd></div><div><dt>Plugin trust</dt><dd><TrustBadge trust={device.pluginTrust} /></dd></div></dl>
-          <div className="runtime-tags">{device.runtimes.map((runtime) => <span key={runtime}><RuntimeMark runtime={runtime} />{runtimeLabel(runtime)}</span>)}</div>
-        </article>
-      ))}
-    </div>
-  );
-}
-
-function RuntimeMark({ runtime }: { runtime: AgentRuntime }) {
-  return <span className={`runtime-mark runtime-mark--${runtime}`} aria-label={runtimeLabel(runtime)}>{runtimeLabel(runtime).slice(0, 1)}</span>;
-}
-
-function ResultBadge({ result }: { result: EvaluationResult }) {
-  return <span className={`badge badge--result-${result}`}>{resultLabel(result)}</span>;
-}
-
-function CoverageBadge({ coverage }: { coverage: EnforcementCoverage }) {
-  return <span className={`badge badge--coverage-${coverage}`}>{enforcementLabel(coverage)}</span>;
-}
-
-function CapabilityBadge({ capability }: { capability: Capability }) {
-  switch (capability.kind) {
-    case "supported":
-      return <span className="badge badge--supported">Supported</span>;
-    case "partial":
-      return <span className="badge badge--partial">Partial</span>;
-    case "unsupported":
-      return <span className="badge badge--unsupported">Unsupported</span>;
-    default: {
-      const exhaustive: never = capability;
-      return exhaustive;
+  if (input.context?.kind === "desktop") {
+    if (input.context.worker.kind === "offline") {
+      return <><span className="status-dot status-dot--warning" /><div><strong>Worker offline</strong><span>{input.context.worker.reason}</span></div></>;
     }
+    return <><span className="status-dot status-dot--active" /><div><strong>Worker online</strong><span>{input.context.worker.pendingUploads} events pending</span></div></>;
+  }
+  const connected = input.dataSource === "authenticated-session" || input.dataSource === "remote-api";
+  return <><span className={connected ? "status-dot status-dot--active" : "status-dot status-dot--warning"} /><div><strong>{connected ? "Control plane connected" : "Control plane required"}</strong><span>{connected ? "Automatic live refresh" : "No sample data loaded"}</span></div></>;
+}
+
+function OverviewIcon() {
+  return (
+    <svg viewBox="0 0 24 24">
+      <rect x="3" y="3" width="7" height="7" rx="1" />
+      <rect x="14" y="3" width="7" height="7" rx="1" />
+      <rect x="3" y="14" width="7" height="7" rx="1" />
+      <rect x="14" y="14" width="7" height="7" rx="1" />
+    </svg>
+  );
+}
+
+function SkillsIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M13 2 4.5 13h6.2L10 22l9.5-12h-6.2L13 2Z" />
+    </svg>
+  );
+}
+
+function ThemeIcon({ theme }: { readonly theme: AppTheme }) {
+  if (theme === "dark") {
+    return (
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="3.5" />
+        <path d="M12 2.5v2M12 19.5v2M21.5 12h-2M4.5 12h-2M18.72 5.28l-1.42 1.42M6.7 17.3l-1.42 1.42M18.72 18.72l-1.42-1.42M6.7 6.7 5.28 5.28" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20.5 15.2A8.5 8.5 0 0 1 8.8 3.5 8.5 8.5 0 1 0 20.5 15.2Z" />
+    </svg>
+  );
+}
+
+function readStoredTheme(): AppTheme | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const value = window.localStorage.getItem(themeStorageKey);
+    return isAppTheme(value) ? value : undefined;
+  } catch {
+    return undefined;
   }
 }
 
-function DispositionBadge({ disposition }: { disposition: SkillSummary["disposition"] }) {
-  return <span className={`badge badge--disposition-${disposition}`}>{capitalize(disposition)}</span>;
+function storeTheme(theme: AppTheme): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(themeStorageKey, theme);
+  } catch {
+    // Theme persistence is optional when storage is unavailable.
+  }
 }
 
-function StatusBadge({ value }: { value: "healthy" | "degraded" | "offline" | "online" | "stale" }) {
-  const tone = value === "healthy" || value === "online" ? "good" : value === "degraded" || value === "stale" ? "warning" : "bad";
-  return <span className={`status-label status-label--${tone}`}><span className={`status-dot status-dot--${tone}`} />{capitalize(value)}</span>;
+function isAppTheme(value: string | null): value is AppTheme {
+  return value === "dark" || value === "light";
 }
 
-function TrustBadge({ trust }: { trust: DashboardSnapshot["devices"][number]["pluginTrust"] }) {
-  return <span className={`trust-label trust-label--${trust}`}>{capitalize(trust)}</span>;
+function operationMetrics(
+  operations: readonly OperationSummary[],
+  engineeringOperations: readonly EngineeringOperationSummary[],
+) {
+  const activeEngineering = engineeringOperations.filter((operation) =>
+    ["queued", "planning", "working", "integrating", "safety-review", "sandbox-running", "retrying"].includes(
+      operation.status,
+    ),
+  );
+  return {
+    activeOperations:
+      operations.filter((operation) => operation.status === "active" || operation.status === "retrying").length +
+      activeEngineering.length,
+    activeAgents:
+      operations.flatMap((operation) => operation.agents).filter((agent) => agent.status === "active" || agent.status === "retrying").length +
+      activeEngineering.flatMap((operation) => operation.agents).filter((agent) => agent.status === "working" || agent.status === "retrying").length,
+    completedOperations:
+      operations.filter((operation) => operation.status === "passed" || operation.status === "inconclusive").length +
+      engineeringOperations.filter((operation) => operation.status === "approved").length,
+    failedOperations:
+      operations.filter((operation) => operation.status === "failed").length +
+      engineeringOperations.filter((operation) => operation.status === "blocked" || operation.status === "rejected").length,
+  };
 }
 
-function InlineMeter({ value }: { value: number }) {
-  return <div className="inline-meter"><span><i style={{ width: `${value}%` }} /></span><strong>{formatPercent(value)}</strong></div>;
+function isActiveEngineeringStatus(status: EngineeringOperationSummary["status"]): boolean {
+  return ["queued", "planning", "working", "integrating", "safety-review", "sandbox-running", "retrying"].includes(
+    status,
+  );
 }
 
-function auditTone(event: AuditEvent): "good" | "bad" | "warning" | "neutral" {
-  switch (event.action) {
-    case "skill.restored":
-    case "device.enrolled":
-      return "good";
-    case "skill.quarantined":
-      return "bad";
-    case "integration.degraded":
+function isSelectedEngineeringAgent(
+  selection: EngineeringAgentSelection | undefined,
+  taskId: string,
+  agentId: string,
+): boolean {
+  return selection?.taskId === taskId && selection.agentId === agentId;
+}
+
+function executionLabel(operation: EngineeringOperationSummary): string {
+  return operation.sandbox.buildId?.startsWith("local-") === true ? "Local execution" : "Sandbox";
+}
+
+function executionArchiveSlot(
+  operation: EngineeringOperationSummary,
+  events: readonly EngineeringEventSummary[],
+): number | undefined {
+  const archiveEvent = events.find(
+    (event) => event.type === "FILE_CHANGED" && /execution folder\s+\d+/iu.test(event.summary),
+  );
+  const slot = archiveEvent?.summary.match(/execution folder\s+(\d+)/iu)?.[1];
+  if (slot !== undefined) return Number(slot);
+  const archiveEvidence = operation.evidence.find((item) => item.check === "Generated source archive");
+  const evidenceSlot = archiveEvidence?.detail.match(/[\\/](\d+)\.?$/u)?.[1];
+  return evidenceSlot === undefined ? undefined : Number(evidenceSlot);
+}
+
+function engineeringStatusLabel(status: EngineeringOperationSummary["status"]): string {
+  return status.replaceAll("-", " ").replace(/^./u, (character) => character.toUpperCase());
+}
+
+function engineeringStatusTone(
+  status: EngineeringOperationSummary["status"],
+): "active" | "warning" | "success" | "danger" | "muted" {
+  switch (status) {
+    case "queued":
+    case "planning":
+    case "working":
+    case "integrating":
+    case "sandbox-running":
+      return "active";
+    case "safety-review":
+    case "retrying":
       return "warning";
-    case "evaluation.completed":
-    case "retry.issued":
-    case "adapter.changed":
-    case "policy.updated":
-    case "event.ingested":
-      return "neutral";
+    case "approved":
+      return "success";
+    case "blocked":
+    case "rejected":
+      return "danger";
     default: {
-      const exhaustive: never = event.action;
+      const exhaustive: never = status;
       return exhaustive;
     }
   }
 }
 
-function capitalize(value: string): string {
-  return value.length === 0 ? value : `${value.slice(0, 1).toUpperCase()}${value.slice(1)}`;
+function displayRole(role: string): string {
+  return role.replaceAll(/[-_]+/gu, " ").replace(/^./u, (character) => character.toUpperCase());
 }
 
-function splitIdentifier(value: string): string {
-  return value
-    .replaceAll(".", " ")
-    .replaceAll(/([a-z])([A-Z])/gu, "$1 $2")
-    .toLowerCase();
-}
-
-function workspaceInitials(name: string): string {
-  return name
-    .split(/\s+/u)
-    .filter((part) => part.length > 0)
-    .slice(0, 2)
-    .map((part) => part.slice(0, 1).toUpperCase())
-    .join("");
-}
-
-function agentCohorts(agents: DashboardSnapshot["agents"]): {
-  key: string;
-  runtime: DashboardSnapshot["agents"][number]["runtime"];
-  profile: DashboardSnapshot["agents"][number]["profile"];
-  runtimeVersion: string;
-  adapterVersion: string;
-  adapterInstallationId: string;
-  comparisonCohortId: string;
-  attribution: DashboardSnapshot["agents"][number]["attributionCohort"];
-  enforcement: DashboardSnapshot["agents"][number]["enforcementCohort"];
-  agents: DashboardSnapshot["agents"];
-}[] {
-  const cohorts = new Map<string, DashboardSnapshot["agents"]>();
-  for (const agent of agents) {
-    const key = JSON.stringify([
-      agent.comparisonCohortId,
-      agent.runtime,
-      agent.profile,
-      agent.runtimeVersion,
-      agent.adapterVersion,
-      agent.attributionCohort,
-      agent.enforcementCohort,
-    ]);
-    const cohort = cohorts.get(key) ?? [];
-    cohort.push(agent);
-    cohorts.set(key, cohort);
-  }
-  return [...cohorts.entries()].map(([key, cohortAgents]) => {
-    const first = cohortAgents[0];
-    if (first === undefined) {
-      throw new Error("An agent cohort cannot be empty.");
+function statusLabel(status: LiveAgentStatus): string {
+  switch (status) {
+    case "active": return "Working";
+    case "retrying": return "Retrying";
+    case "passed": return "Passed";
+    case "failed": return "Failed";
+    case "inconclusive": return "Inconclusive";
+    default: {
+      const exhaustive: never = status;
+      return exhaustive;
     }
-    return {
-      key,
-      runtime: first.runtime,
-      profile: first.profile,
-      runtimeVersion: first.runtimeVersion,
-      adapterVersion: first.adapterVersion,
-      adapterInstallationId: first.adapterInstallationId,
-      comparisonCohortId: first.comparisonCohortId,
-      attribution: first.attributionCohort,
-      enforcement: first.enforcementCohort,
-      agents: [...cohortAgents].sort((left, right) => right.averageScore - left.averageScore),
-    };
-  });
+  }
+}
+
+function statusTone(status: LiveAgentStatus): "active" | "warning" | "success" | "danger" | "muted" {
+  switch (status) {
+    case "active": return "active";
+    case "retrying": return "warning";
+    case "passed": return "success";
+    case "failed": return "danger";
+    case "inconclusive": return "muted";
+    default: {
+      const exhaustive: never = status;
+      return exhaustive;
+    }
+  }
+}
+
+function activityLabel(activity: LiveAgentSummary["activity"]): string {
+  switch (activity) {
+    case "prompt-received": return "Task received";
+    case "tool-requested": return "Using tool";
+    case "tool-completed": return "Tool finished";
+    case "evaluation-completed": return "Evaluation";
+    default: {
+      const exhaustive: never = activity;
+      return exhaustive;
+    }
+  }
+}
+
+function agentRole(agent: LiveAgentSummary): string {
+  if (agent.role === null) return agent.kind === "root" ? "Orchestrator" : "Subagent";
+  return agent.role
+    .replaceAll(/[-_]+/gu, " ")
+    .replace(/^./u, (character) => character.toUpperCase());
+}
+
+function compactIdentifier(value: string): string {
+  if (value.length <= 24) return value;
+  return `${value.slice(0, 10)}…${value.slice(-8)}`;
+}
+
+function formatTokenCount(value: number): string {
+  return new Intl.NumberFormat("en-US").format(value);
+}
+
+function tokenDifferenceLabel(
+  comparison: Extract<TokenBurnComparison, { readonly kind: "measured" }>,
+): string {
+  const difference = comparison.before.tokens - comparison.withSisyphus.tokens;
+  if (difference === 0) return "No change";
+  return `${formatTokenCount(Math.abs(difference))} ${difference > 0 ? "fewer" : "more"}`;
+}
+
+function tokenComparisonUnavailableMessage(
+  reason: Extract<TokenBurnComparison, { readonly kind: "unavailable" }>["reason"],
+): string {
+  switch (reason) {
+    case "no-paired-runs":
+      return "A compatible before-and-with-Sisyphus run pair is required.";
+    case "token-usage-unavailable":
+      return "The paired runtime did not report token usage.";
+    case "incompatible-runs":
+      return "The available runs cannot be compared safely.";
+    default: {
+      const exhaustive: never = reason;
+      return exhaustive;
+    }
+  }
+}
+
+function auditTone(event: AuditEvent): "active" | "warning" | "success" {
+  if (event.action === "retry.issued") return "warning";
+  if (event.action === "evaluation.completed") return "success";
+  return "active";
 }

@@ -65,6 +65,36 @@ export const SkillDispositionSchema = z.enum([
 ]);
 export type SkillDisposition = z.infer<typeof SkillDispositionSchema>;
 
+const TokenBurnSampleSchema = z
+  .object({
+    runId: z.string().trim().min(1),
+    tokens: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const TokenBurnComparisonSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("unavailable"),
+      reason: z.enum([
+        "no-paired-runs",
+        "token-usage-unavailable",
+        "incompatible-runs",
+      ]),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("measured"),
+      pairId: z.string().trim().min(1),
+      source: z.literal("provider-reported"),
+      before: TokenBurnSampleSchema,
+      withSisyphus: TokenBurnSampleSchema,
+    })
+    .strict(),
+]);
+export type TokenBurnComparison = z.infer<typeof TokenBurnComparisonSchema>;
+
 export const OverviewSchema = z
   .object({
     totalRuns: z.number().int().nonnegative(),
@@ -72,7 +102,7 @@ export const OverviewSchema = z
     retryRecoveryRate: z.number().min(0).max(100),
     terminalFailures: z.number().int().nonnegative(),
     tokensSpent: z.number().int().nonnegative(),
-    tokensAvoidedEstimate: z.number().int().nonnegative(),
+    tokenBurnComparison: TokenBurnComparisonSchema,
     averageLatencyMs: z.number().int().nonnegative(),
     enforcedShare: z.number().min(0).max(100),
   })
@@ -170,6 +200,135 @@ export const SkillSummarySchema = z
     }
   });
 export type SkillSummary = z.infer<typeof SkillSummarySchema>;
+
+export const SkillRegistryMetricsSchema = z.object({
+  executions: z.number().int().nonnegative(),
+  failures: z.number().int().nonnegative(),
+  successRate: z.number().min(0).max(100).nullable(),
+  averageRetries: z.number().nonnegative().nullable(),
+  averageExecutionMs: z.number().nonnegative().nullable(),
+  lastEvaluatedAt: z.string().datetime().nullable(),
+  averageScore: z.number().min(0).max(100).nullable(),
+}).strict();
+
+export const SkillRegistryEntrySchema = z.object({
+  id: z.string().regex(/^[a-z0-9-]+$/u),
+  name: z.string().min(1),
+  role: z.string().min(1),
+  description: z.string().min(1),
+  triggers: z.array(z.string()),
+  category: z.string().min(1),
+  phase: z.string().min(1),
+  tags: z.array(z.string()),
+  source: z.enum(["upstream", "enhanced", "custom"]),
+  baseSkillId: z.string().regex(/^[a-z0-9-]+$/u).nullable(),
+  status: z.enum(["active", "needs-improvement", "draft"]),
+  version: z.string().min(1),
+  contentDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  sourceUrl: z.string().url(),
+  license: z.string().min(1),
+  lastSyncedAt: z.string().datetime(),
+  metrics: SkillRegistryMetricsSchema,
+}).strict();
+export type SkillRegistryEntry = z.infer<typeof SkillRegistryEntrySchema>;
+
+export const SkillRegistryListResponseSchema = z.object({
+  items: z.array(SkillRegistryEntrySchema),
+}).strict();
+export type SkillRegistryListResponse = z.infer<typeof SkillRegistryListResponseSchema>;
+
+export const SkillExecutionScoreSchema = z.object({
+  total: z.number().min(0).max(100),
+  functional: z.number().min(0).max(100),
+  contractTests: z.number().min(0).max(100),
+  security: z.number().min(0).max(100),
+  requirementCompliance: z.number().min(0).max(100),
+  codeQuality: z.number().min(0).max(100),
+}).strict();
+
+export const SkillImprovementProposalSchema = z.object({
+  id: z.string().regex(/^proposal-[a-f0-9]{16}$/u),
+  skillId: z.string().regex(/^[a-z0-9-]+$/u),
+  status: z.enum(["proposed", "applied", "rejected"]),
+  observedIssue: z.string().min(1),
+  evidence: z.object({
+    executionCount: z.number().int().nonnegative(),
+    failureCount: z.number().int().nonnegative(),
+    failureExamples: z.array(z.string().min(1)).max(3),
+  }).strict(),
+  suggestedImprovement: z.string().min(1),
+  expectedImpact: z.string().min(1),
+  confidence: z.enum(["low", "medium", "high"]),
+  createdAt: z.string().datetime(),
+  resolvedAt: z.string().datetime().nullable(),
+}).strict();
+export type SkillImprovementProposal = z.infer<typeof SkillImprovementProposalSchema>;
+
+export const SkillPerformanceSchema = z.object({
+  trend: z.array(z.number().min(0).max(100)).max(10),
+  compatibility: z.array(z.object({
+    model: z.string().min(1),
+    executions: z.number().int().nonnegative(),
+    successRate: z.number().min(0).max(100),
+  }).strict()),
+  recentFailures: z.array(z.object({
+    executionId: z.string().min(1),
+    requirementId: z.string().min(1),
+    model: z.string().min(1),
+    evidence: z.string().min(1),
+    recordedAt: z.string().datetime(),
+  }).strict()).max(5),
+}).strict();
+export type SkillPerformance = z.infer<typeof SkillPerformanceSchema>;
+
+export const SkillRegistryDetailSchema = SkillRegistryEntrySchema.extend({
+  instructions: z.string().min(1).max(300_000),
+  performance: SkillPerformanceSchema,
+  proposals: z.array(SkillImprovementProposalSchema),
+}).strict();
+export type SkillRegistryDetail = z.infer<typeof SkillRegistryDetailSchema>;
+
+export const SkillRegistryDetailResponseSchema = z.object({
+  skill: SkillRegistryDetailSchema,
+}).strict();
+export type SkillRegistryDetailResponse = z.infer<typeof SkillRegistryDetailResponseSchema>;
+
+export const SkillRegistrySyncResponseSchema = z.object({
+  added: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+  unchanged: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  syncedAt: z.string().datetime(),
+}).strict();
+export type SkillRegistrySyncResponse = z.infer<typeof SkillRegistrySyncResponseSchema>;
+
+export const SkillRegistrySyncPreviewSchema = z.object({
+  added: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+  unchanged: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  localEnhancements: z.number().int().nonnegative(),
+  sourceRevision: z.string().min(1),
+}).strict();
+export type SkillRegistrySyncPreview = z.infer<typeof SkillRegistrySyncPreviewSchema>;
+
+export const ResolveSkillImprovementProposalSchema = z.object({
+  action: z.enum(["apply", "reject"]),
+}).strict();
+export type ResolveSkillImprovementProposal = z.infer<typeof ResolveSkillImprovementProposalSchema>;
+
+export const CreateCustomSkillSchema = z.object({
+  name: z.string().trim().regex(/^[a-z0-9-]+$/u),
+  description: z.string().trim().min(20).max(2_000),
+  role: z.string().trim().min(2).max(100),
+  category: z.string().trim().min(2).max(100),
+  phase: z.string().trim().min(2).max(100),
+  triggerConditions: z.array(z.string().trim().min(3).max(300)).min(1).max(20),
+  executionWorkflow: z.string().trim().min(20).max(12_000),
+  outputTemplate: z.string().trim().min(10).max(8_000),
+  definitionOfDone: z.string().trim().min(10).max(8_000),
+}).strict();
+export type CreateCustomSkill = z.infer<typeof CreateCustomSkillSchema>;
 
 export const ConflictCandidateSchema = z
   .object({
@@ -271,6 +430,256 @@ export const DeviceSummarySchema = z
   .strict();
 export type DeviceSummary = z.infer<typeof DeviceSummarySchema>;
 
+export const LiveAgentStatusSchema = z.enum([
+  "active",
+  "retrying",
+  "passed",
+  "failed",
+  "inconclusive",
+]);
+export type LiveAgentStatus = z.infer<typeof LiveAgentStatusSchema>;
+
+export const AgentActivitySchema = z.enum([
+  "prompt-received",
+  "tool-requested",
+  "tool-completed",
+  "evaluation-completed",
+]);
+export type AgentActivity = z.infer<typeof AgentActivitySchema>;
+
+export const LiveAgentSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    agentId: z.string().min(1),
+    parentAgentId: z.string().min(1).nullable(),
+    kind: z.enum(["root", "subagent"]),
+    role: z.string().trim().min(1).max(160).nullable(),
+    runtime: AgentRuntimeSchema,
+    profile: RuntimeProfileSchema,
+    project: z.string().min(1),
+    workItemId: z.string().min(1),
+    status: LiveAgentStatusSchema,
+    activity: AgentActivitySchema,
+    activityDetail: z.string().trim().min(1).max(280),
+    selectedSkillVersionId: z.string().min(1).nullable(),
+    attempts: z.number().int().min(1).max(3),
+    startedAt: z.string().datetime(),
+    lastSeenAt: z.string().datetime(),
+    completedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+export type LiveAgentSummary = z.infer<typeof LiveAgentSummarySchema>;
+
+export const OperationStatusSchema = LiveAgentStatusSchema;
+export type OperationStatus = z.infer<typeof OperationStatusSchema>;
+
+export const OperationSummarySchema = z
+  .object({
+    id: z.string().min(1),
+    runId: z.string().min(1),
+    taskSummary: z.string().trim().min(1).max(280),
+    project: z.string().min(1),
+    runtime: AgentRuntimeSchema,
+    profile: RuntimeProfileSchema,
+    status: OperationStatusSchema,
+    selectedSkillVersionId: z.string().min(1).nullable(),
+    startedAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    completedAt: z.string().datetime().nullable(),
+    agents: z.array(LiveAgentSummarySchema),
+  })
+  .strict();
+export type OperationSummary = z.infer<typeof OperationSummarySchema>;
+
+export const EngineeringTaskSubmissionSchema = z
+  .object({ request: z.string().trim().min(20).max(4_000) })
+  .strict();
+export type EngineeringTaskSubmission = z.infer<
+  typeof EngineeringTaskSubmissionSchema
+>;
+
+export const EngineeringOperationStatusSchema = z.enum([
+  "queued",
+  "planning",
+  "working",
+  "integrating",
+  "safety-review",
+  "sandbox-running",
+  "retrying",
+  "blocked",
+  "approved",
+  "rejected",
+]);
+export type EngineeringOperationStatus = z.infer<
+  typeof EngineeringOperationStatusSchema
+>;
+
+export const EngineeringAgentStatusSchema = z.enum([
+  "planned",
+  "working",
+  "waiting",
+  "completed",
+  "failed",
+  "retrying",
+  "reassigned",
+  "blocked",
+]);
+export type EngineeringAgentStatus = z.infer<typeof EngineeringAgentStatusSchema>;
+
+export const EngineeringActivitySchema = z.enum([
+  "analyzing-requirements",
+  "planning-work",
+  "editing-files",
+  "writing-tests",
+  "reviewing-security",
+  "waiting-for-integration",
+  "resolving-conflict",
+  "awaiting-sandbox",
+  "reviewing-failure",
+  "preparing-retry",
+  "blocked-by-configuration",
+]);
+export type EngineeringActivity = z.infer<typeof EngineeringActivitySchema>;
+
+export const EngineeringScoreSchema = z
+  .object({
+    total: z.number().min(0).max(100),
+    functional: z.number().min(0).max(100),
+    contractTests: z.number().min(0).max(100),
+    security: z.number().min(0).max(100),
+    requirementCompliance: z.number().min(0).max(100),
+    codeQuality: z.number().min(0).max(100),
+  })
+  .strict();
+export type EngineeringScore = z.infer<typeof EngineeringScoreSchema>;
+
+export const EngineeringSelectedSkillEvidenceSchema = z
+  .object({
+    id: z.string().trim().regex(/^[a-z0-9-]+$/u),
+    name: z.string().trim().min(1).max(240),
+    skillVersionId: z.string().trim().min(1).max(240),
+    contentHash: z.string().regex(/^sha256:[a-f0-9]{64}$/u),
+  })
+  .strict();
+export type EngineeringSelectedSkillEvidence = z.infer<
+  typeof EngineeringSelectedSkillEvidenceSchema
+>;
+
+export const EngineeringAgentSummarySchema = z
+  .object({
+    id: z.string().trim().min(1),
+    role: z.string().trim().min(2).max(80),
+    model: z.string().trim().min(1).max(200),
+    requirementIds: z.array(z.string().trim().min(1)).min(1).max(30),
+    branch: z.string().trim().min(1).max(240),
+    iteration: z.number().int().min(1).max(3),
+    status: EngineeringAgentStatusSchema,
+    activity: EngineeringActivitySchema,
+    activityDetail: z.string().trim().min(1).max(280),
+    selectedSkills: z.array(EngineeringSelectedSkillEvidenceSchema).max(4).default([]),
+    score: EngineeringScoreSchema.nullable(),
+    filesChanged: z.array(z.string().trim().min(1).max(500)).max(200),
+    commitId: z.string().trim().min(7).max(80).nullable(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+export type EngineeringAgentSummary = z.infer<
+  typeof EngineeringAgentSummarySchema
+>;
+
+export const EngineeringRequirementSummarySchema = z
+  .object({
+    id: z.string().trim().min(1),
+    title: z.string().trim().min(1).max(240),
+    acceptanceCriteria: z.array(z.string().trim().min(1).max(500)).min(1),
+    status: z.enum(["planned", "in-progress", "passed", "failed", "blocked"]),
+    ownerAgentId: z.string().trim().min(1).nullable(),
+  })
+  .strict();
+export type EngineeringRequirementSummary = z.infer<
+  typeof EngineeringRequirementSummarySchema
+>;
+
+export const EngineeringEvidenceSchema = z
+  .object({
+    requirementId: z.string().trim().min(1).nullable(),
+    check: z.string().trim().min(1).max(200),
+    outcome: z.enum(["passed", "failed", "blocked"]),
+    detail: z.string().trim().min(1).max(500),
+    primaryAgentId: z.string().trim().min(1).nullable(),
+    attributionConfidence: z.number().min(0).max(1).nullable(),
+  })
+  .strict();
+export type EngineeringEvidence = z.infer<typeof EngineeringEvidenceSchema>;
+
+export const EngineeringEventSummarySchema = z
+  .object({
+    id: z.string().trim().min(1),
+    taskId: z.string().trim().min(1),
+    type: z.string().trim().min(1).max(80),
+    occurredAt: z.string().datetime(),
+    summary: z.string().trim().min(1).max(500),
+    payloadDigest: z.string().regex(/^[a-f0-9]{64}$/u),
+  })
+  .strict();
+export type EngineeringEventSummary = z.infer<
+  typeof EngineeringEventSummarySchema
+>;
+
+export const EngineeringOperationSummarySchema = z
+  .object({
+    id: z.string().trim().min(1),
+    requestSummary: z.string().trim().min(1).max(280),
+    status: EngineeringOperationStatusSchema,
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+    requirements: z.array(EngineeringRequirementSummarySchema),
+    agents: z.array(EngineeringAgentSummarySchema),
+    safety: z
+      .object({
+        status: z.enum(["not-started", "running", "passed", "failed", "blocked"]),
+        findings: z.number().int().nonnegative(),
+      })
+      .strict(),
+    sandbox: z
+      .object({
+        status: z.enum(["not-started", "queued", "running", "passed", "failed", "blocked"]),
+        buildId: z.string().trim().min(1).nullable(),
+        detectedPort: z.number().int().min(1).max(65_535).nullable(),
+      })
+      .strict(),
+    evidence: z.array(EngineeringEvidenceSchema).max(50),
+  })
+  .strict();
+export type EngineeringOperationSummary = z.infer<
+  typeof EngineeringOperationSummarySchema
+>;
+
+export const CreateEngineeringTaskResponseSchema = z
+  .object({ operation: EngineeringOperationSummarySchema })
+  .strict();
+export type CreateEngineeringTaskResponse = z.infer<
+  typeof CreateEngineeringTaskResponseSchema
+>;
+
+export const ClearEngineeringHistoryResponseSchema = z
+  .object({
+    removedTaskCount: z.number().int().nonnegative(),
+    removedEventCount: z.number().int().nonnegative(),
+  })
+  .strict();
+export type ClearEngineeringHistoryResponse = z.infer<
+  typeof ClearEngineeringHistoryResponseSchema
+>;
+
+export const EngineeringDashboardSchema = z
+  .object({
+    operations: z.array(EngineeringOperationSummarySchema).max(20),
+    events: z.array(EngineeringEventSummarySchema).max(100),
+  })
+  .strict();
+export type EngineeringDashboard = z.infer<typeof EngineeringDashboardSchema>;
+
 export const DashboardSnapshotSchema = z
   .object({
     generatedAt: z.string().datetime(),
@@ -282,6 +691,8 @@ export const DashboardSnapshotSchema = z
       })
       .strict(),
     overview: OverviewSchema,
+    operations: z.array(OperationSummarySchema).default([]),
+    engineering: EngineeringDashboardSchema.default({ operations: [], events: [] }),
     runs: z.array(RunSummarySchema),
     agents: z.array(AgentSummarySchema),
     skills: z.array(SkillSummarySchema),
@@ -362,84 +773,6 @@ export const HostContextSchema = z.discriminatedUnion("kind", [
 export type HostContext = z.infer<typeof HostContextSchema>;
 
 export const HostedCsrfTokenSchema = z.string().regex(/^[a-f0-9]{64}$/u);
-
-export const HostedBearerCredentialSchema = z
-  .object({
-    token: z.string().trim().min(1).max(2048).regex(/^[A-Za-z0-9._~-]+$/u),
-  })
-  .strict();
-
-export const HostedSessionPayloadSchema = z
-  .object({
-    version: z.literal(1),
-    bearerToken: HostedBearerCredentialSchema.shape.token,
-    csrfToken: HostedCsrfTokenSchema,
-    expiresAt: z.number().int().positive(),
-  })
-  .strict();
-export type HostedSessionPayload = z.infer<typeof HostedSessionPayloadSchema>;
-
-export const HostedWebServerSettingsSchema = z
-  .object({
-    apiUrl: z.url(),
-    publicOrigin: z.url(),
-    sessionKey: z.string().regex(/^[A-Za-z0-9+/]{43}=$/u),
-    nodeEnv: z.enum(["development", "production", "test"]),
-  })
-  .strict()
-  .superRefine((settings, context) => {
-    const apiUrl = new URL(settings.apiUrl);
-    const publicOrigin = new URL(settings.publicOrigin);
-    if (!new Set(["http:", "https:"]).has(apiUrl.protocol)) {
-      context.addIssue({
-        code: "custom",
-        path: ["apiUrl"],
-        message: "The control-plane URL must use HTTP or HTTPS.",
-      });
-    }
-    if (!new Set(["http:", "https:"]).has(publicOrigin.protocol)) {
-      context.addIssue({
-        code: "custom",
-        path: ["publicOrigin"],
-        message: "The public origin must use HTTP or HTTPS.",
-      });
-    }
-    if (
-      apiUrl.username.length > 0 ||
-      apiUrl.password.length > 0 ||
-      apiUrl.search.length > 0 ||
-      apiUrl.hash.length > 0
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["apiUrl"],
-        message: "The control-plane URL cannot contain credentials, a query, or a fragment.",
-      });
-    }
-    if (
-      publicOrigin.username.length > 0 ||
-      publicOrigin.password.length > 0 ||
-      publicOrigin.pathname !== "/" ||
-      publicOrigin.search.length > 0 ||
-      publicOrigin.hash.length > 0
-    ) {
-      context.addIssue({
-        code: "custom",
-        path: ["publicOrigin"],
-        message: "The public origin must contain only a scheme and host.",
-      });
-    }
-    if (
-      settings.nodeEnv === "production" &&
-      (apiUrl.protocol !== "https:" || publicOrigin.protocol !== "https:")
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "Production control-plane and public URLs must use HTTPS.",
-      });
-    }
-  });
-export type HostedWebServerSettings = z.infer<typeof HostedWebServerSettingsSchema>;
 
 export const EventIngestRequestSchema = z
   .object({

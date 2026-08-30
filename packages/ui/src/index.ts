@@ -1,4 +1,5 @@
 export { DashboardApp } from "./DashboardApp.js";
+export { SkillsView } from "./SkillsView.js";
 export {
   createDemoDataClient,
   createHttpDataClient,
@@ -7,3 +8,4 @@ export {
   type SisyphusDataClient,
 } from "./client.js";
 export * from "./contracts.js";
+export { createEmptyDashboardSnapshot } from "./empty-snapshot.js";

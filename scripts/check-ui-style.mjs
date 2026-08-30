@@ -11,17 +11,6 @@ const renderedUiPaths = [
   "apps/web/app/web.css",
   "apps/desktop/src/renderer/renderer.css",
 ];
-const expectedSections = [
-  "overview",
-  "runs",
-  "agents",
-  "skills",
-  "conflicts",
-  "integrations",
-  "policies",
-  "audit",
-  "devices",
-];
 const forbiddenStyles = [
   {
     label: "gradient",
@@ -139,51 +128,28 @@ for (const relativePath of renderedUiPaths) {
 }
 
 const dashboardSource = sources.get(dashboardPath);
-const oldGlyphField = /\bglyph\s*:/gu.exec(dashboardSource);
-if (oldGlyphField) {
+const cannedLaunchControl = /Create an authentication page with frontend|Launch demo task/giu.exec(
+  dashboardSource,
+);
+if (cannedLaunchControl) {
   addViolation(
     dashboardPath,
     dashboardSource,
-    oldGlyphField.index,
-    "remove the old glyph field from the section registry",
+    cannedLaunchControl.index,
+    "the overview must not contain a canned demo task control",
   );
 }
 
-const sectionIconMatch = /\bfunction\s+SectionIcon\s*\(/u.exec(dashboardSource);
-if (!sectionIconMatch) {
-  addViolation(dashboardPath, dashboardSource, 0, "SectionIcon function is missing");
-} else {
-  const parametersOpen = dashboardSource.indexOf("(", sectionIconMatch.index);
-  const parametersClose = findMatchingDelimiter(dashboardSource, parametersOpen, "(", ")");
-  const bodyOpen = dashboardSource.indexOf("{", parametersClose + 1);
-  const bodyClose = findMatchingDelimiter(dashboardSource, bodyOpen, "{", "}");
-
-  if (parametersClose === -1 || bodyOpen === -1 || bodyClose === -1) {
-    addViolation(
-      dashboardPath,
-      dashboardSource,
-      sectionIconMatch.index,
-      "SectionIcon function could not be parsed",
-    );
-  } else {
-    const sectionIconBody = dashboardSource.slice(bodyOpen + 1, bodyClose);
-    const sectionCases = new Set(
-      [...sectionIconBody.matchAll(/\bcase\s+(["'])([^"']+)\1\s*:/gu)].map(
-        (match) => match[2],
-      ),
-    );
-
-    for (const section of expectedSections) {
-      if (!sectionCases.has(section)) {
-        addViolation(
-          dashboardPath,
-          dashboardSource,
-          sectionIconMatch.index,
-          `SectionIcon is missing the ${section} case`,
-        );
-      }
-    }
-  }
+const legacyNavigation = /\b(?:navigationGroups|DashboardSection|RunsView|AgentsView)\b/gu.exec(
+  dashboardSource,
+);
+if (legacyNavigation) {
+  addViolation(
+    dashboardPath,
+    dashboardSource,
+    legacyNavigation.index,
+    "legacy multi-section dashboard navigation must stay removed",
+  );
 }
 
 const sharedStyles = sources.get(sharedStylesPath);
@@ -191,15 +157,15 @@ const drawerBlocks = findMediaBlocks(
   sharedStyles,
   /@media[^\{]*\(\s*max-width\s*:\s*900px\s*\)[^\{]*\{/giu,
 );
-const hasDrawerBreakpoint = drawerBlocks.some(
-  (block) => /\.side-nav(?=[\s,{.:>+~])/u.test(block) && /\.side-nav--open\b/u.test(block),
+const hasResponsiveSidebar = drawerBlocks.some(
+  (block) => /\.overview-sidebar(?=[\s,{.:>+~])/u.test(block),
 );
-if (!hasDrawerBreakpoint) {
+if (!hasResponsiveSidebar) {
   addViolation(
     sharedStylesPath,
     sharedStyles,
     0,
-    "the 900px media query must contain the side navigation drawer states",
+    "the 900px media query must contain the compact overview sidebar state",
   );
 }
 
