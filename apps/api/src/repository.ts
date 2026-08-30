@@ -16,6 +16,7 @@ import type {
   DashboardSnapshot,
   RestoreSkillResponse,
 } from "@sisyphus/ui/contracts";
+import { createEmptyDashboardSnapshot } from "@sisyphus/ui";
 import {
   createDemoSnapshot,
   createRestoredAuditEvent,
@@ -309,6 +310,32 @@ function tenantSeed(): Map<string, TenantState> {
   ]);
 }
 
+function liveTenantSeed(): Map<string, TenantState> {
+  const snapshot = createEmptyDashboardSnapshot({
+    workspace: {
+      id: "tenant-acme",
+      name: "Sisyphus Local",
+      environment: "Live development",
+    },
+  });
+  return new Map([
+    [
+      "tenant-acme",
+      {
+        name: "Sisyphus Local",
+        snapshot,
+        ingestEvents: new Map(),
+        dispositionTransitions: [],
+        policyRevision: 0,
+        adapterConfigurationDigest: adapterConfigurationDigest(snapshot),
+        policyBundleIssuances: new Map(),
+        signedPolicyBundles: new Map(),
+        judgeRequests: new Map(),
+      },
+    ],
+  ]);
+}
+
 function credentialSeed(): Map<string, AuthContext> {
   return new Map<string, AuthContext>([
     [
@@ -368,11 +395,13 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
   readonly #secretCipher: SecretCipher;
 
   public constructor(input?: {
+    seed?: "demo" | "live";
     tenants?: Map<string, TenantState>;
     credentials?: Map<string, AuthContext>;
     secretCipher?: SecretCipher;
   }) {
-    this.#tenants = input?.tenants ?? tenantSeed();
+    this.#tenants =
+      input?.tenants ?? (input?.seed === "live" ? liveTenantSeed() : tenantSeed());
     this.#credentials = input?.credentials ?? credentialSeed();
     this.#secretCipher = input?.secretCipher ?? new AesGcmSecretCipher();
   }
@@ -833,6 +862,7 @@ export class InMemoryControlPlaneRepository implements ControlPlaneRepository {
 }
 
 export function createInMemoryRepository(input?: {
+  seed?: "demo" | "live";
   secretCipher?: SecretCipher;
 }): ControlPlaneRepository {
   return new InMemoryControlPlaneRepository(input);

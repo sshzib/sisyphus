@@ -14,6 +14,9 @@ import type {
   EnforcementCoverage,
   EvaluationResult,
   IntegrationSummary,
+  LiveAgentStatus,
+  LiveAgentSummary,
+  OperationSummary,
   RunSummary,
   SkillSummary,
 } from "@sisyphus/ui/contracts";
@@ -627,13 +630,202 @@ function updateOverview(snapshot: DashboardSnapshot): DashboardSnapshot["overvie
         : Math.round((weightedRecoveries / retryRuns) * 10) / 10,
     terminalFailures,
     tokensSpent,
-    tokensAvoidedEstimate: Math.round(tokensSpent * 0.143),
+    tokenBurnComparison: {
+      kind: "unavailable",
+      reason: "no-paired-runs",
+    },
     averageLatencyMs,
     enforcedShare:
       snapshot.runs.length === 0
         ? 0
         : Math.round((enforcedRuns / snapshot.runs.length) * 1_000) / 10,
   };
+}
+
+function liveAgentStatus(record: CloudSupervisionRecord): LiveAgentStatus {
+  if (record.kind !== "completion") return "active";
+  switch (record.evaluation.kind) {
+    case "pass":
+      return "passed";
+    case "retryable-failure":
+      return "retrying";
+    case "terminal-failure":
+      return "failed";
+    case "inconclusive":
+    case "late":
+      return "inconclusive";
+    default: {
+      const exhaustive: never = record.evaluation;
+      return exhaustive;
+    }
+  }
+}
+
+function selectedSkillVersionId(record: CloudSupervisionRecord): string | null {
+  if (record.kind === "prompt-resolution") {
+    return record.resolution.kind === "selected"
+      ? record.resolution.selectedSkillVersionId
+      : null;
+  }
+  if (record.kind === "completion" && record.attribution.kind !== "none") {
+    return record.attribution.skillVersionId;
+  }
+  return null;
+}
+
+function liveActivity(record: CloudSupervisionRecord): Pick<
+  LiveAgentSummary,
+  "activity" | "activityDetail"
+> {
+  switch (record.kind) {
+    case "prompt-resolution":
+      return {
+        activity: "prompt-received",
+        activityDetail:
+          record.resolution.kind === "selected"
+            ? `Prompt accepted · ${record.resolution.selectedSkillVersionId} selected`
+            : "Prompt accepted · no managed skill selected",
+      };
+    case "tool-observation":
+      return {
+        activity:
+          record.observation.phase === "request"
+            ? "tool-requested"
+            : "tool-completed",
+        activityDetail: `${record.toolName} · ${record.observation.outcome}`,
+      };
+    case "completion":
+      return {
+        activity: "evaluation-completed",
+        activityDetail: `Evaluation ${record.evaluation.kind.replaceAll("-", " ")}`,
+      };
+    default: {
+      const exhaustive: never = record;
+      return exhaustive;
+    }
+  }
+}
+
+function latestAgentSummary(input: {
+  existing: LiveAgentSummary | undefined;
+  record: CloudSupervisionRecord;
+}): LiveAgentSummary {
+  const { existing, record } = input;
+  const nextStatus = liveAgentStatus(record);
+  const isLatest =
+    existing === undefined ||
+    Date.parse(record.occurredAt) >= Date.parse(existing.lastSeenAt);
+  if (!isLatest && existing !== undefined) {
+    return {
+      ...existing,
+      startedAt:
+        Date.parse(record.occurredAt) < Date.parse(existing.startedAt)
+          ? record.occurredAt
+          : existing.startedAt,
+    };
+  }
+  const activity = liveActivity(record);
+  const reportedSkill = selectedSkillVersionId(record);
+  const terminal = nextStatus === "passed" || nextStatus === "failed" || nextStatus === "inconclusive";
+  return {
+    id: `${record.runId}:${record.workItemId}`,
+    agentId: record.identity.agent.agentId,
+    parentAgentId:
+      record.identity.agent.kind === "subagent"
+        ? record.identity.agent.parentAgentId
+        : null,
+    kind: record.identity.agent.kind,
+    role:
+      record.identity.agent.kind === "subagent"
+        ? record.identity.agent.role
+        : "orchestrator",
+    runtime: record.runtime,
+    profile: record.runtimeInstallation.profile,
+    project: record.project,
+    workItemId: record.workItemId,
+    status: nextStatus,
+    ...activity,
+    selectedSkillVersionId:
+      reportedSkill ?? existing?.selectedSkillVersionId ?? null,
+    attempts:
+      record.kind === "completion"
+        ? record.evaluation.attempts
+        : existing?.attempts ?? 1,
+    startedAt:
+      existing === undefined ||
+      Date.parse(record.occurredAt) < Date.parse(existing.startedAt)
+        ? record.occurredAt
+        : existing.startedAt,
+    lastSeenAt: record.occurredAt,
+    completedAt: terminal ? record.occurredAt : null,
+  };
+}
+
+function operationStatus(agents: readonly LiveAgentSummary[]): LiveAgentStatus {
+  const root = agents.find((agent) => agent.kind === "root");
+  if (root !== undefined) return root.status;
+  return agents.some((agent) => agent.status === "retrying")
+    ? "retrying"
+    : "active";
+}
+
+function projectOperation(
+  operations: readonly OperationSummary[],
+  record: CloudSupervisionRecord,
+): OperationSummary[] {
+  const existing = operations.find((operation) => operation.runId === record.runId);
+  const agentId = `${record.runId}:${record.workItemId}`;
+  const nextAgent = latestAgentSummary({
+    existing: existing?.agents.find((agent) => agent.id === agentId),
+    record,
+  });
+  const agents = [
+    ...(existing?.agents.filter((agent) => agent.id !== nextAgent.id) ?? []),
+    nextAgent,
+  ].sort((left, right) => {
+    if (left.kind !== right.kind) return left.kind === "root" ? -1 : 1;
+    return Date.parse(left.startedAt) - Date.parse(right.startedAt);
+  });
+  const status = operationStatus(agents);
+  const root = agents.find((agent) => agent.kind === "root");
+  const completedAt =
+    root !== undefined &&
+    (root.status === "passed" ||
+      root.status === "failed" ||
+      root.status === "inconclusive")
+      ? root.completedAt
+      : null;
+  const reportedSkill = selectedSkillVersionId(record);
+  const operation: OperationSummary = {
+    id: record.runId,
+    runId: record.runId,
+    taskSummary:
+      record.kind === "prompt-resolution"
+        ? `Prompt ${record.promptDigest.slice(0, 12)}`
+        : existing?.taskSummary ?? `Run ${record.runId}`,
+    project: existing?.project ?? record.project,
+    runtime: record.runtime,
+    profile: record.runtimeInstallation.profile,
+    status,
+    selectedSkillVersionId:
+      reportedSkill ?? existing?.selectedSkillVersionId ?? null,
+    startedAt:
+      existing === undefined ||
+      Date.parse(record.occurredAt) < Date.parse(existing.startedAt)
+        ? record.occurredAt
+        : existing.startedAt,
+    updatedAt:
+      existing === undefined ||
+      Date.parse(record.occurredAt) >= Date.parse(existing.updatedAt)
+        ? record.occurredAt
+        : existing.updatedAt,
+    completedAt,
+    agents,
+  };
+  return [
+    operation,
+    ...operations.filter((candidate) => candidate.runId !== record.runId),
+  ].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
 }
 
 function projectCommon(input: {
@@ -677,6 +869,7 @@ function projectCommon(input: {
       Date.parse(record.occurredAt) >= Date.parse(input.snapshot.generatedAt)
         ? record.occurredAt
         : input.snapshot.generatedAt,
+    operations: projectOperation(input.snapshot.operations, record),
     integrations: projectIntegration(input.snapshot.integrations, record),
     devices: input.snapshot.devices.map((device) =>
       device.id === input.deviceId

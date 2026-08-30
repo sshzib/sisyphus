@@ -1,4 +1,6 @@
 import cors from "@fastify/cors";
+import { randomUUID, timingSafeEqual } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import {
   CloudSupervisionBatchSchema,
   JudgeResultSchema,
@@ -6,10 +8,21 @@ import {
   RuntimeEventIdSchema,
 } from "@sisyphus/domain";
 import {
+  CreateEngineeringTaskResponseSchema,
+  ClearEngineeringHistoryResponseSchema,
   DashboardQuerySchema,
   DashboardSnapshotSchema,
+  EngineeringEventSummarySchema,
+  EngineeringOperationSummarySchema,
+  EngineeringTaskSubmissionSchema,
+  CreateCustomSkillSchema,
   RestoreSkillRequestSchema,
   RestoreSkillResponseSchema,
+  SkillRegistryDetailResponseSchema,
+  SkillRegistryListResponseSchema,
+  SkillRegistrySyncPreviewSchema,
+  SkillRegistrySyncResponseSchema,
+  ResolveSkillImprovementProposalSchema,
 } from "@sisyphus/ui/contracts";
 import Fastify, {
   type FastifyInstance,
@@ -18,12 +31,23 @@ import Fastify, {
 } from "fastify";
 import { z } from "zod";
 import { containsCredentialShapedString } from "./credential-screen.js";
+import {
+  InMemoryEngineeringTaskStore,
+  type EngineeringTaskStore,
+} from "./engineering-store.js";
+import {
+  FileSkillRegistry,
+  SelectedSkillSchema,
+  SkillExecutionInputSchema,
+  SkillSelectionRequestSchema,
+} from "./skill-registry.js";
 import { isReadyPostgresControlPlaneRepository } from "./database/postgres-repository.js";
 import {
   authenticated,
   bearerToken,
   sendApiError,
   type AuthContext,
+  type CredentialResolver,
 } from "./auth.js";
 import {
   createInMemoryRepository,
@@ -68,15 +92,42 @@ const JudgeProviderConfigurationSchema = z
     model: z.string().trim().min(1).max(120).default("gpt-5-mini"),
   })
   .strict();
+const InternalEngineeringLeaseRequestSchema = z
+  .object({ tenantId: z.string().trim().min(1).max(160) })
+  .strict();
+const InternalEngineeringTaskUpdateSchema = z
+  .object({
+    tenantId: z.string().trim().min(1).max(160),
+    leaseId: z.string().uuid(),
+    operation: EngineeringOperationSummarySchema,
+    events: z.array(EngineeringEventSummarySchema).max(100),
+  })
+  .strict();
+const InternalEngineeringSkillSelectionSchema = z
+  .object({
+    tenantId: z.string().trim().min(1).max(160),
+    selection: SkillSelectionRequestSchema,
+  })
+  .strict();
+const InternalEngineeringSkillExecutionSchema = z
+  .object({
+    tenantId: z.string().trim().min(1).max(160),
+    execution: SkillExecutionInputSchema,
+  })
+  .strict();
 
 export interface CreateAppOptions {
   repository?: ControlPlaneRepository;
+  externalCredentialResolver?: CredentialResolver;
   logger?: boolean;
   corsOrigins?: string[];
   judgeProvider?: JudgeProvider;
   judgeDeadlineMs?: number;
   policyBundleSigner?: PolicyBundleSigner;
   clock?: () => Date;
+  engineeringTaskStore?: EngineeringTaskStore;
+  skillRegistry?: FileSkillRegistry;
+  orchestratorToken?: string;
 }
 
 function requireAuthentication(
@@ -110,10 +161,47 @@ function validationFailure(
   });
 }
 
+function requireOrchestratorCredential(input: {
+  request: FastifyRequest;
+  reply: FastifyReply;
+  configuredToken: string | undefined;
+}): boolean {
+  if (input.configuredToken === undefined) {
+    sendApiError({
+      request: input.request,
+      reply: input.reply,
+      status: 503,
+      error: "orchestrator_not_configured",
+      message: "The engineering orchestrator credential is not configured.",
+    });
+    return false;
+  }
+  const supplied = input.request.headers["x-sisyphus-orchestrator-token"];
+  const suppliedBytes =
+    typeof supplied === "string" ? Buffer.from(supplied, "utf8") : undefined;
+  const configuredBytes = Buffer.from(input.configuredToken, "utf8");
+  if (
+    suppliedBytes === undefined ||
+    suppliedBytes.length !== configuredBytes.length ||
+    !timingSafeEqual(suppliedBytes, configuredBytes)
+  ) {
+    sendApiError({
+      request: input.request,
+      reply: input.reply,
+      status: 401,
+      error: "unauthorized",
+      message: "A valid engineering orchestrator credential is required.",
+    });
+    return false;
+  }
+  return true;
+}
+
 async function tenantDashboard(input: {
   request: FastifyRequest;
   reply: FastifyReply;
   repository: ControlPlaneRepository;
+  engineeringTaskStore: EngineeringTaskStore;
 }) {
   const auth = requireAuthentication(input.request, input.reply);
   if (auth === undefined) {
@@ -135,7 +223,10 @@ async function tenantDashboard(input: {
     });
     return undefined;
   }
-  return DashboardSnapshotSchema.parse(snapshot);
+  return DashboardSnapshotSchema.parse({
+    ...snapshot,
+    engineering: await input.engineeringTaskStore.dashboard(auth.tenantId),
+  });
 }
 
 export async function createApp(options: CreateAppOptions = {}): Promise<FastifyInstance> {
@@ -149,6 +240,11 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     );
   }
   const repository = options.repository ?? createInMemoryRepository();
+  const engineeringTaskStore =
+    options.engineeringTaskStore ?? new InMemoryEngineeringTaskStore();
+  const skillRegistry =
+    options.skillRegistry ??
+    new FileSkillRegistry(fileURLToPath(new URL("../../../skills", import.meta.url)));
   const judgeBroker = new JudgeBroker(
     repository,
     options.judgeProvider ?? new OpenAiResponsesJudgeProvider(),
@@ -162,14 +258,18 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   await app.register(cors, {
     origin: options.corsOrigins ?? ["http://localhost:3000"],
     allowedHeaders: ["Authorization", "Content-Type"],
-    methods: ["GET", "POST", "PUT", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   });
 
   app.addHook("onClose", async () => repository.close());
 
   app.decorateRequest("authContext", null);
   app.addHook("onRequest", async (request, reply) => {
-    if (!request.url.startsWith("/v1/") || request.url.startsWith("/v1/health")) {
+    if (
+      !request.url.startsWith("/v1/") ||
+      request.url.startsWith("/v1/health") ||
+      request.url.startsWith("/v1/internal/engineering/")
+    ) {
       return;
     }
     const token = bearerToken(request);
@@ -183,7 +283,10 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       });
       return;
     }
-    const auth = await repository.resolveCredential(token);
+    const repositoryAuth = await repository.resolveCredential(token);
+    const auth =
+      repositoryAuth ??
+      (await options.externalCredentialResolver?.resolveCredential(token));
     if (auth === undefined) {
       sendApiError({
         request,
@@ -209,63 +312,339 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   app.get("/v1/health", health);
 
   app.get("/v1/dashboard", async (request, reply) => {
-    const snapshot = await tenantDashboard({ request, reply, repository });
+    const snapshot = await tenantDashboard({ request, reply, repository, engineeringTaskStore });
     if (snapshot !== undefined) {
       return reply.send(snapshot);
     }
   });
 
+  app.post("/v1/engineering/tasks", async (request, reply) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    if (auth.kind !== "user" || auth.role === "viewer") {
+      sendApiError({
+        request,
+        reply,
+        status: 403,
+        error: "forbidden",
+        message: "Only workspace members can create an engineering task.",
+      });
+      return;
+    }
+    if (containsCredentialShapedString(request.body)) {
+      validationFailure(
+        request,
+        reply,
+        "The task request contains a credential-shaped value and was not stored.",
+      );
+      return;
+    }
+    const body = EngineeringTaskSubmissionSchema.safeParse(request.body);
+    if (!body.success) {
+      validationFailure(
+        request,
+        reply,
+        "Describe the engineering task in between 20 and 4,000 characters.",
+      );
+      return;
+    }
+    const operation = await engineeringTaskStore.create({
+      tenantId: auth.tenantId,
+      actor: auth.subjectId,
+      request: body.data.request,
+      now: clock(),
+    });
+    return reply.status(202).send(
+      CreateEngineeringTaskResponseSchema.parse({ operation }),
+    );
+  });
+
+  app.delete("/v1/engineering/tasks/history", async (request, reply) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    if (auth.kind !== "user" || auth.role === "viewer") {
+      sendApiError({
+        request,
+        reply,
+        status: 403,
+        error: "forbidden",
+        message: "Only workspace members can delete terminal engineering prompt logs.",
+      });
+      return;
+    }
+    const result = await engineeringTaskStore.clearHistory({ tenantId: auth.tenantId });
+    return reply.send(ClearEngineeringHistoryResponseSchema.parse(result));
+  });
+
+  app.post("/v1/internal/engineering/tasks/lease", async (request, reply) => {
+    if (
+      !requireOrchestratorCredential({
+        request,
+        reply,
+        configuredToken: options.orchestratorToken,
+      })
+    ) {
+      return;
+    }
+    const body = InternalEngineeringLeaseRequestSchema.safeParse(request.body);
+    if (!body.success) {
+      validationFailure(request, reply, "A valid engineering tenant ID is required.");
+      return;
+    }
+    const leaseId = randomUUID();
+    const task = await engineeringTaskStore.lease({
+      tenantId: body.data.tenantId,
+      leaseId,
+      now: clock(),
+      leaseDurationMs: 30 * 60_000,
+    });
+    return reply.send({ task });
+  });
+
+  app.post(
+    "/v1/internal/engineering/tasks/:taskId/update",
+    async (request, reply) => {
+      if (
+        !requireOrchestratorCredential({
+          request,
+          reply,
+          configuredToken: options.orchestratorToken,
+        })
+      ) {
+        return;
+      }
+      const taskId = z.string().trim().min(1).max(160).safeParse(
+        (request.params as { taskId?: unknown }).taskId,
+      );
+      const body = InternalEngineeringTaskUpdateSchema.safeParse(request.body);
+      if (!taskId.success || !body.success || body.data.operation.id !== taskId.data) {
+        validationFailure(request, reply, "The engineering task update is invalid.");
+        return;
+      }
+      const updated = await engineeringTaskStore.updateLeasedTask({
+        tenantId: body.data.tenantId,
+        taskId: taskId.data,
+        leaseId: body.data.leaseId,
+        operation: body.data.operation,
+        events: body.data.events,
+        now: clock(),
+      });
+      if (!updated) {
+        sendApiError({
+          request,
+          reply,
+          status: 409,
+          error: "invalid_engineering_lease",
+          message: "The engineering task lease is no longer current.",
+        });
+        return;
+      }
+      return reply.send({ updated: true });
+    },
+  );
+
+  app.post("/v1/internal/engineering/skills/select", async (request, reply) => {
+    if (
+      !requireOrchestratorCredential({
+        request,
+        reply,
+        configuredToken: options.orchestratorToken,
+      })
+    ) {
+      return;
+    }
+    const body = InternalEngineeringSkillSelectionSchema.safeParse(request.body);
+    if (!body.success) {
+      validationFailure(request, reply, "The skill selection request is invalid.");
+      return;
+    }
+    return reply.send({
+      items: (await skillRegistry.select(body.data.selection)).map((skill) =>
+        SelectedSkillSchema.parse(skill),
+      ),
+    });
+  });
+
+  app.post("/v1/internal/engineering/skills/executions", async (request, reply) => {
+    if (
+      !requireOrchestratorCredential({
+        request,
+        reply,
+        configuredToken: options.orchestratorToken,
+      })
+    ) {
+      return;
+    }
+    const body = InternalEngineeringSkillExecutionSchema.safeParse(request.body);
+    if (!body.success) {
+      validationFailure(request, reply, "The skill execution record is invalid.");
+      return;
+    }
+    await skillRegistry.recordExecution(body.data.execution);
+    return reply.send({ recorded: true });
+  });
+
   app.get("/v1/runs", async (request, reply) => {
-    const snapshot = await tenantDashboard({ request, reply, repository });
+    const snapshot = await tenantDashboard({ request, reply, repository, engineeringTaskStore });
     if (snapshot !== undefined) {
       return reply.send({ items: snapshot.runs });
     }
   });
 
   app.get("/v1/agents", async (request, reply) => {
-    const snapshot = await tenantDashboard({ request, reply, repository });
+    const snapshot = await tenantDashboard({ request, reply, repository, engineeringTaskStore });
     if (snapshot !== undefined) {
       return reply.send({ items: snapshot.agents });
     }
   });
 
   app.get("/v1/skills", async (request, reply) => {
-    const snapshot = await tenantDashboard({ request, reply, repository });
+    const snapshot = await tenantDashboard({ request, reply, repository, engineeringTaskStore });
     if (snapshot !== undefined) {
       return reply.send({ items: snapshot.skills });
     }
   });
 
+  app.get("/v1/skill-registry", async (request, reply) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    return reply.send(SkillRegistryListResponseSchema.parse({ items: await skillRegistry.list() }));
+  });
+
+  app.get("/v1/skill-registry/:skillId", async (request, reply) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    const params = z.object({ skillId: z.string().regex(/^[a-z0-9-]+$/u) }).strict().safeParse(request.params);
+    if (!params.success) {
+      validationFailure(request, reply, "The skill identifier is invalid.");
+      return;
+    }
+    const skill = await skillRegistry.detail(params.data.skillId);
+    if (skill === undefined) {
+      sendApiError({ request, reply, status: 404, error: "skill_not_found", message: "The requested skill is not in the registry." });
+      return;
+    }
+    return reply.send(SkillRegistryDetailResponseSchema.parse({ skill }));
+  });
+
+  app.post("/v1/skill-registry/sync", async (request, reply) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    if (auth.kind !== "user" || auth.role !== "admin") {
+      sendApiError({ request, reply, status: 403, error: "forbidden", message: "Only administrators can synchronize the skill registry." });
+      return;
+    }
+    return reply.send(SkillRegistrySyncResponseSchema.parse(await skillRegistry.sync()));
+  });
+
+  app.post("/v1/skill-registry/sync/preview", async (request, reply) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    if (auth.kind !== "user" || auth.role !== "admin") {
+      sendApiError({
+        request,
+        reply,
+        status: 403,
+        error: "forbidden",
+        message: "Only administrators can review skill updates.",
+      });
+      return;
+    }
+    return reply.send(SkillRegistrySyncPreviewSchema.parse(await skillRegistry.previewSync()));
+  });
+
+  app.post("/v1/skill-registry/custom", async (request, reply) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    if (auth.kind !== "user" || auth.role !== "admin") {
+      sendApiError({ request, reply, status: 403, error: "forbidden", message: "Only administrators can create custom skills." });
+      return;
+    }
+    const body = CreateCustomSkillSchema.safeParse(request.body);
+    if (!body.success) {
+      validationFailure(request, reply, "The custom skill is incomplete or invalid.");
+      return;
+    }
+    try {
+      const created = await skillRegistry.createCustom(body.data);
+      const skill = await skillRegistry.detail(created.id);
+      if (skill === undefined) throw new Error("The saved custom skill could not be read back.");
+      return reply.send(SkillRegistryDetailResponseSchema.parse({ skill }));
+    } catch (error: unknown) {
+      sendApiError({ request, reply, status: 409, error: "skill_create_conflict", message: error instanceof Error ? error.message : "The custom skill could not be created." });
+    }
+  });
+
+  app.post("/v1/skill-registry/:skillId/proposals/:proposalId", async (request, reply) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    if (auth.kind !== "user" || auth.role !== "admin") {
+      sendApiError({
+        request,
+        reply,
+        status: 403,
+        error: "forbidden",
+        message: "Only administrators can resolve skill improvements.",
+      });
+      return;
+    }
+    const params = z.object({
+      skillId: z.string().regex(/^[a-z0-9-]+$/u),
+      proposalId: z.string().regex(/^proposal-[a-f0-9]{16}$/u),
+    }).strict().safeParse(request.params);
+    const body = ResolveSkillImprovementProposalSchema.safeParse(request.body);
+    if (!params.success || !body.success) {
+      validationFailure(request, reply, "The skill improvement action is invalid.");
+      return;
+    }
+    try {
+      const skill = await skillRegistry.resolveImprovementProposal({
+        skillId: params.data.skillId,
+        proposalId: params.data.proposalId,
+        action: body.data.action,
+      });
+      return reply.send(SkillRegistryDetailResponseSchema.parse({ skill }));
+    } catch (error: unknown) {
+      sendApiError({
+        request,
+        reply,
+        status: 409,
+        error: "skill_improvement_conflict",
+        message: error instanceof Error ? error.message : "The skill improvement could not be resolved.",
+      });
+    }
+  });
+
   app.get("/v1/conflicts", async (request, reply) => {
-    const snapshot = await tenantDashboard({ request, reply, repository });
+    const snapshot = await tenantDashboard({ request, reply, repository, engineeringTaskStore });
     if (snapshot !== undefined) {
       return reply.send({ items: snapshot.conflicts });
     }
   });
 
   app.get("/v1/integrations", async (request, reply) => {
-    const snapshot = await tenantDashboard({ request, reply, repository });
+    const snapshot = await tenantDashboard({ request, reply, repository, engineeringTaskStore });
     if (snapshot !== undefined) {
       return reply.send({ items: snapshot.integrations });
     }
   });
 
   app.get("/v1/policies", async (request, reply) => {
-    const snapshot = await tenantDashboard({ request, reply, repository });
+    const snapshot = await tenantDashboard({ request, reply, repository, engineeringTaskStore });
     if (snapshot !== undefined) {
       return reply.send({ items: snapshot.policies });
     }
   });
 
   app.get("/v1/audit", async (request, reply) => {
-    const snapshot = await tenantDashboard({ request, reply, repository });
+    const snapshot = await tenantDashboard({ request, reply, repository, engineeringTaskStore });
     if (snapshot !== undefined) {
       return reply.send({ items: snapshot.audit });
     }
   });
 
   app.get("/v1/devices", async (request, reply) => {
-    const snapshot = await tenantDashboard({ request, reply, repository });
+    const snapshot = await tenantDashboard({ request, reply, repository, engineeringTaskStore });
     if (snapshot !== undefined) {
       return reply.send({ items: snapshot.devices });
     }

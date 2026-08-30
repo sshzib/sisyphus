@@ -2,6 +2,7 @@ export * from "./attribution.js";
 export * from "./capabilities.js";
 export * from "./cloud-records.js";
 export * from "./evaluation.js";
+export * from "./engineering.js";
 export * from "./identifiers.js";
 export * from "./observations.js";
 export * from "./policy-bundles.js";

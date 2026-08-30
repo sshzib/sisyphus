@@ -70,6 +70,36 @@ describe("production repository selection", () => {
     ).toThrow(/postgres/u);
   });
 
+  it("parses optional Supabase user authentication without weakening repository mode", () => {
+    const environment = parseServerEnvironment({
+      NODE_ENV: "development",
+      SISYPHUS_SUPABASE_URL: "https://project-ref.supabase.co/",
+      SISYPHUS_SUPABASE_DEFAULT_TENANT_ID: "tenant-acme",
+      SISYPHUS_SUPABASE_DEFAULT_ROLE: "viewer",
+    });
+
+    expect(environment.supabaseAuth).toEqual({
+      kind: "enabled",
+      projectUrl: "https://project-ref.supabase.co",
+      defaultTenantId: "tenant-acme",
+      defaultRole: "viewer",
+    });
+    expect(environment.repository).toEqual({ kind: "memory" });
+  });
+
+  it("rejects partial or insecure Supabase authentication settings", () => {
+    expect(() =>
+      parseServerEnvironment({
+        SISYPHUS_SUPABASE_DEFAULT_TENANT_ID: "tenant-acme",
+      }),
+    ).toThrow(/SISYPHUS_SUPABASE_URL/u);
+    expect(() =>
+      parseServerEnvironment({
+        SISYPHUS_SUPABASE_URL: "http://project-ref.supabase.co",
+      }),
+    ).toThrow(/HTTPS/u);
+  });
+
   it("passes the restricted and migration URLs to the PostgreSQL factory", async () => {
     const environment = parseServerEnvironment(postgresEnvironment);
     const repository = createInMemoryRepository();
