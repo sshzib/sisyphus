@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import {
   CreateEngineeringTaskResponseSchema,
   ClearEngineeringHistoryResponseSchema,
+  EngineeringExecutionBackendChangeSchema,
   EngineeringExecutionControlResponseSchema,
   CreateCustomSkillSchema,
   DashboardQuerySchema,
@@ -45,6 +46,7 @@ export interface SisyphusDesktopApi {
   clearEngineeringHistory(): Promise<ReturnType<typeof ClearEngineeringHistoryResponseSchema.parse>>;
   startEngineeringExecution(): Promise<ReturnType<typeof EngineeringExecutionControlResponseSchema.parse>>;
   stopEngineeringExecution(): Promise<ReturnType<typeof EngineeringExecutionControlResponseSchema.parse>>;
+  setEngineeringExecutionBackend(input: unknown): Promise<ReturnType<typeof EngineeringExecutionControlResponseSchema.parse>>;
   listSkillRegistry(): Promise<ReturnType<typeof SkillRegistryListResponseSchema.parse>>;
   getSkillRegistryDetail(skillId: string): Promise<ReturnType<typeof SkillRegistryDetailResponseSchema.parse>>;
   syncSkillRegistry(): Promise<ReturnType<typeof SkillRegistrySyncResponseSchema.parse>>;
@@ -110,6 +112,13 @@ const desktopApi: SisyphusDesktopApi = {
   },
   async stopEngineeringExecution() {
     const response: unknown = await ipcRenderer.invoke(desktopChannels.stopEngineeringExecution);
+    return EngineeringExecutionControlResponseSchema.parse(response);
+  },
+  async setEngineeringExecutionBackend(input) {
+    const response: unknown = await ipcRenderer.invoke(
+      desktopChannels.setEngineeringExecutionBackend,
+      EngineeringExecutionBackendChangeSchema.parse(input),
+    );
     return EngineeringExecutionControlResponseSchema.parse(response);
   },
   async listSkillRegistry() {

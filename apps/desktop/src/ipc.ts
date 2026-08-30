@@ -11,6 +11,7 @@ export const desktopChannels = {
   clearEngineeringHistory: "sisyphus:clear-engineering-history",
   startEngineeringExecution: "sisyphus:start-engineering-execution",
   stopEngineeringExecution: "sisyphus:stop-engineering-execution",
+  setEngineeringExecutionBackend: "sisyphus:set-engineering-execution-backend",
   skillRegistryList: "sisyphus:skill-registry-list",
   skillRegistryDetail: "sisyphus:skill-registry-detail",
   skillRegistrySync: "sisyphus:skill-registry-sync",

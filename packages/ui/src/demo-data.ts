@@ -470,9 +470,10 @@ const baseSnapshot: DashboardSnapshot = {
   overview: deriveOverview(runs, agents),
   operations: [],
   engineering: {
-    execution: {
-      status: "stopped",
-      generation: 0,
+      execution: {
+        status: "stopped",
+        backend: "local-static",
+        generation: 0,
       changedAt: "1970-01-01T00:00:00.000Z",
       changedBy: "system",
     },

@@ -30,10 +30,7 @@ export class CodeBuildSandbox implements ProjectExecutor {
   readonly #s3: S3Client;
 
   public constructor(
-    private readonly configuration: Extract<
-      OrchestratorConfiguration["execution"],
-      { kind: "codebuild" }
-    >,
+    private readonly configuration: NonNullable<OrchestratorConfiguration["codebuild"]>,
   ) {
     this.#codeBuild = new CodeBuildClient({ region: configuration.region });
     this.#s3 = new S3Client({ region: configuration.region });

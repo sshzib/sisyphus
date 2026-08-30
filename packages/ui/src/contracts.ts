@@ -672,9 +672,20 @@ export type ClearEngineeringHistoryResponse = z.infer<
   typeof ClearEngineeringHistoryResponseSchema
 >;
 
+export const EngineeringExecutionBackendSchema = z.enum(["local-static", "codebuild"]);
+export type EngineeringExecutionBackend = z.infer<typeof EngineeringExecutionBackendSchema>;
+
+export const EngineeringExecutionBackendChangeSchema = z
+  .object({ backend: EngineeringExecutionBackendSchema })
+  .strict();
+export type EngineeringExecutionBackendChange = z.infer<
+  typeof EngineeringExecutionBackendChangeSchema
+>;
+
 export const EngineeringExecutionStateSchema = z
   .object({
     status: z.enum(["running", "stopped"]),
+    backend: EngineeringExecutionBackendSchema,
     generation: z.number().int().nonnegative(),
     changedAt: z.string().datetime(),
     changedBy: z.string().trim().min(1).max(160),
@@ -716,6 +727,7 @@ export const DashboardSnapshotSchema = z
     engineering: EngineeringDashboardSchema.default({
       execution: {
         status: "stopped",
+        backend: "local-static",
         generation: 0,
         changedAt: "1970-01-01T00:00:00.000Z",
         changedBy: "system",

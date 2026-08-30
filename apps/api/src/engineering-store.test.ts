@@ -167,4 +167,49 @@ describe("InMemoryEngineeringTaskStore", () => {
       operations: [{ id: operation.id, status: "blocked" }],
     });
   });
+
+  it("carries the selected backend in a new lease and refuses changes while running", async () => {
+    const store = new InMemoryEngineeringTaskStore();
+    const now = new Date("2026-08-30T00:00:00.000Z");
+    await store.create({
+      tenantId: "tenant-test",
+      actor: "tester",
+      request: "Build a simple static landing page with an accessible product heading.",
+      now,
+    });
+
+    await expect(store.setExecutionBackend({
+      tenantId: "tenant-test",
+      actor: "admin-test",
+      backend: "codebuild",
+      now: new Date(now.getTime() + 1_000),
+    })).resolves.toMatchObject({
+      kind: "updated",
+      execution: { status: "stopped", backend: "codebuild", generation: 1 },
+    });
+    await store.setExecution({
+      tenantId: "tenant-test",
+      actor: "admin-test",
+      status: "running",
+      now: new Date(now.getTime() + 2_000),
+    });
+
+    const lease = await store.lease({
+      tenantId: "tenant-test",
+      leaseId: "00000000-0000-4000-8000-000000000006",
+      now: new Date(now.getTime() + 3_000),
+      leaseDurationMs: 60_000,
+    });
+
+    expect(lease?.executionBackend).toBe("codebuild");
+    await expect(store.setExecutionBackend({
+      tenantId: "tenant-test",
+      actor: "admin-test",
+      backend: "local-static",
+      now: new Date(now.getTime() + 4_000),
+    })).resolves.toMatchObject({
+      kind: "execution-running",
+      execution: { backend: "codebuild", generation: 2 },
+    });
+  });
 });

@@ -9,6 +9,7 @@ import {
   EngineeringEventSummarySchema,
   EngineeringOperationSummarySchema,
   type EngineeringDashboard,
+  type EngineeringExecutionBackend,
   type EngineeringExecutionState,
   type EngineeringEventSummary,
   type EngineeringOperationSummary,
@@ -21,8 +22,19 @@ export interface EngineeringTaskLease {
   readonly request: string;
   readonly leaseId: string;
   readonly executionGeneration: number;
+  readonly executionBackend: EngineeringExecutionBackend;
   readonly operation: EngineeringOperationSummary;
 }
+
+export type EngineeringExecutionBackendChangeResult =
+  | {
+      readonly kind: "updated";
+      readonly execution: EngineeringExecutionState;
+    }
+  | {
+      readonly kind: "execution-running";
+      readonly execution: EngineeringExecutionState;
+    };
 
 export interface EngineeringTaskStore {
   create(input: {
@@ -57,6 +69,12 @@ export interface EngineeringTaskStore {
     status: EngineeringExecutionState["status"];
     now: Date;
   }): Promise<EngineeringExecutionState>;
+  setExecutionBackend(input: {
+    tenantId: string;
+    actor: string;
+    backend: EngineeringExecutionBackend;
+    now: Date;
+  }): Promise<EngineeringExecutionBackendChangeResult>;
   permitsExecution(input: {
     tenantId: string;
     taskId: string;
@@ -82,6 +100,7 @@ const terminalStatuses = new Set<EngineeringOperationSummary["status"]>([
 
 const defaultExecutionState = EngineeringExecutionStateSchema.parse({
   status: "stopped",
+  backend: "local-static",
   generation: 0,
   changedAt: "1970-01-01T00:00:00.000Z",
   changedBy: "system",
@@ -240,6 +259,7 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
       request: stored.request,
       leaseId: input.leaseId,
       executionGeneration: execution.generation,
+      executionBackend: execution.backend,
       operation,
     };
   }
@@ -296,6 +316,7 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
     const current = this.#executionState(input.tenantId);
     const next = EngineeringExecutionStateSchema.parse({
       status: input.status,
+      backend: current.backend,
       generation: current.generation + 1,
       changedAt: input.now.toISOString(),
       changedBy: input.actor,
@@ -338,6 +359,30 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
       await this.#recordEvents(input.tenantId, events);
     }
     return next;
+  }
+
+  public async setExecutionBackend(input: {
+    tenantId: string;
+    actor: string;
+    backend: EngineeringExecutionBackend;
+    now: Date;
+  }): Promise<EngineeringExecutionBackendChangeResult> {
+    const current = this.#executionState(input.tenantId);
+    if (current.status === "running") {
+      return { kind: "execution-running", execution: current };
+    }
+    if (current.backend === input.backend) {
+      return { kind: "updated", execution: current };
+    }
+    const execution = EngineeringExecutionStateSchema.parse({
+      status: "stopped",
+      backend: input.backend,
+      generation: current.generation + 1,
+      changedAt: input.now.toISOString(),
+      changedBy: input.actor,
+    });
+    this.#executionByTenant.set(input.tenantId, execution);
+    return { kind: "updated", execution };
   }
 
   public async permitsExecution(input: {

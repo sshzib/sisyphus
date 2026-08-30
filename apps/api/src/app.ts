@@ -10,6 +10,7 @@ import {
 import {
   CreateEngineeringTaskResponseSchema,
   ClearEngineeringHistoryResponseSchema,
+  EngineeringExecutionBackendChangeSchema,
   EngineeringExecutionControlResponseSchema,
   DashboardQuerySchema,
   DashboardSnapshotSchema,
@@ -279,6 +280,45 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
     });
     return reply.send(EngineeringExecutionControlResponseSchema.parse({ execution }));
   };
+  const selectEngineeringExecutionBackend = async (
+    request: FastifyRequest,
+    reply: FastifyReply,
+  ) => {
+    const auth = requireAuthentication(request, reply);
+    if (auth === undefined) return;
+    if (auth.kind !== "user" || auth.role !== "admin") {
+      sendApiError({
+        request,
+        reply,
+        status: 403,
+        error: "forbidden",
+        message: "Only tenant administrators can select the engineering execution backend.",
+      });
+      return;
+    }
+    const body = EngineeringExecutionBackendChangeSchema.safeParse(request.body);
+    if (!body.success) {
+      validationFailure(request, reply, "Choose either the AWS sandbox or the local static fallback.");
+      return;
+    }
+    const result = await engineeringTaskStore.setExecutionBackend({
+      tenantId: auth.tenantId,
+      actor: auth.subjectId,
+      backend: body.data.backend,
+      now: clock(),
+    });
+    if (result.kind === "execution-running") {
+      sendApiError({
+        request,
+        reply,
+        status: 409,
+        error: "engineering_execution_running",
+        message: "Stop engineering execution before changing its backend.",
+      });
+      return;
+    }
+    return reply.send(EngineeringExecutionControlResponseSchema.parse({ execution: result.execution }));
+  };
   const skillRegistry =
     options.skillRegistry ??
     new FileSkillRegistry(fileURLToPath(new URL("../../../skills", import.meta.url)));
@@ -362,6 +402,8 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
   app.post("/v1/engineering/execution/stop", async (request, reply) =>
     manageEngineeringExecution("stopped", request, reply),
   );
+
+  app.post("/v1/engineering/execution/backend", selectEngineeringExecutionBackend);
 
   app.post("/v1/engineering/tasks", async (request, reply) => {
     const auth = requireAuthentication(request, reply);

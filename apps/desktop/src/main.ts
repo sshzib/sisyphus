@@ -24,6 +24,7 @@ import {
   CreateCustomSkillSchema,
   CreateEngineeringTaskResponseSchema,
   ClearEngineeringHistoryResponseSchema,
+  EngineeringExecutionBackendChangeSchema,
   EngineeringExecutionControlResponseSchema,
   EngineeringTaskSubmissionSchema,
   HostContextSchema,
@@ -679,6 +680,21 @@ ipcMain.handle(
     assertDesktopAuthenticated();
     return EngineeringExecutionControlResponseSchema.parse(
       await desktopApiRequest({ path: "/v1/engineering/execution/stop", method: "POST" }),
+    );
+  },
+);
+ipcMain.handle(
+  desktopChannels.setEngineeringExecutionBackend,
+  async (event: IpcMainInvokeEvent, input: unknown) => {
+    assertDesktopSender(event);
+    assertDesktopAuthenticated();
+    const backend = EngineeringExecutionBackendChangeSchema.parse(input);
+    return EngineeringExecutionControlResponseSchema.parse(
+      await desktopApiRequest({
+        path: "/v1/engineering/execution/backend",
+        method: "POST",
+        body: backend,
+      }),
     );
   },
 );

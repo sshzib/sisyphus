@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  EngineeringExecutionBackendSchema,
   EngineeringEventSummarySchema,
   EngineeringOperationSummarySchema,
   type EngineeringEventSummary,
@@ -13,6 +14,7 @@ const LeaseSchema = z
     request: z.string().trim().min(20).max(4_000),
     leaseId: z.string().uuid(),
     executionGeneration: z.number().int().nonnegative(),
+    executionBackend: EngineeringExecutionBackendSchema,
     operation: EngineeringOperationSummarySchema,
   })
   .strict();

@@ -330,6 +330,49 @@ describe("control plane tenancy", () => {
     expect(stoppedAgain.statusCode).toBe(200);
     expect(stoppedAgain.json()).toMatchObject({ execution: { status: "stopped", generation: 2 } });
   });
+
+  it("lets an administrator select a backend only while engineering execution is stopped", async () => {
+    const app = await testApp();
+    const viewer = await app.inject({
+      method: "POST",
+      url: "/v1/engineering/execution/backend",
+      headers: bearer(demoCredentials.acmeViewer),
+      payload: { backend: "codebuild" },
+    });
+    expect(viewer.statusCode).toBe(403);
+
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/v1/engineering/execution/backend",
+      headers: bearer(demoCredentials.acmeAdmin),
+      payload: { backend: "host-shell" },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const selected = await app.inject({
+      method: "POST",
+      url: "/v1/engineering/execution/backend",
+      headers: bearer(demoCredentials.acmeAdmin),
+      payload: { backend: "codebuild" },
+    });
+    expect(selected.statusCode).toBe(200);
+    expect(selected.json()).toMatchObject({ execution: { status: "stopped", backend: "codebuild", generation: 1 } });
+
+    const started = await app.inject({
+      method: "POST",
+      url: "/v1/engineering/execution/start",
+      headers: bearer(demoCredentials.acmeAdmin),
+    });
+    expect(started.statusCode).toBe(200);
+
+    const runningChange = await app.inject({
+      method: "POST",
+      url: "/v1/engineering/execution/backend",
+      headers: bearer(demoCredentials.acmeAdmin),
+      payload: { backend: "local-static" },
+    });
+    expect(runningChange.statusCode).toBe(409);
+  });
 });
 
 describe("worker batch ingest", () => {

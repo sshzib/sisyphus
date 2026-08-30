@@ -930,6 +930,33 @@ b {
   gap: 8px;
 }
 
+.execution-backend-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 8.5px;
+  font-weight: 650;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.execution-backend-control select {
+  min-height: 25px;
+  border: 0;
+  border-radius: 6px;
+  padding: 0 7px;
+  color: var(--muted-strong);
+  background: var(--surface-3);
+  outline: 1px solid var(--outline);
+  font: inherit;
+}
+
+.execution-backend-control select:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .live-log-button,
 .live-log-close,
 .live-log-filter {

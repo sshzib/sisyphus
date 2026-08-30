@@ -63,8 +63,7 @@ export type OrchestratorConfiguration = {
         fallbackModel: string | undefined;
         roleModels: Record<string, string>;
       };
-  execution:
-    | { kind: "local-static" }
+  codebuild:
     | {
         kind: "codebuild";
         region: string;
@@ -72,7 +71,8 @@ export type OrchestratorConfiguration = {
         artifactBucket: string;
         inputPrefix: string;
         resultPrefix: string;
-      };
+      }
+    | undefined;
 };
 
 export function parseOrchestratorConfiguration(
@@ -96,10 +96,9 @@ export function parseOrchestratorConfiguration(
     environment.AWS_REGION !== undefined ||
     environment.SISYPHUS_CODEBUILD_PROJECT !== undefined ||
     environment.SISYPHUS_ARTIFACT_BUCKET !== undefined;
-  const executionMode =
-    environment.SISYPHUS_EXECUTION_MODE ?? (codeBuildConfigured ? "codebuild" : "local-static");
+  const executionMode = environment.SISYPHUS_EXECUTION_MODE;
   if (
-    executionMode === "codebuild" &&
+    (codeBuildConfigured || executionMode === "codebuild") &&
     (environment.AWS_REGION === undefined ||
       environment.SISYPHUS_CODEBUILD_PROJECT === undefined ||
       environment.SISYPHUS_ARTIFACT_BUCKET === undefined)
@@ -112,7 +111,7 @@ export function parseOrchestratorConfiguration(
     environment.SISYPHUS_OPENROUTER_ROLE_MODELS === undefined
       ? {}
       : RoleModelsSchema.parse(JSON.parse(environment.SISYPHUS_OPENROUTER_ROLE_MODELS));
-  const execution = executionConfiguration(environment, executionMode);
+  const codebuild = codeBuildConfiguration(environment);
   return {
     apiUrl: environment.SISYPHUS_API_URL.toString().replace(/\/$/u, ""),
     orchestratorToken: environment.SISYPHUS_ORCHESTRATOR_TOKEN,
@@ -137,15 +136,14 @@ export function parseOrchestratorConfiguration(
             fallbackModel: environment.SISYPHUS_OPENROUTER_FALLBACK_MODEL,
             roleModels,
           },
-    execution,
+    codebuild,
   };
 }
 
-function executionConfiguration(
+function codeBuildConfiguration(
   environment: RawEnvironment,
-  executionMode: "local-static" | "codebuild",
-): OrchestratorConfiguration["execution"] {
-  if (executionMode === "local-static") return { kind: "local-static" };
+): OrchestratorConfiguration["codebuild"] {
+  if (environment.AWS_REGION === undefined) return undefined;
   const region = environment.AWS_REGION;
   const projectName = environment.SISYPHUS_CODEBUILD_PROJECT;
   const artifactBucket = environment.SISYPHUS_ARTIFACT_BUCKET;

@@ -23,6 +23,7 @@ function dataClient(): SisyphusDataClient {
     clearEngineeringHistory: () => window.sisyphusDesktop.clearEngineeringHistory(),
     startEngineeringExecution: () => window.sisyphusDesktop.startEngineeringExecution(),
     stopEngineeringExecution: () => window.sisyphusDesktop.stopEngineeringExecution(),
+    setEngineeringExecutionBackend: (input) => window.sisyphusDesktop.setEngineeringExecutionBackend(input),
     listSkillRegistry: () => window.sisyphusDesktop.listSkillRegistry(),
     getSkillRegistryDetail: (skillId) => window.sisyphusDesktop.getSkillRegistryDetail(skillId),
     syncSkillRegistry: () => window.sisyphusDesktop.syncSkillRegistry(),

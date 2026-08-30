@@ -1,6 +1,7 @@
 import type {
   CreateEngineeringTaskResponse,
   ClearEngineeringHistoryResponse,
+  EngineeringExecutionBackendChange,
   EngineeringExecutionControlResponse,
   CreateCustomSkill,
   DashboardQuery,
@@ -27,6 +28,9 @@ export interface SisyphusDataClient {
   clearEngineeringHistory(): Promise<ClearEngineeringHistoryResponse>;
   startEngineeringExecution(): Promise<EngineeringExecutionControlResponse>;
   stopEngineeringExecution(): Promise<EngineeringExecutionControlResponse>;
+  setEngineeringExecutionBackend(
+    input: EngineeringExecutionBackendChange,
+  ): Promise<EngineeringExecutionControlResponse>;
   restoreSkill(
     skillVersionId: string,
     input: RestoreSkillRequest,

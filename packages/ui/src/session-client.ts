@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   ApiErrorSchema,
   ClearEngineeringHistoryResponseSchema,
+  EngineeringExecutionBackendChangeSchema,
   EngineeringExecutionControlResponseSchema,
   CreateEngineeringTaskResponseSchema,
   CreateCustomSkillSchema,
@@ -102,6 +103,14 @@ export function createSessionDataClient(input: {
         path: "/api/engineering/execution/stop",
         schema: EngineeringExecutionControlResponseSchema,
         method: "POST",
+      });
+    },
+    async setEngineeringExecutionBackend(input) {
+      return request({
+        path: "/api/engineering/execution/backend",
+        schema: EngineeringExecutionControlResponseSchema,
+        method: "POST",
+        body: EngineeringExecutionBackendChangeSchema.parse(input),
       });
     },
     async restoreSkill(skillVersionId, restoreInput) {

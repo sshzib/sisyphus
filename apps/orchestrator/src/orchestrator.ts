@@ -32,7 +32,7 @@ export class EngineeringOrchestrator {
   readonly #workspaces: WorkspaceManager;
   readonly #openRouter: OpenRouterClient | undefined;
   readonly #sandbox: CodeBuildSandbox | undefined;
-  readonly #executor: ProjectExecutor;
+  readonly #localExecutor: LocalStaticExecutor;
 
   public constructor(private readonly configuration: OrchestratorConfiguration) {
     this.#controlPlane = new ControlPlaneClient(
@@ -55,10 +55,10 @@ export class EngineeringOrchestrator {
           )
         : undefined;
     this.#sandbox =
-      configuration.execution.kind === "codebuild"
-        ? new CodeBuildSandbox(configuration.execution)
-        : undefined;
-    this.#executor = this.#sandbox ?? new LocalStaticExecutor();
+      configuration.codebuild === undefined
+        ? undefined
+        : new CodeBuildSandbox(configuration.codebuild);
+    this.#localExecutor = new LocalStaticExecutor();
   }
 
   public async runOnce(): Promise<boolean> {
@@ -70,6 +70,11 @@ export class EngineeringOrchestrator {
 
   async #runTask(task: LeasedEngineeringTask): Promise<void> {
     if (!(await this.#isExecutionPermitted(task))) return;
+    const executor = this.#executorFor(task);
+    if (executor === undefined) {
+      await this.#blockUnavailableCodeBuild(task);
+      return;
+    }
     if (this.#openRouter === undefined) {
       await this.#runLegacyTask(task);
       return;
@@ -78,11 +83,44 @@ export class EngineeringOrchestrator {
       controlPlane: this.#controlPlane,
       workspaces: this.#workspaces,
       openRouter: this.#openRouter,
-      executor: this.#executor,
+      executor,
       isExecutionPermitted: () => this.#isExecutionPermitted(task),
       publish: async (nextTask, operation, events) => this.#publish(nextTask, operation, events),
       recordSkillOutcome: async (input) => this.#recordSkillOutcome(input),
     }).run(task);
+  }
+
+  #executorFor(task: LeasedEngineeringTask): ProjectExecutor | undefined {
+    switch (task.executionBackend) {
+      case "codebuild":
+        return this.#sandbox;
+      case "local-static":
+        return this.#localExecutor;
+      default: {
+        const exhaustive: never = task.executionBackend;
+        return exhaustive;
+      }
+    }
+  }
+
+  async #blockUnavailableCodeBuild(task: LeasedEngineeringTask): Promise<void> {
+    const operation = EngineeringOperationSummarySchema.parse({
+      ...task.operation,
+      status: "blocked",
+      safety: { status: "blocked", findings: task.operation.safety.findings },
+      sandbox: { status: "blocked", buildId: null, detectedPort: null },
+      evidence: [
+        ...task.operation.evidence,
+        evidence({
+          check: "AWS CodeBuild configuration",
+          outcome: "blocked",
+          detail: "The task selected the AWS sandbox, but this orchestrator has no complete CodeBuild configuration.",
+        }),
+      ].slice(-50),
+    });
+    await this.#publish(task, operation, [
+      event(operation.id, "WORKFLOW_BLOCKED", "The task selected the AWS sandbox, but this orchestrator is not configured for CodeBuild."),
+    ]);
   }
 
   async #runLegacyTask(task: LeasedEngineeringTask): Promise<void> {

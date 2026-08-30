@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 
+import { EngineeringExecutionBackendSchema } from "./contracts.js";
 import type {
   AuditEvent,
   DashboardSnapshot,
+  EngineeringExecutionBackend,
   EngineeringEventSummary,
   EngineeringOperationSummary,
   HostContext,
@@ -137,6 +139,27 @@ export function DashboardApp({ client, hostContext }: DashboardAppProps) {
     } catch (reason: unknown) {
       setExecutionMessage(
         reason instanceof Error ? reason.message : "Engineering execution could not be updated.",
+      );
+    } finally {
+      setChangingExecution(false);
+    }
+  }, [client]);
+
+  const changeExecutionBackend = useCallback(async (backend: EngineeringExecutionBackend) => {
+    setChangingExecution(true);
+    setExecutionMessage(undefined);
+    try {
+      const response = await client.setEngineeringExecutionBackend({ backend });
+      const nextSnapshot = await client.getDashboard({});
+      setSnapshot(nextSnapshot);
+      setExecutionMessage(
+        response.execution.backend === "codebuild"
+          ? "AWS sandbox selected. Start execution when you are ready to run queued tasks in CodeBuild."
+          : "Local static fallback selected. It verifies static sites without running generated commands on this machine.",
+      );
+    } catch (reason: unknown) {
+      setExecutionMessage(
+        reason instanceof Error ? reason.message : "The execution backend could not be updated.",
       );
     } finally {
       setChangingExecution(false);
@@ -280,6 +303,7 @@ export function DashboardApp({ client, hostContext }: DashboardAppProps) {
             changingExecution={changingExecution}
             executionMessage={executionMessage}
             onExecutionChange={(next) => void changeExecution(next)}
+            onExecutionBackendChange={(backend) => void changeExecutionBackend(backend)}
           />
         )}
         </>}
@@ -303,6 +327,7 @@ function Overview(input: {
   readonly changingExecution: boolean;
   readonly executionMessage: string | undefined;
   readonly onExecutionChange: (next: "running" | "stopped") => void;
+  readonly onExecutionBackendChange: (backend: EngineeringExecutionBackend) => void;
 }) {
   const [selectedAgent, setSelectedAgent] = useState<EngineeringAgentSelection>();
   const active = input.snapshot.operations.filter(
@@ -354,6 +379,7 @@ function Overview(input: {
           changingExecution={input.changingExecution}
           executionMessage={input.executionMessage}
           onExecutionChange={input.onExecutionChange}
+          onExecutionBackendChange={input.onExecutionBackendChange}
           selectedAgent={selectedAgent}
           onAgentSelect={(selection) => setSelectedAgent(selection)}
         />
@@ -434,6 +460,7 @@ function EngineeringWorkforcePanel(input: {
   readonly changingExecution: boolean;
   readonly executionMessage: string | undefined;
   readonly onExecutionChange: (next: "running" | "stopped") => void;
+  readonly onExecutionBackendChange: (backend: EngineeringExecutionBackend) => void;
   readonly selectedAgent: EngineeringAgentSelection | undefined;
   readonly onAgentSelect: (selection: EngineeringAgentSelection | undefined) => void;
 }) {
@@ -463,18 +490,35 @@ function EngineeringWorkforcePanel(input: {
             Execution {input.execution.status}
           </span>
           {input.canManageExecution ? (
-            <button
-              className="history-clear-button"
-              type="button"
-              disabled={input.changingExecution}
-              onClick={() => input.onExecutionChange(input.execution.status === "running" ? "stopped" : "running")}
-            >
-              {input.changingExecution
-                ? "Updating execution…"
-                : input.execution.status === "running"
-                  ? "Stop execution"
-                  : "Start execution"}
-            </button>
+            <>
+              <label className="execution-backend-control">
+                <span>Run on</span>
+                <select
+                  aria-label="Execution backend"
+                  value={input.execution.backend}
+                  disabled={input.changingExecution || input.execution.status === "running"}
+                  onChange={(event) => {
+                    const backend = EngineeringExecutionBackendSchema.safeParse(event.currentTarget.value);
+                    if (backend.success) input.onExecutionBackendChange(backend.data);
+                  }}
+                >
+                  <option value="codebuild">AWS sandbox</option>
+                  <option value="local-static">Local static fallback</option>
+                </select>
+              </label>
+              <button
+                className="history-clear-button"
+                type="button"
+                disabled={input.changingExecution}
+                onClick={() => input.onExecutionChange(input.execution.status === "running" ? "stopped" : "running")}
+              >
+                {input.changingExecution
+                  ? "Updating execution…"
+                  : input.execution.status === "running"
+                    ? "Stop execution"
+                    : "Start execution"}
+              </button>
+            </>
           ) : null}
           <button
             className="live-log-button"
@@ -509,7 +553,7 @@ function EngineeringWorkforcePanel(input: {
           disabled={input.submittingTask}
         />
         <div className="task-draft__meta" id="sisyphus-task-draft-help">
-          <span>{input.submittingTask ? "Creating task…" : input.execution.status === "stopped" ? "Execution is stopped. New tasks stay queued until an administrator starts it." : "Press Ctrl/Cmd + Enter to deploy the right specialist workforce."}</span>
+          <span>{input.submittingTask ? "Creating task…" : input.execution.status === "stopped" ? `Execution is stopped. New tasks stay queued until an administrator starts ${executionBackendLabel(input.execution.backend)}.` : `Queued tasks run in ${executionBackendLabel(input.execution.backend)}. Press Ctrl/Cmd + Enter to deploy the right specialist workforce.`}</span>
           <span>{input.taskDraft.length}/{maximumTaskDraftLength}</span>
         </div>
         {input.executionMessage === undefined ? null : (
@@ -1143,6 +1187,19 @@ function isSelectedEngineeringAgent(
 
 function executionLabel(operation: EngineeringOperationSummary): string {
   return operation.sandbox.buildId?.startsWith("local-") === true ? "Local execution" : "Sandbox";
+}
+
+function executionBackendLabel(backend: EngineeringExecutionBackend): string {
+  switch (backend) {
+    case "codebuild":
+      return "the AWS sandbox";
+    case "local-static":
+      return "the local static fallback";
+    default: {
+      const exhaustive: never = backend;
+      return exhaustive;
+    }
+  }
 }
 
 function executionArchiveSlot(
