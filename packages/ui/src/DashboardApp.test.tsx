@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DashboardApp } from "./DashboardApp.js";
+import { ReferenceDashboard } from "./ReferenceDashboard.js";
 import type {
   DashboardSnapshot,
   EngineeringOperationSummary,
@@ -290,6 +291,49 @@ describe("DashboardApp workspace flow", () => {
     expect(await screen.findByRole("heading", { name: "Agents Overview" })).toBeInTheDocument();
     expect(screen.getByText("Frontend Engineer")).toBeInTheDocument();
     expect(screen.getByText("Workflow Evidence")).toBeInTheDocument();
+  });
+
+  it("replaces a queued submission with its current live operation", async () => {
+    const user = userEvent.setup();
+    const queued: EngineeringOperationSummary = {
+      ...engineeringOperation(),
+      status: "queued",
+      requirements: [],
+      agents: [],
+      safety: { status: "not-started", findings: 0 },
+      sandbox: { status: "queued", buildId: null, detectedPort: null },
+      evidence: [],
+    };
+    const liveOperation = engineeringOperation();
+    const snapshot = dashboard(liveOperation);
+
+    render(
+      <ReferenceDashboard
+        accountLabel={undefined}
+        canManageExecution={true}
+        changingExecution={false}
+        client={dataClient(snapshot)}
+        error={undefined}
+        execution={snapshot.engineering.execution}
+        executionMessage={undefined}
+        loading={false}
+        onExecutionBackendChange={() => undefined}
+        onExecutionChange={() => undefined}
+        onSignOut={undefined}
+        onTaskDraftChange={() => undefined}
+        onTaskSubmit={async () => false}
+        snapshot={snapshot}
+        submittedOperation={queued}
+        submittingTask={false}
+        taskDraft=""
+        taskSubmissionMessage={undefined}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Active Agents" }));
+
+    expect(screen.getByText("Frontend Engineer")).toBeInTheDocument();
+    expect(screen.getByText("Latest status").parentElement).toHaveTextContent(/working/u);
   });
 
   it("submits the tier selected in the composer", async () => {

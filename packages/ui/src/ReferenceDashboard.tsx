@@ -80,7 +80,10 @@ export function ReferenceDashboard(input: ReferenceDashboardProps) {
   const [tier, setTier] = useState<EngineeringModelTier>("low");
   const [tierOpen, setTierOpen] = useState(false);
   const [automationOpen, setAutomationOpen] = useState(false);
-  const operation = input.submittedOperation ?? newestEngineeringOperation(input.snapshot?.engineering.operations ?? []);
+  const operation = currentEngineeringOperation({
+    submitted: input.submittedOperation,
+    operations: input.snapshot?.engineering.operations ?? [],
+  });
   const projectName = operation?.requestSummary ?? input.snapshot?.workspace.name ?? "Current Workspace";
   const agents = workspaceAgents(input.snapshot, operation);
   const logs = workspaceLogs(input.snapshot);
@@ -406,6 +409,17 @@ function LoadingState() { return <div className="reference-loading" aria-live="p
 
 function newestEngineeringOperation(operations: readonly EngineeringOperationSummary[]): EngineeringOperationSummary | undefined {
   return [...operations].sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt)).at(0);
+}
+
+function currentEngineeringOperation(input: {
+  readonly submitted: EngineeringOperationSummary | undefined;
+  readonly operations: readonly EngineeringOperationSummary[];
+}): EngineeringOperationSummary | undefined {
+  const submitted = input.submitted;
+  if (submitted !== undefined) {
+    return input.operations.find((operation) => operation.id === submitted.id) ?? submitted;
+  }
+  return newestEngineeringOperation(input.operations);
 }
 
 function workspaceAgents(snapshot: DashboardSnapshot | undefined, operation: EngineeringOperationSummary | undefined): readonly WorkspaceAgent[] {
