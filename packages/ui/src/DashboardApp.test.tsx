@@ -212,7 +212,7 @@ describe("DashboardApp workspace flow", () => {
     const user = userEvent.setup();
     render(<DashboardApp client={dataClient(dashboard())} hostContext={{ kind: "web" }} />);
 
-    await user.click(screen.getByRole("button", { name: "Medium Tier" }));
+    await user.click(screen.getByRole("button", { name: "Low Tier" }));
     await user.click(screen.getByRole("menuitem", { name: "High Tier" }));
 
     expect(screen.getByRole("button", { name: "High Tier" })).toHaveAttribute(
@@ -250,10 +250,30 @@ describe("DashboardApp workspace flow", () => {
 
     expect(client.createEngineeringTask).toHaveBeenCalledWith({
       request: "Build a responsive Spotify landing page with a creator signup journey.",
+      modelTier: "low",
     });
     expect(await screen.findByRole("heading", { name: "Agents Overview" })).toBeInTheDocument();
     expect(screen.getByText("Frontend Engineer")).toBeInTheDocument();
     expect(screen.getByText("Workflow Evidence")).toBeInTheDocument();
+  });
+
+  it("submits the tier selected in the composer", async () => {
+    const user = userEvent.setup();
+    const client = dataClient(dashboard(), engineeringOperation());
+    render(<DashboardApp client={client} hostContext={{ kind: "web" }} />);
+
+    await user.click(screen.getByRole("button", { name: "Low Tier" }));
+    await user.click(screen.getByRole("menuitem", { name: "High Tier" }));
+    await user.type(
+      screen.getByRole("textbox", { name: "Task draft" }),
+      "Build a responsive project portal with an accessible analytics dashboard.",
+    );
+    await user.click(screen.getByRole("button", { name: "Submit build request" }));
+
+    expect(client.createEngineeringTask).toHaveBeenCalledWith({
+      request: "Build a responsive project portal with an accessible analytics dashboard.",
+      modelTier: "high",
+    });
   });
 
   it("shows real workflow and audit data in the full-page Live Logs view", async () => {

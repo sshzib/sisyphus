@@ -121,7 +121,10 @@ export class WorkforceExecution {
             model: "local-static-fallback",
             tokens: undefined,
           }
-        : await this.#openRouter().plan(task.request);
+        : await this.#openRouter().plan({
+            request: task.request,
+            modelTier: task.modelTier,
+          });
       const operation = EngineeringOperationSummarySchema.parse({
         ...task.operation,
         status: "working",
@@ -138,7 +141,10 @@ export class WorkforceExecution {
           role: requirement.specialistRole,
           model: usingLocalStaticFallback
             ? "local-static-fallback"
-            : this.#openRouter().modelForRole(requirement.specialistRole),
+            : this.#openRouter().modelForRole({
+                modelTier: task.modelTier,
+                role: requirement.specialistRole,
+              }),
           requirementId: requirement.id,
           activity: "planning-work",
           detail: "Waiting for an isolated workspace.",
@@ -779,11 +785,19 @@ export class WorkforceExecution {
     const firstAttempt = input.startAttempt ?? initiallyAssigned.iteration;
     for (let attempt = firstAttempt; attempt <= 3; attempt += 1) {
       const useFallbackModel =
-        attempt === 3 && this.#openRouter().hasFallbackModel(input.assignment.role);
+        attempt === 3 &&
+        this.#openRouter().hasFallbackModel({
+          modelTier: input.task.modelTier,
+          role: input.assignment.role,
+        });
       const currentAgent = input.coordinator.current().agents.find((agent) => agent.id === input.assignment.agentId) ?? initiallyAssigned;
       const workingAgent: EngineeringAgentSummary = {
         ...currentAgent,
-        model: this.#openRouter().modelForRole(currentAgent.role, useFallbackModel),
+        model: this.#openRouter().modelForRole({
+          modelTier: input.task.modelTier,
+          role: currentAgent.role,
+          reassigned: useFallbackModel,
+        }),
         iteration: attempt,
         status: "working",
         activity: input.assignment.phase === "review" ? "reviewing-failure" : "editing-files",
@@ -806,6 +820,7 @@ export class WorkforceExecution {
         await this.#assertExecutionPermitted();
         const proposal = await this.#openRouter().proposePatch({
           request: input.task.request,
+          modelTier: input.task.modelTier,
           requirement: input.assignment.requirement,
           role: workingAgent.role,
           iteration: attempt,

@@ -81,8 +81,8 @@ $env:SISYPHUS_ORCHESTRATOR_MAX_AGENTS = '12'
 $env:SISYPHUS_ORCHESTRATOR_MAX_SKILLS_PER_AGENT = '3'
 $env:SISYPHUS_EXECUTION_MODE = 'local-static'
 $env:SISYPHUS_OPENROUTER_MODEL = 'deepseek/deepseek-v4-flash'
-$env:SISYPHUS_OPENROUTER_FALLBACK_MODEL = 'qwen/qwen3-coder'
-$env:SISYPHUS_OPENROUTER_ROLE_MODELS = '{"frontend":"qwen/qwen3-coder","backend":"qwen/qwen3-coder","authentication":"qwen/qwen3-coder","api":"qwen/qwen3-coder","database":"qwen/qwen3-coder","devops":"qwen/qwen3-coder","full-stack":"qwen/qwen3-coder","fixer":"qwen/qwen3-coder","planner":"deepseek/deepseek-v4-flash","architect":"deepseek/deepseek-v4-flash","product":"deepseek/deepseek-v4-flash","research":"deepseek/deepseek-v4-flash","design":"deepseek/deepseek-v4-flash","accessibility":"deepseek/deepseek-v4-flash","performance":"deepseek/deepseek-v4-flash","documentation":"deepseek/deepseek-v4-flash","qa":"deepseek/deepseek-v4-flash","tester":"deepseek/deepseek-v4-flash","test":"deepseek/deepseek-v4-flash","reviewer":"deepseek/deepseek-v4-flash","security":"deepseek/deepseek-v4-flash"}'
+$env:SISYPHUS_OPENROUTER_FALLBACK_MODEL = 'qwen/qwen3.7-flash'
+$env:SISYPHUS_OPENROUTER_ROLE_MODELS = '{"frontend":"qwen/qwen3.7-flash","backend":"qwen/qwen3.7-flash","authentication":"qwen/qwen3.7-flash","api":"qwen/qwen3.7-flash","database":"qwen/qwen3.7-flash","devops":"qwen/qwen3.7-flash","full-stack":"qwen/qwen3.7-flash","fixer":"qwen/qwen3.7-flash","planner":"deepseek/deepseek-v4-flash","architect":"deepseek/deepseek-v4-flash","product":"deepseek/deepseek-v4-flash","research":"deepseek/deepseek-v4-flash","design":"deepseek/deepseek-v4-flash","accessibility":"deepseek/deepseek-v4-flash","performance":"deepseek/deepseek-v4-flash","documentation":"deepseek/deepseek-v4-flash","qa":"deepseek/deepseek-v4-flash","tester":"deepseek/deepseek-v4-flash","test":"deepseek/deepseek-v4-flash","reviewer":"deepseek/deepseek-v4-flash","security":"deepseek/deepseek-v4-flash"}'
 $env:SISYPHUS_ORCHESTRATOR_WORKSPACE_ROOT = Join-Path ([System.IO.Path]::GetTempPath()) 'sisyphus-demo-agent-workspaces'
 
 Remove-Item Env:AWS_REGION -ErrorAction SilentlyContinue
@@ -116,6 +116,6 @@ if ($null -eq $orchestrator) {
   apiPort = $apiListener.LocalPort
   orchestratorPid = $orchestrator.ProcessId
   plannerModel = $env:SISYPHUS_OPENROUTER_MODEL
-  builderModel = 'qwen/qwen3-coder'
+  builderModel = 'qwen/qwen3.7-flash'
   execution = 'local-static'
 }

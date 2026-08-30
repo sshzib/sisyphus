@@ -6,6 +6,7 @@ import type {
   DashboardSnapshot,
   EngineeringExecutionBackend,
   EngineeringEventSummary,
+  EngineeringModelTier,
   EngineeringOperationSummary,
   HostContext,
   LiveAgentStatus,
@@ -67,7 +68,7 @@ export function DashboardApp({ client, hostContext, accountLabel, onSignOut }: D
     });
   }, []);
 
-  const submitTask = useCallback(async (): Promise<boolean> => {
+  const submitTask = useCallback(async (modelTier: EngineeringModelTier): Promise<boolean> => {
     const request = taskDraft.trim();
     if (request.length < 20) {
       setTaskSubmissionMessage("Describe the project in at least 20 characters.");
@@ -76,7 +77,7 @@ export function DashboardApp({ client, hostContext, accountLabel, onSignOut }: D
     setSubmittingTask(true);
     setTaskSubmissionMessage(undefined);
     try {
-      const response = await client.createEngineeringTask({ request });
+      const response = await client.createEngineeringTask({ request, modelTier });
       setSubmittedOperation(response.operation);
       setSnapshot((current) =>
         current === undefined

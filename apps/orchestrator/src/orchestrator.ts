@@ -48,9 +48,7 @@ export class EngineeringOrchestrator {
       configuration.openRouter.kind === "enabled"
         ? new OpenRouterClient(
             configuration.openRouter.apiKey,
-            configuration.openRouter.defaultModel,
-            configuration.openRouter.fallbackModel,
-            configuration.openRouter.roleModels,
+            configuration.openRouter.tierPolicy,
             configuration.maxAgents,
           )
         : undefined;
@@ -143,7 +141,10 @@ export class EngineeringOrchestrator {
 
     let workspace: TaskWorkspace | undefined;
     try {
-      const planned = await this.#openRouter.plan(task.request);
+      const planned = await this.#openRouter.plan({
+        request: task.request,
+        modelTier: task.modelTier,
+      });
       let operation = EngineeringOperationSummarySchema.parse({
         ...task.operation,
         status: "working",
@@ -162,7 +163,11 @@ export class EngineeringOrchestrator {
         newAgent({
           taskId: operation.id,
           role: requirement.specialistRole,
-          model: this.#openRouter?.modelForRole(requirement.specialistRole) ?? "unconfigured",
+          model:
+            this.#openRouter?.modelForRole({
+              modelTier: task.modelTier,
+              role: requirement.specialistRole,
+            }) ?? "unconfigured",
           requirementId: requirement.id,
           activity: "planning-work",
           detail: "Waiting for an isolated workspace.",
@@ -439,6 +444,7 @@ export class EngineeringOrchestrator {
       try {
         const proposal = await this.#openRouter?.proposePatch({
           request: input.task.request,
+          modelTier: input.task.modelTier,
           requirement: input.requirement,
           role: agent.role,
           iteration: attempt,

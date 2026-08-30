@@ -1,5 +1,6 @@
 import {
   AgentPatchProposalSchema,
+  type EngineeringModelTier,
   EngineeringRequirementSchema,
   SpecialistRoleSchema,
   type AgentPatchProposal,
@@ -12,6 +13,13 @@ import {
   validateWorkforceShape,
   WorkforceShapeError,
 } from "./workforce-policy.js";
+import {
+  hasTierPlanFallback,
+  hasTierRoleFallback,
+  modelForTierPlan,
+  modelForTierRole,
+  type OpenRouterTierPolicy,
+} from "./model-tier-policy.js";
 
 const WorkforcePlanSchema = z
   .object({
@@ -62,34 +70,43 @@ const OpenRouterErrorSchema = z
 export class OpenRouterClient {
   public constructor(
     private readonly apiKey: string,
-    private readonly defaultModel: string,
-    private readonly fallbackModel: string | undefined,
-    private readonly roleModels: Readonly<Record<string, string>>,
+    private readonly tierPolicy: OpenRouterTierPolicy,
     private readonly maxAgents: number,
   ) {}
 
-  public modelForRole(role: string, reassigned = false): string {
-    if (reassigned && !isReviewRole(role) && this.fallbackModel !== undefined) return this.fallbackModel;
-    const normalizedRole = role.trim().toLowerCase();
-    const configuredModel = this.roleModels[normalizedRole];
-    if (configuredModel !== undefined) return configuredModel;
-
-    const matchingConfiguredRole = Object.entries(this.roleModels).find(([configuredRole]) =>
-      normalizedRole.includes(configuredRole),
-    );
-    return matchingConfiguredRole?.[1] ?? this.defaultModel;
+  public modelForRole(input: {
+    modelTier: EngineeringModelTier;
+    role: string;
+    reassigned?: boolean;
+  }): string {
+    return modelForTierRole({
+      policy: this.tierPolicy,
+      modelTier: input.modelTier,
+      role: input.role,
+      ...(input.reassigned === undefined ? {} : { reassigned: input.reassigned }),
+    });
   }
 
-  public hasFallbackModel(role: string): boolean {
-    return !isReviewRole(role) && this.fallbackModel !== undefined;
+  public hasFallbackModel(input: {
+    modelTier: EngineeringModelTier;
+    role: string;
+  }): boolean {
+    return hasTierRoleFallback({
+      policy: this.tierPolicy,
+      modelTier: input.modelTier,
+      role: input.role,
+    });
   }
 
-  public async plan(request: string): Promise<{
+  public async plan(input: {
+    request: string;
+    modelTier: EngineeringModelTier;
+  }): Promise<{
     plan: WorkforcePlan;
     model: string;
     tokens: number | undefined;
   }> {
-    const productContract = deriveProductContract(request);
+    const productContract = deriveProductContract(input.request);
     const system = [
       "You are the Sisyphus engineering HR planner.",
       "Return only a JSON object, never Markdown.",
@@ -113,10 +130,13 @@ export class OpenRouterClient {
     ].join(" ");
     let finalFailure: unknown;
     for (let attempt = 1; attempt <= 3; attempt += 1) {
-      const useFallbackModel = attempt === 3 && this.hasFallbackModel("planner");
-      const model = useFallbackModel && this.fallbackModel !== undefined
-        ? this.fallbackModel
-        : this.defaultModel;
+      const useFallbackModel =
+        attempt === 3 && hasTierPlanFallback({ policy: this.tierPolicy, modelTier: input.modelTier });
+      const model = modelForTierPlan({
+        policy: this.tierPolicy,
+        modelTier: input.modelTier,
+        retry: useFallbackModel,
+      });
       const previousFailure = finalFailure instanceof Error ? finalFailure.message.slice(0, 500) : undefined;
       try {
         const response = await this.#jsonCompletion({
@@ -126,8 +146,8 @@ export class OpenRouterClient {
             ? system
             : `${system} Your previous plan was rejected by deterministic workforce validation: ${previousFailure} Correct that exact issue. Return a new valid plan; do not repeat the invalid ownership shape.`,
           user: previousFailure === undefined
-            ? request
-            : `Original request:\n${request}\n\nReturn a corrected workforce plan that satisfies the validation feedback.`,
+            ? input.request
+            : `Original request:\n${input.request}\n\nReturn a corrected workforce plan that satisfies the validation feedback.`,
         });
         const plan = WorkforcePlanSchema.parse(parseJsonResponse(response.content));
         if (plan.requirements.length > this.maxAgents) {
@@ -138,9 +158,17 @@ export class OpenRouterClient {
       } catch (error: unknown) {
         finalFailure = error;
         if (error instanceof WorkforceShapeError) {
-          const policyFallback = fallbackPlanForSimpleWebRequest(request, this.maxAgents);
+          const policyFallback = fallbackPlanForSimpleWebRequest(input.request, this.maxAgents);
           if (policyFallback !== undefined) {
-            return { plan: policyFallback, model: this.defaultModel, tokens: undefined };
+            return {
+              plan: policyFallback,
+              model: modelForTierPlan({
+                policy: this.tierPolicy,
+                modelTier: input.modelTier,
+                retry: false,
+              }),
+              tokens: undefined,
+            };
           }
         }
       }
@@ -151,6 +179,7 @@ export class OpenRouterClient {
 
   public async proposePatch(input: {
     request: string;
+    modelTier: EngineeringModelTier;
     requirement: z.infer<typeof EngineeringRequirementSchema>;
     role: string;
     iteration: number;
@@ -169,7 +198,11 @@ export class OpenRouterClient {
       instructions: string;
     }[];
   }): Promise<{ proposal: AgentPatchProposal; model: string; tokens: number | undefined }> {
-    const model = this.modelForRole(input.role, input.reassigned ?? false);
+    const model = this.modelForRole({
+      modelTier: input.modelTier,
+      role: input.role,
+      ...(input.reassigned === undefined ? {} : { reassigned: input.reassigned }),
+    });
     const reviewRole =
       isReviewRole(input.role) || isReviewRole(input.requirement.title);
     const reportPath = `reviews/${input.role.trim().toLowerCase().replaceAll(/[^a-z0-9]+/gu, "-")}-iteration-${input.iteration}.md`;

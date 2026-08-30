@@ -238,5 +238,8 @@ describe("InMemoryEngineeringTaskStore", () => {
     });
 
     expect(lease?.modelTier).toBe("high");
+    await expect(store.dashboard({ tenantId: "tenant-test", canManageExecution: true })).resolves.toMatchObject({
+      events: [expect.objectContaining({ summary: expect.stringContaining("High tier task created") })],
+    });
   });
 });

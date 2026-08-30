@@ -123,14 +123,19 @@ function initialEvent(input: {
   taskId: string;
   occurredAt: string;
   request: string;
+  modelTier: EngineeringModelTier;
 }): EngineeringEventSummary {
   return EngineeringEventSummarySchema.parse({
     id: `engineering-event-${randomUUID()}`,
     taskId: input.taskId,
     type: "TASK_CREATED" satisfies EngineeringEventType,
     occurredAt: input.occurredAt,
-    summary: `Task created: ${requestSummary(input.request)}`,
-    payloadDigest: payloadDigest({ taskId: input.taskId, request: input.request }),
+    summary: `${input.modelTier.replace(/^./u, (letter) => letter.toUpperCase())} tier task created: ${requestSummary(input.request)}`,
+    payloadDigest: payloadDigest({
+      taskId: input.taskId,
+      request: input.request,
+      modelTier: input.modelTier,
+    }),
   });
 }
 
@@ -174,7 +179,9 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
       leaseExpiresAt: undefined,
       executionGeneration: undefined,
     });
-    await this.#recordEvents(input.tenantId, [initialEvent({ taskId: id, occurredAt, request })]);
+    await this.#recordEvents(input.tenantId, [
+      initialEvent({ taskId: id, occurredAt, request, modelTier }),
+    ]);
     return operation;
   }
 

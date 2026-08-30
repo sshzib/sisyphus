@@ -1,6 +1,10 @@
 import { resolve } from "node:path";
 import { homedir, tmpdir } from "node:os";
 import { z } from "zod";
+import {
+  createOpenRouterTierPolicy,
+  type OpenRouterTierPolicy,
+} from "./model-tier-policy.js";
 
 const AbsoluteHttpUrlSchema = z
   .string()
@@ -59,9 +63,7 @@ export type OrchestratorConfiguration = {
     | {
         kind: "enabled";
         apiKey: string;
-        defaultModel: string;
-        fallbackModel: string | undefined;
-        roleModels: Record<string, string>;
+        tierPolicy: OpenRouterTierPolicy;
       };
   codebuild:
     | {
@@ -82,14 +84,14 @@ export function parseOrchestratorConfiguration(
   const providerConfigured =
     environment.SISYPHUS_OPENROUTER_API_KEY !== undefined ||
     environment.SISYPHUS_OPENROUTER_MODEL !== undefined ||
+    environment.SISYPHUS_OPENROUTER_FALLBACK_MODEL !== undefined ||
     environment.SISYPHUS_OPENROUTER_ROLE_MODELS !== undefined;
   if (
     providerConfigured &&
-    (environment.SISYPHUS_OPENROUTER_API_KEY === undefined ||
-      environment.SISYPHUS_OPENROUTER_MODEL === undefined)
+    environment.SISYPHUS_OPENROUTER_API_KEY === undefined
   ) {
     throw new Error(
-      "SISYPHUS_OPENROUTER_API_KEY and SISYPHUS_OPENROUTER_MODEL must be configured together.",
+      "SISYPHUS_OPENROUTER_API_KEY is required when OpenRouter model settings are configured.",
     );
   }
   const codeBuildConfigured =
@@ -126,15 +128,16 @@ export function parseOrchestratorConfiguration(
       environment.SISYPHUS_EXECUTION_ARCHIVE_ROOT ??
       resolve(homedir(), "Desktop", "Sisyphus Executions"),
     openRouter:
-      environment.SISYPHUS_OPENROUTER_API_KEY === undefined ||
-      environment.SISYPHUS_OPENROUTER_MODEL === undefined
+      environment.SISYPHUS_OPENROUTER_API_KEY === undefined
         ? { kind: "disabled" }
         : {
             kind: "enabled",
             apiKey: environment.SISYPHUS_OPENROUTER_API_KEY,
-            defaultModel: environment.SISYPHUS_OPENROUTER_MODEL,
-            fallbackModel: environment.SISYPHUS_OPENROUTER_FALLBACK_MODEL,
-            roleModels,
+            tierPolicy: createOpenRouterTierPolicy({
+              plannerModel: environment.SISYPHUS_OPENROUTER_MODEL,
+              specialistModel: environment.SISYPHUS_OPENROUTER_FALLBACK_MODEL,
+              roleModels,
+            }),
           },
     codebuild,
   };

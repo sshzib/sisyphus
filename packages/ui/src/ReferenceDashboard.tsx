@@ -5,6 +5,7 @@ import type {
   DashboardSnapshot,
   EngineeringAgentSummary,
   EngineeringExecutionBackend,
+  EngineeringModelTier,
   EngineeringOperationSummary,
   LiveAgentSummary,
 } from "./contracts.js";
@@ -14,8 +15,7 @@ import { SkillsView } from "./SkillsView.js";
 
 const maximumTaskDraftLength = 4_000;
 
-const processingTiers = ["Low Tier", "Medium Tier", "High Tier", "Max Tier"] as const;
-type ProcessingTier = (typeof processingTiers)[number];
+const processingTiers = ["low", "medium", "high", "max"] as const satisfies readonly EngineeringModelTier[];
 type WorkspaceView = "build" | "agents" | "logs" | "skills";
 type LogFilter = "all" | "completed" | "attention";
 
@@ -62,7 +62,7 @@ export interface ReferenceDashboardProps {
   readonly taskSubmissionMessage: string | undefined;
   readonly submittingTask: boolean;
   readonly onTaskDraftChange: (value: string) => void;
-  readonly onTaskSubmit: () => Promise<boolean>;
+  readonly onTaskSubmit: (modelTier: EngineeringModelTier) => Promise<boolean>;
   readonly execution: DashboardSnapshot["engineering"]["execution"] | undefined;
   readonly canManageExecution: boolean;
   readonly changingExecution: boolean;
@@ -76,7 +76,7 @@ export interface ReferenceDashboardProps {
 
 export function ReferenceDashboard(input: ReferenceDashboardProps) {
   const [view, setView] = useState<WorkspaceView>("build");
-  const [tier, setTier] = useState<ProcessingTier>("Medium Tier");
+  const [tier, setTier] = useState<EngineeringModelTier>("low");
   const [tierOpen, setTierOpen] = useState(false);
   const [automationOpen, setAutomationOpen] = useState(false);
   const operation = input.submittedOperation ?? newestEngineeringOperation(input.snapshot?.engineering.operations ?? []);
@@ -86,7 +86,7 @@ export function ReferenceDashboard(input: ReferenceDashboardProps) {
   const workflowEventCount = input.snapshot?.engineering.events.length ?? 0;
 
   async function submit(): Promise<void> {
-    const created = await input.onTaskSubmit();
+    const created = await input.onTaskSubmit(tier);
     if (created) setView("agents");
   }
 
@@ -226,12 +226,12 @@ type ComposerProps = {
   readonly draft: string;
   readonly message: string | undefined;
   readonly submitting: boolean;
-  readonly tier: ProcessingTier;
+  readonly tier: EngineeringModelTier;
   readonly tierOpen: boolean;
   readonly onDraftChange: (value: string) => void;
   readonly onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   readonly onSubmit: () => void;
-  readonly onTierChange: (tier: ProcessingTier) => void;
+  readonly onTierChange: (tier: EngineeringModelTier) => void;
   readonly onTierOpen: () => void;
   readonly automationOpen: boolean;
   readonly canManageExecution: boolean;
@@ -269,8 +269,8 @@ function PromptComposer({ centered: _centered, ...input }: ComposerProps & { rea
         </div>
         <div className="reference-composer-right">
           <div className="reference-tier-menu">
-            <button type="button" aria-expanded={input.tierOpen} onClick={input.onTierOpen}>{input.tier}<Icon name="chevron" /></button>
-            {input.tierOpen ? <div className="reference-tier-popover" role="menu">{processingTiers.map((tier) => <button className={tier === input.tier ? "is-selected" : ""} key={tier} type="button" onClick={() => input.onTierChange(tier)} role="menuitem"><Icon name={tierIcon(tier)} />{tier}</button>)}</div> : null}
+            <button type="button" aria-expanded={input.tierOpen} onClick={input.onTierOpen}>{tierLabel(input.tier)}<Icon name="chevron" /></button>
+            {input.tierOpen ? <div className="reference-tier-popover" role="menu">{processingTiers.map((tier) => <button className={tier === input.tier ? "is-selected" : ""} key={tier} type="button" onClick={() => input.onTierChange(tier)} role="menuitem"><Icon name={tierIcon(tier)} />{tierLabel(tier)}</button>)}</div> : null}
           </div>
           <button className="reference-icon-button" type="button" aria-label="Voice input"><Icon name="mic" /></button>
           <button className="reference-send-button" type="button" aria-label="Submit build request" disabled={input.submitting || input.draft.trim().length < 20} onClick={input.onSubmit}><Icon name="send" /></button>
@@ -433,7 +433,8 @@ function statusLabel(status: WorkspaceAgent["status"]): string { return titleCas
 function titleCase(value: string): string { return value.replaceAll(/\b[a-z]/gu, (letter) => letter.toUpperCase()); }
 function truncate(value: string, limit: number): string { return value.length <= limit ? value : `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`; }
 function shortTrace(value: string): string { return value.length <= 12 ? value : `${value.slice(0, 6)}…${value.slice(-4)}`; }
-function tierIcon(tier: ProcessingTier): IconName { switch (tier) { case "Low Tier": return "leaf"; case "Medium Tier": return "cube"; case "High Tier": return "bolt"; case "Max Tier": return "flame"; default: { const exhaustive: never = tier; return exhaustive; } } }
+function tierLabel(tier: EngineeringModelTier): string { switch (tier) { case "low": return "Low Tier"; case "medium": return "Medium Tier"; case "high": return "High Tier"; case "max": return "Max Tier"; default: { const exhaustive: never = tier; return exhaustive; } } }
+function tierIcon(tier: EngineeringModelTier): IconName { switch (tier) { case "low": return "leaf"; case "medium": return "cube"; case "high": return "bolt"; case "max": return "flame"; default: { const exhaustive: never = tier; return exhaustive; } } }
 function executionBackendFrom(value: string): EngineeringExecutionBackend | undefined { return value === "local-static" || value === "codebuild" ? value : undefined; }
 async function copyTrace(trace: string): Promise<void> { await globalThis.navigator.clipboard?.writeText(trace); }
 
