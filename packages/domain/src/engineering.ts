@@ -85,9 +85,13 @@ export const SpecialistRoleSchema = z
   .regex(/^[a-z][a-z0-9-]*(?:\s+[a-z0-9-]+)*$/u);
 export type SpecialistRole = z.infer<typeof SpecialistRoleSchema>;
 
+export const EngineeringModelTierSchema = z.enum(["low", "medium", "high", "max"]);
+export type EngineeringModelTier = z.infer<typeof EngineeringModelTierSchema>;
+
 export const CreateEngineeringTaskSchema = z
   .object({
     request: z.string().trim().min(20).max(4_000),
+    modelTier: EngineeringModelTierSchema.default("low"),
   })
   .strict();
 export type CreateEngineeringTask = z.infer<typeof CreateEngineeringTaskSchema>;

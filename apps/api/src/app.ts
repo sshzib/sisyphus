@@ -439,6 +439,7 @@ export async function createApp(options: CreateAppOptions = {}): Promise<Fastify
       tenantId: auth.tenantId,
       actor: auth.subjectId,
       request: body.data.request,
+      modelTier: body.data.modelTier,
       now: clock(),
     });
     return reply.status(202).send(

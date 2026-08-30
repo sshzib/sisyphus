@@ -212,4 +212,31 @@ describe("InMemoryEngineeringTaskStore", () => {
       execution: { backend: "codebuild", generation: 2 },
     });
   });
+
+  it("carries the selected model tier from task creation into a lease", async () => {
+    const store = new InMemoryEngineeringTaskStore();
+    const now = new Date("2026-08-30T00:00:00.000Z");
+    await store.create({
+      tenantId: "tenant-test",
+      actor: "tester",
+      request: "Build a responsive landing page with an accessible product heading.",
+      modelTier: "high",
+      now,
+    });
+    await store.setExecution({
+      tenantId: "tenant-test",
+      actor: "admin-test",
+      status: "running",
+      now: new Date(now.getTime() + 1_000),
+    });
+
+    const lease = await store.lease({
+      tenantId: "tenant-test",
+      leaseId: "00000000-0000-4000-8000-000000000007",
+      now: new Date(now.getTime() + 2_000),
+      leaseDurationMs: 60_000,
+    });
+
+    expect(lease?.modelTier).toBe("high");
+  });
 });

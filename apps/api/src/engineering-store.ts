@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
   CreateEngineeringTaskSchema,
+  type EngineeringModelTier,
   type EngineeringEventType,
 } from "@sisyphus/domain";
 import {
@@ -20,6 +21,7 @@ export interface EngineeringTaskLease {
   readonly tenantId: string;
   readonly taskId: string;
   readonly request: string;
+  readonly modelTier: EngineeringModelTier;
   readonly leaseId: string;
   readonly executionGeneration: number;
   readonly executionBackend: EngineeringExecutionBackend;
@@ -41,6 +43,7 @@ export interface EngineeringTaskStore {
     tenantId: string;
     actor: string;
     request: string;
+    modelTier?: EngineeringModelTier;
     now: Date;
   }): Promise<EngineeringOperationSummary>;
   dashboard(input: {
@@ -86,6 +89,7 @@ export interface EngineeringTaskStore {
 
 interface StoredEngineeringTask {
   request: string;
+  modelTier: EngineeringModelTier;
   operation: EngineeringOperationSummary;
   leaseId: string | undefined;
   leaseExpiresAt: number | undefined;
@@ -141,9 +145,13 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
     tenantId: string;
     actor: string;
     request: string;
+    modelTier?: EngineeringModelTier;
     now: Date;
   }): Promise<EngineeringOperationSummary> {
-    const request = CreateEngineeringTaskSchema.parse({ request: input.request }).request;
+    const { request, modelTier } = CreateEngineeringTaskSchema.parse({
+      request: input.request,
+      modelTier: input.modelTier,
+    });
     const id = `task-${randomUUID()}`;
     const occurredAt = input.now.toISOString();
     const operation = EngineeringOperationSummarySchema.parse({
@@ -160,6 +168,7 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
     });
     this.#tasks.set(taskKey(input.tenantId, id), {
       request,
+      modelTier,
       operation,
       leaseId: undefined,
       leaseExpiresAt: undefined,
@@ -257,6 +266,7 @@ export class InMemoryEngineeringTaskStore implements EngineeringTaskStore {
       tenantId: input.tenantId,
       taskId: operation.id,
       request: stored.request,
+      modelTier: stored.modelTier,
       leaseId: input.leaseId,
       executionGeneration: execution.generation,
       executionBackend: execution.backend,

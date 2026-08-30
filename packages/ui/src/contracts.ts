@@ -1,4 +1,10 @@
+import {
+  EngineeringModelTierSchema,
+  type EngineeringModelTier,
+} from "@sisyphus/domain";
 import { z } from "zod";
+
+export { EngineeringModelTierSchema, type EngineeringModelTier };
 
 export const AgentRuntimeSchema = z.enum([
   "codex",
@@ -492,9 +498,12 @@ export const OperationSummarySchema = z
 export type OperationSummary = z.infer<typeof OperationSummarySchema>;
 
 export const EngineeringTaskSubmissionSchema = z
-  .object({ request: z.string().trim().min(20).max(4_000) })
+  .object({
+    request: z.string().trim().min(20).max(4_000),
+    modelTier: EngineeringModelTierSchema.default("low"),
+  })
   .strict();
-export type EngineeringTaskSubmission = z.infer<
+export type EngineeringTaskSubmission = z.input<
   typeof EngineeringTaskSubmissionSchema
 >;
 

@@ -329,6 +329,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@sisyphus/domain':
+        specifier: workspace:*
+        version: link:../domain
       react:
         specifier: ^19.1.1
         version: 19.2.8

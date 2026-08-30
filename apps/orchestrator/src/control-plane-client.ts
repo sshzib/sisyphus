@@ -1,3 +1,4 @@
+import { EngineeringModelTierSchema } from "@sisyphus/domain";
 import { z } from "zod";
 import {
   EngineeringExecutionBackendSchema,
@@ -12,6 +13,7 @@ const LeaseSchema = z
     tenantId: z.string().trim().min(1),
     taskId: z.string().trim().min(1),
     request: z.string().trim().min(20).max(4_000),
+    modelTier: EngineeringModelTierSchema,
     leaseId: z.string().uuid(),
     executionGeneration: z.number().int().nonnegative(),
     executionBackend: EngineeringExecutionBackendSchema,

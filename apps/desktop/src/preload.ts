@@ -18,6 +18,7 @@ import {
   ResolveSkillImprovementProposalSchema,
   type DashboardQuery,
   type DashboardSnapshot,
+  type EngineeringTaskSubmission,
   type RestoreSkillRequest,
   type RestoreSkillResponse,
 } from "@sisyphus/ui/contracts";
@@ -40,7 +41,7 @@ export interface SisyphusDesktopApi {
   getLocalEvidence(eventId: string): Promise<LocalEvidenceResponse>;
   getDataSource(): Promise<"unavailable" | "remote-api">;
   getDashboard(query: DashboardQuery): Promise<DashboardSnapshot>;
-  createEngineeringTask(input: { request: string }): Promise<
+  createEngineeringTask(input: EngineeringTaskSubmission): Promise<
     ReturnType<typeof CreateEngineeringTaskResponseSchema.parse>
   >;
   clearEngineeringHistory(): Promise<ReturnType<typeof ClearEngineeringHistoryResponseSchema.parse>>;
