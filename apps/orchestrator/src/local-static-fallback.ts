@@ -9,6 +9,13 @@ type LocalSiteBrief = {
   readonly actionLabel: string;
   readonly focusLabel: string;
   readonly includesSisyphus: boolean;
+  readonly research: ProductResearch;
+};
+
+type ProductResearch = {
+  readonly label: string;
+  readonly finding: string;
+  readonly sourceLabel: string;
 };
 
 type PlanningRequirement = WorkforcePlan["requirements"][number];
@@ -154,6 +161,7 @@ function localSiteBrief(request: string): LocalSiteBrief {
       actionLabel: "Start listening",
       focusLabel: "Listening room",
       includesSisyphus,
+      research: productResearch({ name, request: normalized }),
     };
   }
   if (isAuthentication) {
@@ -165,6 +173,7 @@ function localSiteBrief(request: string): LocalSiteBrief {
       actionLabel: "Open account preview",
       focusLabel: "Account flow",
       includesSisyphus,
+      research: productResearch({ name, request: normalized }),
     };
   }
   if (isCommerce) {
@@ -176,6 +185,7 @@ function localSiteBrief(request: string): LocalSiteBrief {
       actionLabel: "Explore the edit",
       focusLabel: "Product edit",
       includesSisyphus,
+      research: productResearch({ name, request: normalized }),
     };
   }
   return {
@@ -186,6 +196,44 @@ function localSiteBrief(request: string): LocalSiteBrief {
     actionLabel: "See the prototype",
     focusLabel: "Launch preview",
     includesSisyphus,
+    research: productResearch({ name, request: normalized }),
+  };
+}
+
+function productResearch(input: { readonly name: string; readonly request: string }): ProductResearch {
+  const product = input.name.toLowerCase();
+  if (product.includes("sprite")) {
+    return {
+      label: "Product research",
+      finding: "Sprite is positioned by The Coca-Cola Company around crisp lemon-lime refreshment and culture-led moments in music, basketball, and street culture.",
+      sourceLabel: "Coca-Cola Company brand profile",
+    };
+  }
+  if (product.includes("spotify")) {
+    return {
+      label: "Product research",
+      finding: "Spotify is an audio streaming subscription service built around music discovery, podcasts, and listening for every moment.",
+      sourceLabel: "Spotify company information",
+    };
+  }
+  if (/\b(?:gdg|google developers?|developer group)\b/iu.test(input.request)) {
+    return {
+      label: "Community research",
+      finding: "Google Developer Groups are local, community-led places for developers to share knowledge, meet peers, and join events such as DevFest.",
+      sourceLabel: "Google for Developers community guide",
+    };
+  }
+  if (product.includes("zudio")) {
+    return {
+      label: "Product research",
+      finding: "Zudio is Tata Trent’s value-fashion concept, designed around accessible fashion for women, men, and children.",
+      sourceLabel: "Zudio and Trent brand information",
+    };
+  }
+  return {
+    label: "Brief research",
+    finding: `The prototype is shaped around the requested ${input.name} experience: ${input.request}.`,
+    sourceLabel: "Prompt analysis",
   };
 }
 
@@ -207,8 +255,83 @@ function html(input: {
   readonly brief: LocalSiteBrief;
   readonly requirement: Pick<EngineeringRequirement, "id" | "title">;
 }): string {
-  if (input.brief.kind === "audio") return musicHtml(input);
-  return storefrontHtml(input);
+  switch (input.brief.kind) {
+    case "account":
+      return accountHtml(input);
+    case "audio":
+      return musicHtml(input);
+    case "storefront":
+    case "launch":
+      return storefrontHtml(input);
+    default: {
+      const exhaustive: never = input.brief.kind;
+      return exhaustive;
+    }
+  }
+}
+
+function accountHtml(input: {
+  readonly brief: LocalSiteBrief;
+  readonly requirement: Pick<EngineeringRequirement, "id" | "title">;
+}): string {
+  const name = escapeHtml(input.brief.name);
+  const statement = escapeHtml(input.brief.productStatement);
+  const researchLabel = escapeHtml(input.brief.research.label);
+  const researchFinding = escapeHtml(input.brief.research.finding);
+  const researchSource = escapeHtml(input.brief.research.sourceLabel);
+  const requirement = escapeHtml(input.requirement.title);
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="${name} account access prototype">
+    <title>${name} | Secure account access</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="script.js" defer></script>
+  </head>
+  <body class="auth-site" data-template="account">
+    <a class="skip-link" href="#main">Skip to sign in</a>
+    <main id="main" class="auth-shell">
+      <section class="auth-story" aria-labelledby="auth-story-title">
+        <a class="auth-wordmark" href="#top" aria-label="${name} home"><span aria-hidden="true">◒</span>${name}</a>
+        <div class="auth-story__copy" data-reveal>
+          <p class="auth-kicker">Identity, with intent</p>
+          <h1 id="auth-story-title">A clearer way back to your ${name} account.</h1>
+          <p>${statement}</p>
+        </div>
+        <article class="research-card" data-reveal aria-labelledby="research-title">
+          <p>${researchLabel}</p>
+          <h2 id="research-title">Designed from the product context.</h2>
+          <p>${researchFinding}</p>
+          <small>Source: ${researchSource}</small>
+        </article>
+        <footer><span>Current brief</span><span>${requirement}</span></footer>
+      </section>
+
+      <section class="auth-panel" aria-labelledby="sign-in-title">
+        <div class="auth-panel__head"><p>Member access</p><a href="#help">Need help?</a></div>
+        <div class="auth-card" data-reveal>
+          <p class="auth-step">01 / Sign in</p>
+          <h2 id="sign-in-title">Welcome back.</h2>
+          <p>Use your work email to continue to your account space.</p>
+          <form class="auth-form" data-auth-form novalidate>
+            <label for="auth-email">Email address</label>
+            <input id="auth-email" name="email" type="email" autocomplete="email" placeholder="you@company.com" required>
+            <label for="auth-password">Password</label>
+            <div class="password-field"><input id="auth-password" name="password" type="password" autocomplete="current-password" placeholder="Enter your password" minlength="8" required><button type="button" data-password-toggle aria-controls="auth-password" aria-pressed="false">Show</button></div>
+            <div class="auth-options"><label><input type="checkbox" name="remember"> Remember this device</label><a href="#reset">Forgot password?</a></div>
+            <button class="auth-submit" type="submit">Continue securely <span aria-hidden="true">→</span></button>
+            <p class="auth-message" data-auth-message role="status"></p>
+          </form>
+          <div class="auth-divider"><span>or</span></div>
+          <button class="auth-secondary" type="button" data-sso-button>Continue with single sign-on</button>
+        </div>
+        <p id="help" class="auth-disclaimer">This local prototype demonstrates the access flow only. It does not store credentials or contact a remote service.</p>
+      </section>
+    </main>
+  </body>
+</html>`;
 }
 
 function storefrontHtml(input: {
@@ -221,9 +344,11 @@ function storefrontHtml(input: {
   const action = escapeHtml(input.brief.actionLabel);
   const focus = escapeHtml(input.brief.focusLabel);
   const requirement = escapeHtml(input.requirement.title);
+  const research = escapeHtml(input.brief.research.finding);
+  const researchSource = escapeHtml(input.brief.research.sourceLabel);
   const sisyphusNote = input.brief.includesSisyphus
     ? '<p class="hero__note">Sisyphus gives an AI Engineering HR team a shared view of who is building, reviewing, and shipping each project.</p>'
-    : '<p class="hero__note">Built as a working browser prototype. Interactions run locally and no generated commands run on this machine.</p>';
+    : `<p class="hero__note"><strong>Research brief.</strong> ${research} <span>Source: ${researchSource}</span></p>`;
 
   return `<!doctype html>
 <html lang="en">
@@ -337,6 +462,7 @@ function musicHtml(input: {
   const name = escapeHtml(input.brief.name);
   const statement = escapeHtml(input.brief.productStatement);
   const requirement = escapeHtml(input.requirement.title);
+  const research = escapeHtml(input.brief.research.finding);
   return `<!doctype html>
 <html lang="en">
   <head>
@@ -365,6 +491,7 @@ function musicHtml(input: {
           <p class="audio-kicker">Made for the in-between</p>
           <h1 id="hero-title">${name} turns a spare moment into a listening room.</h1>
           <p>${statement}</p>
+          <p class="play-status">Research brief · ${research}</p>
           <div class="audio-hero__actions">
             <button class="play-button" type="button" data-play-toggle aria-pressed="false"><span aria-hidden="true">▶</span> Start this mix</button>
             <a class="quiet-link" href="#library">See the queue <span aria-hidden="true">↓</span></a>
@@ -413,7 +540,19 @@ function musicHtml(input: {
 }
 
 function styles(kind: LocalSiteBrief["kind"]): string {
-  return kind === "audio" ? musicStyles() : storefrontStyles();
+  switch (kind) {
+    case "account":
+      return accountStyles();
+    case "audio":
+      return musicStyles();
+    case "storefront":
+    case "launch":
+      return storefrontStyles();
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
+  }
 }
 
 function storefrontStyles(): string {
@@ -521,6 +660,95 @@ h2 { font-size: clamp(2.5rem, 4.6vw, 5rem); line-height: .94; }
   .manifesto { padding: 4.5rem 7vw; }
   .contact { padding: 4.5rem 7vw; }
   .site-footer { align-items: flex-start; flex-direction: column; gap: .6rem; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+  [data-reveal] { opacity: 1; transform: none; }
+}`;
+}
+
+function accountStyles(): string {
+  return `:root {
+  color-scheme: dark;
+  --night: #101525;
+  --ink: #f5f7ff;
+  --muted: #a7afc7;
+  --line: rgba(245, 247, 255, .16);
+  --violet: #9c7cff;
+  --aqua: #68e1d1;
+  --panel: #f7f8fc;
+  --panel-ink: #17192a;
+  --sans: Inter, ui-sans-serif, system-ui, sans-serif;
+  --serif: Georgia, "Times New Roman", serif;
+}
+
+* { box-sizing: border-box; }
+html { background: var(--night); }
+body { background: var(--night); color: var(--ink); font-family: var(--sans); margin: 0; }
+button, input { font: inherit; }
+button { cursor: pointer; }
+a { color: inherit; }
+.skip-link { background: var(--ink); color: var(--night); left: 1rem; padding: .7rem 1rem; position: fixed; top: -5rem; z-index: 10; }
+.skip-link:focus { top: 1rem; }
+.auth-shell { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(25rem, .92fr); min-height: 100vh; }
+.auth-story { display: flex; flex-direction: column; overflow: hidden; padding: clamp(1.5rem, 4vw, 4rem); position: relative; }
+.auth-story::before { background: radial-gradient(circle at 20% 80%, rgba(104,225,209,.35), transparent 23rem), radial-gradient(circle at 82% 17%, rgba(156,124,255,.37), transparent 28rem); content: ""; inset: 0; pointer-events: none; position: absolute; }
+.auth-wordmark, .auth-story__copy, .research-card, .auth-story footer { position: relative; }
+.auth-wordmark { font-size: 1.05rem; font-weight: 850; letter-spacing: -.05em; text-decoration: none; }
+.auth-wordmark span { color: var(--aqua); font-size: 1.5rem; margin-right: .45rem; vertical-align: -.12rem; }
+.auth-story__copy { margin: auto 0 clamp(2rem, 8vw, 6rem); max-width: 44rem; }
+.auth-kicker, .auth-step, .research-card > p:first-child, .auth-panel__head > p { color: var(--aqua); font-size: .7rem; font-weight: 850; letter-spacing: .14em; margin: 0 0 1.1rem; text-transform: uppercase; }
+.auth-story h1, .auth-card h2 { font-family: var(--serif); font-weight: 400; letter-spacing: -.065em; }
+.auth-story h1 { font-size: clamp(3.4rem, 7vw, 7.5rem); line-height: .88; margin: 0 0 1.65rem; }
+.auth-story__copy > p:last-child { color: var(--muted); font-size: clamp(1rem, 1.4vw, 1.25rem); line-height: 1.65; max-width: 34rem; }
+.research-card { backdrop-filter: blur(10px); background: rgba(19,26,45,.64); border: 1px solid var(--line); max-width: 32rem; padding: 1.35rem; }
+.research-card h2 { font-size: 1.2rem; margin: 0 0 .8rem; }
+.research-card p { color: #d7dced; font-size: .88rem; line-height: 1.55; margin: 0 0 1rem; }
+.research-card small { color: var(--muted); font-size: .7rem; }
+.auth-story footer { border-top: 1px solid var(--line); color: var(--muted); display: flex; font-size: .68rem; gap: 1rem; justify-content: space-between; margin-top: 2rem; padding-top: 1rem; text-transform: uppercase; }
+.auth-story footer span:last-child { max-width: 25rem; text-align: right; }
+.auth-panel { align-items: center; background: var(--panel); color: var(--panel-ink); display: flex; flex-direction: column; justify-content: center; padding: clamp(1.5rem, 5vw, 5rem); }
+.auth-panel__head { align-items: center; display: flex; justify-content: space-between; max-width: 28rem; width: 100%; }
+.auth-panel__head > p { color: #596078; margin-bottom: 1.5rem; }
+.auth-panel__head a { color: #4e38ad; font-size: .78rem; font-weight: 750; margin-bottom: 1.5rem; }
+.auth-card { background: #fff; border: 1px solid #e4e6ef; box-shadow: 0 1.5rem 4rem rgba(23,25,42,.12); max-width: 28rem; padding: clamp(1.5rem, 4vw, 2.5rem); width: 100%; }
+.auth-step { color: #6551c6; }
+.auth-card h2 { font-size: clamp(2.5rem, 4vw, 3.55rem); line-height: .9; margin: 0 0 .9rem; }
+.auth-card > p:not(.auth-step) { color: #626a80; font-size: .92rem; line-height: 1.55; margin-bottom: 2rem; }
+.auth-form { display: grid; gap: .7rem; }
+.auth-form label { font-size: .72rem; font-weight: 800; letter-spacing: .03em; margin-top: .6rem; }
+.auth-form input { background: #fafbfe; border: 1px solid #d8dce7; color: var(--panel-ink); min-height: 3rem; padding: 0 .85rem; width: 100%; }
+.auth-form input:focus { border-color: #6855d5; box-shadow: 0 0 0 3px rgba(104,85,213,.15); outline: 0; }
+.password-field { position: relative; }
+.password-field input { padding-right: 4.5rem; }
+.password-field button { background: transparent; border: 0; color: #5846bc; font-size: .73rem; font-weight: 800; padding: .4rem; position: absolute; right: .4rem; top: 50%; transform: translateY(-50%); }
+.auth-options { align-items: center; display: flex; font-size: .72rem; justify-content: space-between; margin: .4rem 0 .7rem; }
+.auth-options label { align-items: center; color: #626a80; display: flex; font-weight: 600; gap: .45rem; margin: 0; }
+.auth-options input { accent-color: #5b46c9; min-height: auto; padding: 0; width: auto; }
+.auth-options a { color: #4e38ad; font-weight: 750; }
+.auth-submit, .auth-secondary { border: 1px solid #1c1a31; font-size: .76rem; font-weight: 850; min-height: 3.2rem; transition: box-shadow 180ms ease, transform 180ms ease; }
+.auth-submit { background: #1c1a31; color: #fff; letter-spacing: .06em; text-transform: uppercase; }
+.auth-submit span { margin-left: .55rem; }
+.auth-submit:hover, .auth-submit:focus-visible { box-shadow: 4px 4px 0 var(--violet); transform: translate(-2px, -2px); }
+.auth-message { color: #276d61; font-size: .78rem; min-height: 1.2rem; margin: .25rem 0 0; }
+.auth-divider { align-items: center; color: #8a91a4; display: flex; font-size: .72rem; gap: .85rem; margin: 1.35rem 0; }
+.auth-divider::before, .auth-divider::after { background: #e2e4ed; content: ""; height: 1px; width: 100%; }
+.auth-secondary { background: #fff; color: #393b4f; width: 100%; }
+.auth-secondary:hover, .auth-secondary:focus-visible { background: #f0effb; border-color: #6754cf; }
+.auth-disclaimer { color: #737b90; font-size: .72rem; line-height: 1.5; margin: 1.2rem 0 0; max-width: 28rem; }
+[data-reveal] { opacity: 0; transform: translateY(1rem); transition: opacity 440ms ease, transform 440ms ease; }
+[data-reveal].is-visible { opacity: 1; transform: translateY(0); }
+@media (max-width: 820px) {
+  .auth-shell { grid-template-columns: 1fr; }
+  .auth-story { min-height: 42rem; }
+  .auth-panel { min-height: 40rem; }
+}
+@media (max-width: 520px) {
+  .auth-story { min-height: 38rem; }
+  .auth-story h1 { font-size: 3.5rem; }
+  .auth-story footer { align-items: flex-start; flex-direction: column; }
+  .auth-story footer span:last-child { text-align: left; }
+  .auth-options { align-items: flex-start; flex-direction: column; gap: .7rem; }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
@@ -648,6 +876,10 @@ const form = document.querySelector('[data-signup]');
 const formMessage = document.querySelector('[data-form-message]');
 const playToggle = document.querySelector('[data-play-toggle]');
 const playStatus = document.querySelector('[data-play-status]');
+const authForm = document.querySelector('[data-auth-form]');
+const authMessage = document.querySelector('[data-auth-message]');
+const passwordToggle = document.querySelector('[data-password-toggle]');
+const ssoButton = document.querySelector('[data-sso-button]');
 
 menuButton?.addEventListener('click', () => {
   const open = menuButton.getAttribute('aria-expanded') === 'true';
@@ -695,6 +927,36 @@ form?.addEventListener('submit', (event) => {
   }
   if (formMessage) formMessage.textContent = 'You are on the local preview list.';
   form.reset();
+});
+
+passwordToggle?.addEventListener('click', () => {
+  const password = document.querySelector('#auth-password');
+  if (!(password instanceof HTMLInputElement)) return;
+  const visible = password.type === 'text';
+  password.type = visible ? 'password' : 'text';
+  passwordToggle.setAttribute('aria-pressed', String(!visible));
+  passwordToggle.textContent = visible ? 'Show' : 'Hide';
+});
+
+authForm?.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const email = authForm.querySelector('input[type="email"]');
+  const password = authForm.querySelector('input[type="password"], input[type="text"]');
+  if (!(email instanceof HTMLInputElement) || !email.validity.valid) {
+    if (email instanceof HTMLInputElement) email.focus();
+    if (authMessage) authMessage.textContent = 'Enter a valid work email to continue.';
+    return;
+  }
+  if (!(password instanceof HTMLInputElement) || password.value.length < 8) {
+    if (password instanceof HTMLInputElement) password.focus();
+    if (authMessage) authMessage.textContent = 'Use at least eight characters for this preview.';
+    return;
+  }
+  if (authMessage) authMessage.textContent = 'Access confirmed for the local prototype. No credentials were stored.';
+});
+
+ssoButton?.addEventListener('click', () => {
+  if (authMessage) authMessage.textContent = 'Single sign-on is represented locally for this prototype.';
 });
 
 const reveal = document.querySelectorAll('[data-reveal]');

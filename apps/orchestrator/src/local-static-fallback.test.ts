@@ -48,6 +48,24 @@ test("creates and verifies a real static storefront when provider generation is 
   assert.match(musicStyles.content, /\.audio-hero/u);
   assert.doesNotMatch(musicStyles.content, /\.hero \{ display: grid/u);
 
+  const authenticationRequest = "Create an authentication page for Sprite with secure sign in, password visibility, and a product-research context card.";
+  const authenticationPlan = createLocalStaticFallbackPlan(authenticationRequest);
+  const authenticationBuilder = authenticationPlan.requirements.find((candidate) => !isReviewRole(candidate.specialistRole));
+  assert.ok(authenticationBuilder);
+  const authentication = createLocalStaticFallbackProposal({ request: authenticationRequest, requirement: authenticationBuilder, iteration: 1 });
+  const authenticationIndex = authentication.files[0];
+  const authenticationStyles = authentication.files[1];
+  const authenticationScript = authentication.files[2];
+  assert.ok(authenticationIndex);
+  assert.ok(authenticationStyles);
+  assert.ok(authenticationScript);
+  assert.match(authenticationIndex.content, /data-template="account"/u);
+  assert.match(authenticationIndex.content, /Product research/u);
+  assert.match(authenticationIndex.content, /Sprite is positioned by The Coca-Cola Company/u);
+  assert.match(authenticationStyles.content, /\.auth-shell/u);
+  assert.match(authenticationScript.content, /data-auth-form/u);
+  assert.doesNotMatch(authenticationIndex.content, /The edit/u);
+
   const reviewRequirement = plan.requirements.find((candidate) => candidate.specialistRole === "accessibility reviewer");
   assert.ok(reviewRequirement);
   const review = createLocalStaticFallbackReviewProposal({
