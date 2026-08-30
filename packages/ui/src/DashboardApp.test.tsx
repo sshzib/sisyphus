@@ -321,6 +321,9 @@ describe("DashboardApp workspace flow", () => {
     expect(
       screen.getByText("The visual regression audit completed successfully."),
     ).toBeInTheDocument();
+    expect(
+      screen.getByText("The frontend specialist started the creator signup implementation."),
+    ).toBeInTheDocument();
 
     await user.type(screen.getByRole("textbox", { name: "Search live logs" }), "visual regression");
     expect(

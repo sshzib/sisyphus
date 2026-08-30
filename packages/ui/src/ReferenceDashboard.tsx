@@ -5,6 +5,7 @@ import type {
   DashboardSnapshot,
   EngineeringAgentSummary,
   EngineeringExecutionBackend,
+  EngineeringEventSummary,
   EngineeringModelTier,
   EngineeringOperationSummary,
   LiveAgentSummary,
@@ -413,11 +414,36 @@ function workspaceAgents(snapshot: DashboardSnapshot | undefined, operation: Eng
 }
 
 function workspaceLogs(snapshot: DashboardSnapshot | undefined): readonly WorkspaceLog[] {
-  return (snapshot?.audit ?? []).map((event) => auditLog(event)).sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
+  const operationNames = new Map(
+    (snapshot?.engineering.operations ?? []).map((operation) => [operation.id, operation.requestSummary]),
+  );
+  const logs = [
+    ...(snapshot?.audit ?? []).map((event) => auditLog(event)),
+    ...(snapshot?.engineering.events ?? []).map((event) => engineeringLog(event, operationNames.get(event.taskId))),
+  ];
+  return logs.sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
 }
 
 function auditLog(event: AuditEvent): WorkspaceLog {
   return { id: event.id, occurredAt: event.occurredAt, label: titleCase(event.action.replaceAll(".", " ")), summary: event.summary, task: event.actor, trace: event.id, tone: event.action === "skill.quarantined" || event.action === "integration.degraded" ? "attention" : event.action === "retry.issued" ? "working" : "completed" };
+}
+
+function engineeringLog(event: EngineeringEventSummary, task: string | undefined): WorkspaceLog {
+  return {
+    id: `engineering-${event.id}`,
+    occurredAt: event.occurredAt,
+    label: titleCase(event.type.replaceAll("_", " ")),
+    summary: event.summary,
+    task: task ?? "Engineering task",
+    trace: event.payloadDigest,
+    tone: engineeringEventTone(event.type),
+  };
+}
+
+function engineeringEventTone(type: string): WorkspaceLog["tone"] {
+  if (/(?:FAILED|BLOCKED|QUARANTINED|EXHAUSTED)/u.test(type)) return "attention";
+  if (/(?:STARTED|ASSIGNED|RUNNING|REASSIGNED|RETRY)/u.test(type)) return "working";
+  return "completed";
 }
 
 function recentProjectNames(operations: readonly EngineeringOperationSummary[]): readonly string[] {
