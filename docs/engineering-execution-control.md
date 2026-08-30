@@ -6,6 +6,8 @@ This control is tenant-scoped and uses a monotonically increasing generation num
 
 The dashboard exposes the state to all workspace members, but only tenant administrators can start or stop execution. Stopping a build requests cancellation; work already accepted by an external provider cannot be retroactively recalled. The interface reports this as a stop request rather than claiming instant termination.
 
+Before starting execution, an administrator can choose **AWS sandbox** or **Local static fallback**. The selection is part of the tenant execution state and travels with each new lease. The AWS option submits work to the configured CodeBuild project. The local fallback serves and checks only safety-approved static sites on loopback. It never runs generated commands or package scripts on the host. Stop execution before changing the selection.
+
 The initial implementation is intentionally process-local because engineering tasks are already held in the in-memory task store. It fails closed after an API restart. Before running more than one API instance or requiring restart durability, move the execution state, task lease, and generation fence into one transactional database record.
 
 ## Design decision
