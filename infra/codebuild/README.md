@@ -16,9 +16,10 @@ checks, writes structured results, and tears the server down.
 
 Use two distinct least-privilege identities:
 
-- **Orchestrator identity**: `codebuild:StartBuild` and
-  `codebuild:BatchGetBuilds` for this one project; `s3:PutObject` below
-  `engineering/input/`; `s3:GetObject` below `engineering/results/`.
+- **Orchestrator identity**: `codebuild:StartBuild`,
+  `codebuild:BatchGetBuilds`, and `codebuild:StopBuild` for this one project;
+  `s3:PutObject` below `engineering/input/`; `s3:GetObject` below
+  `engineering/results/`.
 - **CodeBuild service role**: `s3:GetObject` below `engineering/input/` and
   `s3:PutObject` below `engineering/results/`, plus its own scoped CloudWatch
   Logs permissions.
